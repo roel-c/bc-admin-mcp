@@ -1,0 +1,495 @@
+package catalog
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
+	"github.com/roel-c/bc-admin-mcp/internal/discovery"
+	"github.com/roel-c/bc-admin-mcp/internal/middleware"
+	"github.com/roel-c/bc-admin-mcp/internal/session"
+	"github.com/mark3labs/mcp-go/mcp"
+)
+
+// BrandSearchFilters maps tool parameters to BigCommerce brand list query keys.
+var BrandSearchFilters = []SearchFilter{
+	{"name", "name", "string"},
+	{"name_like", "name:like", "string"},
+	{"keyword", "keyword", "string"},
+	{"page_title", "page_title", "string"},
+	{"page_title_like", "page_title:like", "string"},
+	{"id", "id", "number"},
+	{"sort", "sort", "string"},
+	{"sort_direction", "direction", "string"},
+}
+
+var brandNonFilterKeys = map[string]bool{
+	"sort": true, "sort_direction": true,
+}
+
+var validBrandSortFields = map[string]bool{
+	"id": true, "name": true, "date_modified": true,
+}
+
+// Brands provides MCP tool handlers for catalog brand operations.
+type Brands struct {
+	bc    BigCommerceAPI
+	cache *session.Store
+}
+
+// NewBrands constructs brand tool handlers.
+func NewBrands(bc BigCommerceAPI, cache *session.Store) *Brands {
+	return &Brands{bc: bc, cache: cache}
+}
+
+// RegisterTools registers brand list/get/create/update tools.
+func (b *Brands) RegisterTools(reg *discovery.Registry) {
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "catalog/brands/list",
+		Tier:    middleware.TierR0,
+		Summary: "List or search brands by name, keyword, page title, or ID",
+		Description: "Fetches brands from GET /v3/catalog/brands. Provide at least one filter " +
+			"or set list_all=true to return every brand.",
+		Tool: mcp.NewTool("catalog_brands_list",
+			mcp.WithDescription(
+				"List or search brands. Pass list_all=true for every brand, "+
+					"or filters such as name, name_like, keyword, page_title, or id.",
+			),
+			mcp.WithBoolean("list_all",
+				mcp.Description("Set to true to return all brands in the store."),
+			),
+			mcp.WithString("name",
+				mcp.Description("Exact brand name match."),
+			),
+			mcp.WithString("name_like",
+				mcp.Description("Partial name match (SQL LIKE)."),
+			),
+			mcp.WithString("keyword",
+				mcp.Description("Keyword search across brand fields."),
+			),
+			mcp.WithString("page_title",
+				mcp.Description("Exact SEO page title match."),
+			),
+			mcp.WithString("page_title_like",
+				mcp.Description("Partial page title match (SQL LIKE)."),
+			),
+			mcp.WithNumber("id",
+				mcp.Description("Filter by brand ID."),
+			),
+			mcp.WithString("sort",
+				mcp.Description("Sort field: id, name, or date_modified (default: id)."),
+			),
+			mcp.WithString("sort_direction",
+				mcp.Description("Sort direction: asc or desc."),
+			),
+		),
+		Handler: b.handleList,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:        "catalog/brands/get",
+		Tier:        middleware.TierR0,
+		Summary:     "Get a single brand by ID",
+		Description: "Fetches one brand via GET /v3/catalog/brands/{id} including SEO and image URL.",
+		Tool: mcp.NewTool("catalog_brands_get",
+			mcp.WithDescription("Get brand details by numeric brand_id."),
+			mcp.WithNumber("brand_id", mcp.Description("Brand ID"), mcp.Required()),
+		),
+		Handler: b.handleGet,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "catalog/brands/create",
+		Tier:    middleware.TierR1,
+		Summary: "Create a new catalog brand",
+		Description: "POST /v3/catalog/brands. Requires name; optional SEO fields, image URL, layout file, " +
+			"and custom URL path. Returns a preview first; pass confirmed=true to create.",
+		Tool: mcp.NewTool("catalog_brands_create",
+			mcp.WithDescription(
+				"Create a brand. Provide name (required). Preview first; pass confirmed=true to execute.",
+			),
+			mcp.WithString("name", mcp.Description("Brand name (required)."), mcp.Required()),
+			mcp.WithString("page_title", mcp.Description("SEO page title.")),
+			mcp.WithString("meta_description", mcp.Description("SEO meta description.")),
+			mcp.WithString("search_keywords", mcp.Description("Comma-separated search keywords.")),
+			mcp.WithString("image_url", mcp.Description("Brand logo or image URL.")),
+			mcp.WithString("layout_file", mcp.Description("Stencil layout file name.")),
+			mcp.WithString("custom_url",
+				mcp.Description("Storefront URL path for the brand (maps to custom_url)."),
+			),
+			mcp.WithBoolean("confirmed",
+				mcp.Description("Set to true to execute after reviewing the preview."),
+			),
+		),
+		Handler: b.handleCreate,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "catalog/brands/update",
+		Tier:    middleware.TierR1,
+		Summary: "Update an existing brand",
+		Description: "PUT /v3/catalog/brands/{id}. Only supplied fields are changed. " +
+			"Preview first; pass confirmed=true to apply.",
+		Tool: mcp.NewTool("catalog_brands_update",
+			mcp.WithDescription(
+				"Update a brand by brand_id. Include any fields to change. Preview first; pass confirmed=true.",
+			),
+			mcp.WithNumber("brand_id", mcp.Description("Brand ID to update."), mcp.Required()),
+			mcp.WithString("name", mcp.Description("New brand name.")),
+			mcp.WithString("page_title", mcp.Description("New SEO page title.")),
+			mcp.WithString("meta_description", mcp.Description("New SEO meta description.")),
+			mcp.WithString("search_keywords", mcp.Description("New search keywords.")),
+			mcp.WithString("image_url", mcp.Description("New image URL.")),
+			mcp.WithString("layout_file", mcp.Description("New layout file name.")),
+			mcp.WithString("custom_url",
+				mcp.Description("New storefront URL path (maps to custom_url)."),
+			),
+			mcp.WithBoolean("confirmed",
+				mcp.Description("Set to true to execute after reviewing the preview."),
+			),
+		),
+		Handler: b.handleUpdate,
+	})
+
+	b.registerBrandMetafieldTools(reg)
+}
+
+func (b *Brands) handleList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+
+	listAll := ReadListAllBoolean(args, "list_all")
+
+	params, err := ExtractFilters(args, BrandSearchFilters)
+	if err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+
+	hasDataFilter := HasDataFilterBCParams(params, BrandSearchFilters, brandNonFilterKeys)
+
+	if !hasDataFilter && !listAll {
+		return toolError(
+			"provide at least one filter (name, name_like, keyword, page_title, page_title_like, id) " +
+				"or set list_all=true to return every brand.",
+		), nil
+	}
+
+	if err := ErrInvalidBCSort(params, validBrandSortFields, "valid options: id, name, date_modified"); err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+
+	brands, err := b.bc.SearchBrands(ctx, params)
+	if err != nil {
+		return toolError("failed to search brands: %v", err), nil
+	}
+
+	type brandSummary struct {
+		ID              int    `json:"id"`
+		Name            string `json:"name"`
+		PageTitle       string `json:"page_title,omitempty"`
+		MetaDescription string `json:"meta_description,omitempty"`
+		ImageURL        string `json:"image_url,omitempty"`
+	}
+
+	summaries := make([]brandSummary, len(brands))
+	for i, br := range brands {
+		summaries[i] = brandSummary{
+			ID:              br.ID,
+			Name:            br.Name,
+			PageTitle:       br.PageTitle,
+			MetaDescription: br.MetaDescription,
+			ImageURL:        br.ImageURL,
+		}
+	}
+
+	return toolJSON(map[string]any{
+		"total":  len(brands),
+		"brands": summaries,
+	})
+}
+
+func (b *Brands) handleGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	raw, ok := args["brand_id"]
+	if !ok {
+		return toolError("brand_id is required"), nil
+	}
+	f, ok := raw.(float64)
+	if !ok {
+		return toolError("brand_id must be a number"), nil
+	}
+	id := int(f)
+
+	brand, err := b.bc.GetBrand(ctx, id)
+	if err != nil {
+		return toolError("failed to get brand %d: %v", id, err), nil
+	}
+	return toolJSON(brand)
+}
+
+func (b *Brands) handleCreate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	params, err := ParseBrandCreateParams(args)
+	if err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+
+	if params.Confirmed {
+		created, err := b.bc.CreateBrand(ctx, params.Payload)
+		if err != nil {
+			return toolError("failed to create brand: %v", err), nil
+		}
+		return toolJSON(map[string]any{
+			"status":  "created",
+			"message": fmt.Sprintf("Brand %q created successfully with ID %d.", created.Name, created.ID),
+			"brand": map[string]any{
+				"id":   created.ID,
+				"name": created.Name,
+			},
+		})
+	}
+
+	return b.previewBrandCreate(params)
+}
+
+func (b *Brands) previewBrandCreate(params *BrandCreateParams) (*mcp.CallToolResult, error) {
+	m := map[string]any{
+		"name": params.Payload.Name,
+	}
+	if params.Payload.PageTitle != "" {
+		m["page_title"] = params.Payload.PageTitle
+	}
+	if params.Payload.MetaDescription != "" {
+		m["meta_description"] = params.Payload.MetaDescription
+	}
+	if params.Payload.SearchKeywords != "" {
+		m["search_keywords"] = params.Payload.SearchKeywords
+	}
+	if params.Payload.ImageURL != "" {
+		m["image_url"] = params.Payload.ImageURL
+	}
+	if params.Payload.LayoutFile != "" {
+		m["layout_file"] = params.Payload.LayoutFile
+	}
+	if params.Payload.CustomURL != nil {
+		m["custom_url"] = params.Payload.CustomURL.GetPath()
+	}
+
+	return toolJSON(map[string]any{
+		"status":  "preview",
+		"message": "Review the brand below. Pass confirmed=true with the same parameters to create it.",
+		"brand":  m,
+	})
+}
+
+func (b *Brands) handleUpdate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	params, err := ParseBrandUpdateParams(args)
+	if err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+
+	if !params.hasFields() {
+		return toolError("provide at least one field to update (name, page_title, meta_description, search_keywords, image_url, layout_file, custom_url)"), nil
+	}
+
+	if params.Confirmed {
+		updated, err := b.bc.UpdateBrand(ctx, params.BrandID, params.Update)
+		if err != nil {
+			return toolError("failed to update brand %d: %v", params.BrandID, err), nil
+		}
+		return toolJSON(map[string]any{
+			"status":  "updated",
+			"message": fmt.Sprintf("Brand %d updated successfully.", params.BrandID),
+			"brand": map[string]any{
+				"id":   updated.ID,
+				"name": updated.Name,
+			},
+		})
+	}
+
+	return b.previewBrandUpdate(params)
+}
+
+func (b *Brands) previewBrandUpdate(params *BrandUpdateParams) (*mcp.CallToolResult, error) {
+	changes := map[string]any{"brand_id": params.BrandID}
+	if params.Update.Name != nil {
+		changes["name"] = *params.Update.Name
+	}
+	if params.Update.PageTitle != nil {
+		changes["page_title"] = *params.Update.PageTitle
+	}
+	if params.Update.MetaDescription != nil {
+		changes["meta_description"] = *params.Update.MetaDescription
+	}
+	if params.Update.SearchKeywords != nil {
+		changes["search_keywords"] = *params.Update.SearchKeywords
+	}
+	if params.Update.ImageURL != nil {
+		changes["image_url"] = *params.Update.ImageURL
+	}
+	if params.Update.LayoutFile != nil {
+		changes["layout_file"] = *params.Update.LayoutFile
+	}
+	if params.Update.CustomURL != nil {
+		changes["custom_url"] = params.Update.CustomURL.GetPath()
+	}
+
+	return toolJSON(map[string]any{
+		"status":   "preview",
+		"message":  fmt.Sprintf("Review changes for brand %d. Pass confirmed=true to apply.", params.BrandID),
+		"changes": changes,
+	})
+}
+
+// BrandCreateParams holds parsed create-brand arguments.
+type BrandCreateParams struct {
+	Payload   bigcommerce.BrandCreate
+	Confirmed bool
+}
+
+// ParseBrandCreateParams parses catalog_brands_create arguments.
+func ParseBrandCreateParams(args map[string]any) (*BrandCreateParams, error) {
+	p := &BrandCreateParams{}
+
+	nameRaw, ok := args["name"]
+	if !ok {
+		return nil, fmt.Errorf("name is required")
+	}
+	name, ok := nameRaw.(string)
+	if !ok || name == "" {
+		return nil, fmt.Errorf("name must be a non-empty string")
+	}
+	p.Payload.Name = name
+
+	if v, ok := args["page_title"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("page_title must be a string")
+		}
+		p.Payload.PageTitle = s
+	}
+	if v, ok := args["meta_description"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("meta_description must be a string")
+		}
+		p.Payload.MetaDescription = s
+	}
+	if v, ok := args["search_keywords"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("search_keywords must be a string")
+		}
+		p.Payload.SearchKeywords = s
+	}
+	if v, ok := args["image_url"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("image_url must be a string")
+		}
+		p.Payload.ImageURL = s
+	}
+	if v, ok := args["layout_file"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("layout_file must be a string")
+		}
+		p.Payload.LayoutFile = s
+	}
+	if v, ok := args["custom_url"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("custom_url must be a string")
+		}
+		if s != "" {
+			p.Payload.CustomURL = &bigcommerce.CustomURL{URL: s}
+		}
+	}
+
+	p.Confirmed = middleware.IsConfirmedFromArgs(args)
+	return p, nil
+}
+
+// BrandUpdateParams holds parsed update-brand arguments.
+type BrandUpdateParams struct {
+	BrandID   int
+	Update    bigcommerce.BrandUpdate
+	Confirmed bool
+}
+
+func (p *BrandUpdateParams) hasFields() bool {
+	u := p.Update
+	return u.Name != nil || u.PageTitle != nil || u.MetaDescription != nil ||
+		u.SearchKeywords != nil || u.ImageURL != nil || u.LayoutFile != nil || u.CustomURL != nil
+}
+
+// ParseBrandUpdateParams parses catalog_brands_update arguments.
+func ParseBrandUpdateParams(args map[string]any) (*BrandUpdateParams, error) {
+	p := &BrandUpdateParams{}
+
+	idRaw, ok := args["brand_id"]
+	if !ok {
+		return nil, fmt.Errorf("brand_id is required")
+	}
+	f, ok := idRaw.(float64)
+	if !ok {
+		return nil, fmt.Errorf("brand_id must be a number")
+	}
+	p.BrandID = int(f)
+	if p.BrandID <= 0 {
+		return nil, fmt.Errorf("brand_id must be positive")
+	}
+
+	if v, ok := args["name"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("name must be a string")
+		}
+		p.Update.Name = &s
+	}
+	if v, ok := args["page_title"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("page_title must be a string")
+		}
+		p.Update.PageTitle = &s
+	}
+	if v, ok := args["meta_description"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("meta_description must be a string")
+		}
+		p.Update.MetaDescription = &s
+	}
+	if v, ok := args["search_keywords"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("search_keywords must be a string")
+		}
+		p.Update.SearchKeywords = &s
+	}
+	if v, ok := args["image_url"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("image_url must be a string")
+		}
+		p.Update.ImageURL = &s
+	}
+	if v, ok := args["layout_file"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("layout_file must be a string")
+		}
+		p.Update.LayoutFile = &s
+	}
+	if v, ok := args["custom_url"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("custom_url must be a string")
+		}
+		p.Update.CustomURL = &bigcommerce.CustomURL{URL: s}
+	}
+
+	p.Confirmed = middleware.IsConfirmedFromArgs(args)
+	return p, nil
+}

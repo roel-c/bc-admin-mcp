@@ -27,6 +27,8 @@ type BigCommerceAPI interface {
 	// Variants (batch)
 	ListVariantsForProduct(ctx context.Context, productID int) ([]bigcommerce.Variant, error)
 	ListVariantsByProductIDs(ctx context.Context, productIDs []int) ([]bigcommerce.Variant, error)
+	SearchVariants(ctx context.Context, params map[string]string) ([]bigcommerce.Variant, error)
+	BatchUpdateVariants(ctx context.Context, updates []bigcommerce.CatalogVariantUpdate) (*bigcommerce.BatchResult, error)
 
 	// Variants (single CRUD)
 	GetVariant(ctx context.Context, productID, variantID int) (*bigcommerce.ProductVariantFull, error)
@@ -71,7 +73,47 @@ type BigCommerceAPI interface {
 	UpdateCategoryMetafield(ctx context.Context, categoryID, metafieldID int, mf bigcommerce.Metafield) (*bigcommerce.Metafield, error)
 	DeleteCategoryMetafield(ctx context.Context, categoryID, metafieldID int) error
 
+	// Product metafields
+	ListProductMetafields(ctx context.Context, productID int) ([]bigcommerce.Metafield, error)
+	CreateProductMetafield(ctx context.Context, productID int, mf bigcommerce.Metafield) (*bigcommerce.Metafield, error)
+	UpdateProductMetafield(ctx context.Context, productID, metafieldID int, mf bigcommerce.Metafield) (*bigcommerce.Metafield, error)
+	DeleteProductMetafield(ctx context.Context, productID, metafieldID int) error
+
+	// Variant metafields (scoped under product + variant)
+	ListVariantMetafields(ctx context.Context, productID, variantID int) ([]bigcommerce.Metafield, error)
+	CreateVariantMetafield(ctx context.Context, productID, variantID int, mf bigcommerce.Metafield) (*bigcommerce.Metafield, error)
+	UpdateVariantMetafield(ctx context.Context, productID, variantID, metafieldID int, mf bigcommerce.Metafield) (*bigcommerce.Metafield, error)
+	DeleteVariantMetafield(ctx context.Context, productID, variantID, metafieldID int) error
+
 	// Category assignments
 	UpsertCategoryAssignments(ctx context.Context, assignments []bigcommerce.CategoryAssignment) error
 	DeleteCategoryAssignments(ctx context.Context, productID, categoryID int) error
+	DeleteCategoryAssignmentsByFilter(ctx context.Context, productIDs, categoryIDs []int) error
+
+	// Channels (storefronts / MSF awareness)
+	ListStoreChannels(ctx context.Context, params map[string]string) ([]bigcommerce.StoreChannel, error)
+	ListCategoryTrees(ctx context.Context, params map[string]string) ([]bigcommerce.CategoryTree, error)
+	GetTreeIDForChannel(ctx context.Context, channelID int) (int, error)
+
+	// Channel listings (per-channel product listing state / overrides)
+	ListChannelListings(ctx context.Context, channelID int, query map[string]string) ([]bigcommerce.ChannelListing, error)
+	CreateChannelListings(ctx context.Context, channelID int, body any) ([]byte, error)
+	UpdateChannelListings(ctx context.Context, channelID int, body any) ([]byte, error)
+
+	// Product channel assignments (MSF catalog)
+	ListProductChannelAssignments(ctx context.Context, params map[string]string) ([]bigcommerce.ProductChannelAssignment, error)
+	UpsertProductChannelAssignments(ctx context.Context, assignments []bigcommerce.ProductChannelAssignment) error
+	DeleteProductChannelAssignments(ctx context.Context, productIDs, channelIDs []int) error
+
+	// Brands
+	SearchBrands(ctx context.Context, params map[string]string) ([]bigcommerce.Brand, error)
+	GetBrand(ctx context.Context, brandID int) (*bigcommerce.Brand, error)
+	CreateBrand(ctx context.Context, input bigcommerce.BrandCreate) (*bigcommerce.Brand, error)
+	UpdateBrand(ctx context.Context, brandID int, input bigcommerce.BrandUpdate) (*bigcommerce.Brand, error)
+
+	// Brand metafields
+	ListBrandMetafields(ctx context.Context, brandID int) ([]bigcommerce.Metafield, error)
+	CreateBrandMetafield(ctx context.Context, brandID int, mf bigcommerce.Metafield) (*bigcommerce.Metafield, error)
+	UpdateBrandMetafield(ctx context.Context, brandID, metafieldID int, mf bigcommerce.Metafield) (*bigcommerce.Metafield, error)
+	DeleteBrandMetafield(ctx context.Context, brandID, metafieldID int) error
 }

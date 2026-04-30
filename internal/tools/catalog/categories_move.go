@@ -90,7 +90,7 @@ func isDescendantRecursive(ctx context.Context, bc BigCommerceAPI, targetID, cur
 		return false, fmt.Errorf("category tree depth exceeded 10 levels during cycle check")
 	}
 	children, err := bc.SearchCategories(ctx, map[string]string{
-		"parent_id": fmt.Sprintf("%d", currentID),
+		"parent_id:in": fmt.Sprintf("%d", currentID),
 	})
 	if err != nil {
 		return false, fmt.Errorf("failed to check children of category %d: %w", currentID, err)
@@ -112,7 +112,7 @@ func isDescendantRecursive(ctx context.Context, bc BigCommerceAPI, targetID, cur
 
 func countDescendants(ctx context.Context, bc BigCommerceAPI, categoryID int) (int, error) {
 	children, err := bc.SearchCategories(ctx, map[string]string{
-		"parent_id": fmt.Sprintf("%d", categoryID),
+		"parent_id:in": fmt.Sprintf("%d", categoryID),
 	})
 	if err != nil {
 		return 0, err

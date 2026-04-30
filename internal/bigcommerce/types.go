@@ -3,12 +3,18 @@ package bigcommerce
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
 )
 
 // APIError represents a non-retryable BigCommerce API error (4xx).
+// Path / Method are populated by the client when available so that the
+// error message can include scope hints relevant to the failing endpoint.
 type APIError struct {
 	StatusCode int
 	Body       []byte
+	Path       string // e.g. "catalog/products/channel-assignments"
+	Method     string // GET / PUT / POST / DELETE
 }
 
 func (e *APIError) Error() string {
@@ -16,13 +22,79 @@ func (e *APIError) Error() string {
 	if len(body) > 500 {
 		body = body[:500] + "... (truncated)"
 	}
+	hint := scopeHint(e.StatusCode, e.Method, e.Path)
+	if hint != "" {
+		return fmt.Sprintf("BigCommerce API error %d on %s %s: %s | hint: %s", e.StatusCode, e.Method, e.Path, body, hint)
+	}
 	return fmt.Sprintf("BigCommerce API error %d: %s", e.StatusCode, body)
 }
 
 // SafeError returns a message suitable for returning to external callers
 // (LLM / end-user) without leaking internal response details.
 func (e *APIError) SafeError() string {
+	hint := scopeHint(e.StatusCode, e.Method, e.Path)
+	if hint != "" {
+		return fmt.Sprintf("BigCommerce API returned status %d (%s)", e.StatusCode, hint)
+	}
 	return fmt.Sprintf("BigCommerce API returned status %d", e.StatusCode)
+}
+
+// scopeHint returns a short OAuth-scope or routing hint for common 4xx errors.
+// Hints are derived from BigCommerce's documented scopes per endpoint family.
+// Returns "" when the path/status combination has no actionable hint.
+func scopeHint(status int, method, path string) string {
+	if path == "" {
+		return ""
+	}
+	p := strings.TrimPrefix(path, "/")
+	read := method == "" || method == http.MethodGet
+	switch {
+	case status == http.StatusUnauthorized:
+		return "401 — the X-Auth-Token is missing, invalid, or revoked. Re-issue an API account token."
+	case status == http.StatusForbidden:
+		return forbiddenScopeHint(p, read)
+	case status == http.StatusNotFound && strings.HasPrefix(p, "channels/") && strings.Contains(p, "/listings"):
+		return "404 — the channel_id may not exist, or the store has no listings on this channel. Verify with catalog/channels/list."
+	case status == http.StatusNotFound && strings.HasPrefix(p, "catalog/trees"):
+		return "404 — tree not found. Verify with catalog/channels/category_trees (and the channel's tree_id)."
+	}
+	return ""
+}
+
+func forbiddenScopeHint(path string, read bool) string {
+	switch {
+	case strings.HasPrefix(path, "channels") && strings.Contains(path, "/listings"):
+		if read {
+			return "403 — token likely missing 'store_channel_listings_read_only' (or 'store_channel_listings'). Update the API account scope."
+		}
+		return "403 — write requires 'store_channel_listings'. Update the API account scope."
+	case path == "channels" || strings.HasPrefix(path, "channels"):
+		if read {
+			return "403 — token likely missing 'store_channel_settings_read_only' (or 'store_channel_settings'). Update the API account scope."
+		}
+		return "403 — write requires 'store_channel_settings'. Update the API account scope."
+	case strings.HasPrefix(path, "catalog/products/channel-assignments"):
+		if read {
+			return "403 — token likely missing 'store_v2_products_read_only' (or 'store_v2_products'). Update the API account scope."
+		}
+		return "403 — write requires 'store_v2_products'. Update the API account scope."
+	case strings.HasPrefix(path, "catalog/products") || strings.HasPrefix(path, "catalog/categories") || strings.HasPrefix(path, "catalog/brands") || strings.HasPrefix(path, "catalog/trees") || strings.HasPrefix(path, "catalog/variants"):
+		if read {
+			return "403 — token likely missing 'store_v2_products_read_only' (or 'store_v2_products'). Update the API account scope."
+		}
+		return "403 — write requires 'store_v2_products'. Update the API account scope."
+	case strings.HasPrefix(path, "orders"):
+		if read {
+			return "403 — token likely missing 'store_v2_orders_read_only' (or 'store_v2_orders')."
+		}
+		return "403 — write requires 'store_v2_orders'."
+	case strings.HasPrefix(path, "customers"):
+		if read {
+			return "403 — token likely missing 'store_v2_customers_read_only' (or 'store_v2_customers')."
+		}
+		return "403 — write requires 'store_v2_customers'."
+	}
+	return "403 — the API token is missing the OAuth scope required for this endpoint."
 }
 
 // PaginatedResponse wraps the standard BC V3 paginated envelope.
@@ -361,6 +433,13 @@ type ProductVariantCreate struct {
 	OptionValues          []VariantOptionVal `json:"option_values"`
 }
 
+// CatalogVariantUpdate is one element of the JSON body for batch
+// PUT /v3/catalog/variants (global variant update). ID is required per row.
+type CatalogVariantUpdate struct {
+	ID int `json:"id"`
+	ProductVariantUpdate
+}
+
 // ProductVariantUpdate is the payload for PUT /v3/catalog/products/{id}/variants/{vid}.
 type ProductVariantUpdate struct {
 	SKU                   *string  `json:"sku,omitempty"`
@@ -559,6 +638,41 @@ func (c *Category) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// Brand represents a BigCommerce catalog brand (GET /v3/catalog/brands).
+type Brand struct {
+	ID              int        `json:"id"`
+	Name            string     `json:"name"`
+	PageTitle       string     `json:"page_title,omitempty"`
+	MetaDescription string     `json:"meta_description,omitempty"`
+	SearchKeywords  string     `json:"search_keywords,omitempty"`
+	ImageURL        string     `json:"image_url,omitempty"`
+	CustomURL       *CustomURL `json:"custom_url,omitempty"`
+	LayoutFile      string     `json:"layout_file,omitempty"`
+}
+
+// BrandCreate is the payload for POST /v3/catalog/brands.
+type BrandCreate struct {
+	Name            string     `json:"name"`
+	PageTitle       string     `json:"page_title,omitempty"`
+	MetaDescription string     `json:"meta_description,omitempty"`
+	SearchKeywords  string     `json:"search_keywords,omitempty"`
+	ImageURL        string     `json:"image_url,omitempty"`
+	CustomURL       *CustomURL `json:"custom_url,omitempty"`
+	LayoutFile      string     `json:"layout_file,omitempty"`
+}
+
+// BrandUpdate is the payload for PUT /v3/catalog/brands/{id}.
+// Pointer fields distinguish omitted fields from explicit clears where supported.
+type BrandUpdate struct {
+	Name            *string    `json:"name,omitempty"`
+	PageTitle       *string    `json:"page_title,omitempty"`
+	MetaDescription *string    `json:"meta_description,omitempty"`
+	SearchKeywords  *string    `json:"search_keywords,omitempty"`
+	ImageURL        *string    `json:"image_url,omitempty"`
+	CustomURL       *CustomURL `json:"custom_url,omitempty"`
+	LayoutFile      *string    `json:"layout_file,omitempty"`
+}
+
 // Metafield represents a custom key-value pair on a catalog resource (product,
 // category, brand, variant). The same struct works for all resource types.
 type Metafield struct {
@@ -577,6 +691,13 @@ type Metafield struct {
 type CategoryAssignment struct {
 	ProductID  int `json:"product_id"`
 	CategoryID int `json:"category_id"`
+}
+
+// ProductChannelAssignment maps a product to a sales channel for
+// GET/PUT/DELETE /v3/catalog/products/channel-assignments.
+type ProductChannelAssignment struct {
+	ProductID int `json:"product_id"`
+	ChannelID int `json:"channel_id"`
 }
 
 // Order represents a BigCommerce order (V2 shape).

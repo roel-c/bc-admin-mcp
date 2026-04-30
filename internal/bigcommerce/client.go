@@ -10,11 +10,28 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/roel-c/bc-admin-mcp/internal/config"
 )
+
+// extractAPIPath returns the post-version path of a BigCommerce API URL.
+// e.g. "https://api.bigcommerce.com/stores/abc/v3/catalog/products?include=variants"
+// -> "catalog/products". Best-effort and tolerant of unknown shapes.
+func extractAPIPath(url string) string {
+	for _, marker := range []string{"/v3/", "/v2/"} {
+		if i := strings.Index(url, marker); i >= 0 {
+			tail := url[i+len(marker):]
+			if q := strings.IndexByte(tail, '?'); q >= 0 {
+				tail = tail[:q]
+			}
+			return tail
+		}
+	}
+	return ""
+}
 
 const (
 	baseURL = "https://api.bigcommerce.com/stores"
@@ -155,6 +172,8 @@ func (c *Client) Do(ctx context.Context, method, url string, body any) (*http.Re
 			return resp, respBody, &APIError{
 				StatusCode: resp.StatusCode,
 				Body:       respBody,
+				Path:       extractAPIPath(url),
+				Method:     method,
 			}
 		}
 	}

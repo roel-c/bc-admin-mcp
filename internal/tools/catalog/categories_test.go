@@ -63,12 +63,23 @@ func (s *CategoryFilterTableSuite) TestNameLikeFilterExists() {
 func (s *CategoryFilterTableSuite) TestParentIDFilterExists() {
 	found := false
 	for _, f := range catalog.CategorySearchFilters {
-		if f.ToolKey == "parent_id" && f.BCKey == "parent_id" && f.Kind == "number" {
+		if f.ToolKey == "parent_id" && f.BCKey == "parent_id:in" && f.Kind == "number" {
 			found = true
 			break
 		}
 	}
-	s.True(found, "parent_id filter must exist as a number type")
+	s.True(found, "parent_id must map to parent_id:in for GET /v3/catalog/trees/categories")
+}
+
+func (s *CategoryFilterTableSuite) TestTreeIDFilterMapsToTreeIDIn() {
+	found := false
+	for _, f := range catalog.CategorySearchFilters {
+		if f.ToolKey == "tree_id" && f.BCKey == "tree_id:in" && f.Kind == "number" {
+			found = true
+			break
+		}
+	}
+	s.True(found, "tree_id must map to tree_id:in for GET /v3/catalog/trees/categories")
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +105,14 @@ func (s *CategoryExtractFiltersSuite) TestParentIDExtraction() {
 	args := map[string]any{"parent_id": float64(0)}
 	params, err := catalog.ExtractFilters(args, catalog.CategorySearchFilters)
 	s.NoError(err)
-	s.Equal("0", params["parent_id"])
+	s.Equal("0", params["parent_id:in"])
+}
+
+func (s *CategoryExtractFiltersSuite) TestTreeIDExtraction() {
+	args := map[string]any{"tree_id": float64(5)}
+	params, err := catalog.ExtractFilters(args, catalog.CategorySearchFilters)
+	s.NoError(err)
+	s.Equal("5", params["tree_id:in"])
 }
 
 func (s *CategoryExtractFiltersSuite) TestIsVisibleExtraction() {
@@ -115,7 +133,7 @@ func (s *CategoryExtractFiltersSuite) TestMultipleCategoryFilters() {
 	s.Len(params, 3)
 	s.Equal("Sale", params["name:like"])
 	s.Equal("true", params["is_visible"])
-	s.Equal("10", params["parent_id"])
+	s.Equal("10", params["parent_id:in"])
 }
 
 func (s *CategoryExtractFiltersSuite) TestWrongTypeReturnsError() {

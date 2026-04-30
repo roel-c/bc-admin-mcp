@@ -10,9 +10,13 @@ import (
 )
 
 // ProductCreateParams holds parsed arguments for the product create tool.
+// ChannelIDs is an optional MSF additive side-effect: after the product is
+// created, a PUT to /v3/catalog/products/channel-assignments associates the
+// new product with each listed channel. Existing assignments are unaffected.
 type ProductCreateParams struct {
-	Payload   bigcommerce.ProductCreate
-	Confirmed bool
+	Payload    bigcommerce.ProductCreate
+	ChannelIDs []int
+	Confirmed  bool
 }
 
 func parseProductCreateParams(args map[string]any) (*ProductCreateParams, error) {
@@ -254,6 +258,17 @@ func parseProductCreateParams(args map[string]any) (*ProductCreateParams, error)
 		}
 	}
 
+	if v, ok := args["channel_ids"]; ok && v != nil {
+		ids, err := parseFloat64SliceToPositiveInts(v, "channel_ids")
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) > maxChannelAssignListChannels {
+			return nil, fmt.Errorf("channel_ids: maximum %d channels per call", maxChannelAssignListChannels)
+		}
+		p.ChannelIDs = ids
+	}
+
 	p.Confirmed = middleware.IsConfirmedFromArgs(args)
 	return p, nil
 }
@@ -279,6 +294,13 @@ func (p *Products) previewCreate(params *ProductCreateParams) (*mcp.CallToolResu
 			params.Payload.Name,
 		),
 	}
+	if len(params.ChannelIDs) > 0 {
+		preview["channel_assignments_preview"] = map[string]any{
+			"channel_ids": params.ChannelIDs,
+			"effect": "After successful creation, PUT /v3/catalog/products/channel-assignments " +
+				"will additively assign the new product to these channel IDs (existing assignments preserved).",
+		}
+	}
 	return toolJSON(preview)
 }
 
@@ -288,7 +310,7 @@ func (p *Products) executeCreate(ctx context.Context, params *ProductCreateParam
 		return toolError("create product failed: %v", err), nil
 	}
 
-	return toolJSON(map[string]any{
+	resp := map[string]any{
 		"status": "created",
 		"product": map[string]any{
 			"id":         product.ID,
@@ -298,5 +320,39 @@ func (p *Products) executeCreate(ctx context.Context, params *ProductCreateParam
 			"is_visible": product.IsVisible,
 		},
 		"message": fmt.Sprintf("Product %q created with ID %d.", product.Name, product.ID),
-	})
+	}
+
+	if len(params.ChannelIDs) > 0 {
+		assignments := make([]bigcommerce.ProductChannelAssignment, 0, len(params.ChannelIDs))
+		for _, cid := range params.ChannelIDs {
+			assignments = append(assignments, bigcommerce.ProductChannelAssignment{
+				ProductID: product.ID,
+				ChannelID: cid,
+			})
+		}
+		if err := p.bc.UpsertProductChannelAssignments(ctx, assignments); err != nil {
+			resp["status"] = "partial_success"
+			resp["channel_assignments"] = map[string]any{
+				"status":      "failed",
+				"channel_ids": params.ChannelIDs,
+				"error":       err.Error(),
+			}
+			resp["message"] = fmt.Sprintf(
+				"Product %q created (ID %d) but the additive channel assignment to %d channel(s) FAILED: %v. "+
+					"Re-run catalog/products/channel_assignments/assign for product_id=%d to retry.",
+				product.Name, product.ID, len(params.ChannelIDs), err, product.ID,
+			)
+			return toolJSON(resp)
+		}
+		resp["channel_assignments"] = map[string]any{
+			"status":      "completed",
+			"channel_ids": params.ChannelIDs,
+		}
+		resp["message"] = fmt.Sprintf(
+			"Product %q created with ID %d and additively assigned to %d channel(s).",
+			product.Name, product.ID, len(params.ChannelIDs),
+		)
+	}
+
+	return toolJSON(resp)
 }

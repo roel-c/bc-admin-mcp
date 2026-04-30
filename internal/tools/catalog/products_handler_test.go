@@ -100,6 +100,34 @@ func (s *ProductHandlerSuite) TestSearchRejectsSortOnly() {
 	s.True(result.IsError)
 }
 
+func (s *ProductHandlerSuite) TestSearchWithChannelIDsAppliesFilter() {
+	s.mockBC.EXPECT().SearchProducts(gomock.Any(), gomock.AssignableToTypeOf(map[string]string{})).
+		DoAndReturn(func(_ context.Context, params map[string]string) ([]bigcommerce.Product, error) {
+			s.Equal("1,3", params["channel_id:in"])
+			return []bigcommerce.Product{{ID: 5, Name: "Channel widget"}}, nil
+		})
+
+	result, err := s.callTool("catalog/products/search", map[string]any{
+		"channel_ids": []any{float64(1), float64(3)},
+	})
+	s.NoError(err)
+	s.False(result.IsError)
+	data := s.parseJSON(result)
+	s.Equal(float64(1), data["total_products"])
+}
+
+func (s *ProductHandlerSuite) TestSearchChannelIDsExceedingLimit() {
+	ids := make([]any, 0, 21)
+	for i := 1; i <= 21; i++ {
+		ids = append(ids, float64(i))
+	}
+	result, err := s.callTool("catalog/products/search", map[string]any{
+		"channel_ids": ids,
+	})
+	s.NoError(err)
+	s.True(result.IsError)
+}
+
 // --- Product Get Tests ---
 
 func (s *ProductHandlerSuite) TestGetReturnsProductWithVariants() {

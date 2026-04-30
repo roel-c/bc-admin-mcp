@@ -231,13 +231,14 @@ responses while preventing unbounded allocation.
 | `internal/session/cache.go` | Entry and session count limits with eviction |
 | `cmd/server/main.go` | Auth middleware wiring for HTTP/SSE |
 | `.gitignore` | **New** — prevents `.env` and binary from being committed |
-| `internal/tools/catalog/products_test.go` | **New** — 300 lines, search filter and parameter parsing tests |
-| `internal/tools/catalog/categories_test.go` | **New** — 406 lines, create/delete parameter parsing tests |
+| `internal/tools/catalog/products_test.go` | **New** — search filter and parameter parsing tests (handler-level coverage now also lives in `products_handler_test.go`, `products_create_expanded_test.go`, `products_update_test.go`, etc.) |
+| `internal/tools/catalog/categories_test.go` | **New** — create/delete parameter parsing tests (handler-level coverage now also lives in `categories_handler_test.go`, `categories_extended_handler_test.go`) |
 | `internal/session/cache_test.go` | **New** — cache TTL, eviction, size limit tests |
 | `internal/middleware/auth_test.go` | **New** — bearer auth middleware tests |
 | `internal/middleware/tiers_test.go` | **New** — tier enforcement tests |
 | `internal/config/config_test.go` | **New** — config validation tests |
 | `internal/discovery/registry_test.go` | **New** — registry confirmed-param validation tests |
+| `internal/server/registration_audit_test.go` | **New (post-audit)** — locks `discover_tools` shape: root = `catalog` only; every category has children; every tool's parent path exists |
 
 ---
 

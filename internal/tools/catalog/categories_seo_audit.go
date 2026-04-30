@@ -24,14 +24,14 @@ func (c *Categories) handleSEOAudit(ctx context.Context, request mcp.CallToolReq
 		if !fOk {
 			return toolError("parent_id must be a number"), nil
 		}
-		params["parent_id"] = fmt.Sprintf("%.0f", f)
+		params["parent_id:in"] = fmt.Sprintf("%.0f", f)
 	}
 	if v, ok := args["tree_id"]; ok {
 		f, fOk := v.(float64)
 		if !fOk {
 			return toolError("tree_id must be a number"), nil
 		}
-		params["tree_id"] = fmt.Sprintf("%.0f", f)
+		params["tree_id:in"] = fmt.Sprintf("%.0f", f)
 	}
 
 	cats, err := c.bc.SearchCategories(ctx, params)

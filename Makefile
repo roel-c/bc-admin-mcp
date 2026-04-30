@@ -1,10 +1,14 @@
-.PHONY: build run test vet lint clean
+.PHONY: build run run-http smoke-msf test vet lint clean
 
 BINARY := bc-mcp-server
 CMD    := ./cmd/server
 
 build:
 	go build -buildvcs=false -o $(BINARY) $(CMD)
+
+# Live Management API checks (channels, assignments, trees, listings). Requires .env with BC_* credentials.
+smoke-msf:
+	./scripts/smoke_msf_slice.sh
 
 run: build
 	@if [ -f .env ]; then set -a; . ./.env; set +a; fi && ./$(BINARY)

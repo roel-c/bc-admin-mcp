@@ -77,7 +77,7 @@ func (s *CategoryExtendedSuite) TestMovePreview() {
 	}, nil)
 	s.mockBC.EXPECT().SearchCategories(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, params map[string]string) ([]bigcommerce.Category, error) {
-			if pid, ok := params["parent_id"]; ok {
+			if pid, ok := params["parent_id:in"]; ok {
 				switch pid {
 				case "20":
 					return nil, nil
@@ -171,7 +171,7 @@ func (s *CategoryExtendedSuite) TestMoveByName() {
 					return []bigcommerce.Category{{ID: 20, Name: "Computers"}}, nil
 				}
 			}
-			if pid, ok := params["parent_id"]; ok {
+			if pid, ok := params["parent_id:in"]; ok {
 				switch pid {
 				case "20":
 					return nil, nil
@@ -210,7 +210,7 @@ func (s *CategoryExtendedSuite) TestReorderPreview() {
 		{ID: 2, Name: "Beta", ParentID: 10, SortOrder: 10},
 		{ID: 3, Name: "Gamma", ParentID: 10, SortOrder: 20},
 	}, nil)
-	s.mockBC.EXPECT().SearchCategories(gomock.Any(), map[string]string{"parent_id": "10"}).
+	s.mockBC.EXPECT().SearchCategories(gomock.Any(), map[string]string{"parent_id:in": "10"}).
 		Return([]bigcommerce.Category{
 			{ID: 1, Name: "Alpha", ParentID: 10, SortOrder: 0},
 			{ID: 2, Name: "Beta", ParentID: 10, SortOrder: 10},
@@ -238,7 +238,7 @@ func (s *CategoryExtendedSuite) TestReorderExecute() {
 		{ID: 1, Name: "Alpha", ParentID: 10, SortOrder: 0},
 		{ID: 2, Name: "Beta", ParentID: 10, SortOrder: 10},
 	}, nil)
-	s.mockBC.EXPECT().SearchCategories(gomock.Any(), map[string]string{"parent_id": "10"}).
+	s.mockBC.EXPECT().SearchCategories(gomock.Any(), map[string]string{"parent_id:in": "10"}).
 		Return([]bigcommerce.Category{
 			{ID: 1, Name: "Alpha", ParentID: 10},
 			{ID: 2, Name: "Beta", ParentID: 10},

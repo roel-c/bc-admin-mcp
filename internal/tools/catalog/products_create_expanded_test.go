@@ -3,6 +3,7 @@ package catalog_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -150,6 +151,83 @@ func (s *CreateExpandedSuite) TestCreateInvalidType() {
 	result, err := s.callTool("catalog/products/create", map[string]any{
 		"name": "Bad Type",
 		"type": "subscription",
+	})
+	s.NoError(err)
+	s.True(result.IsError)
+}
+
+func (s *CreateExpandedSuite) TestCreatePreviewIncludesChannelAssignments() {
+	result, err := s.callTool("catalog/products/create", map[string]any{
+		"name":        "MSF Product",
+		"weight":      float64(1.0),
+		"channel_ids": []any{float64(1), float64(3)},
+	})
+	s.NoError(err)
+	s.False(result.IsError)
+	data := s.parseJSON(result)
+	s.Equal("pending_confirmation", data["status"])
+	preview, ok := data["channel_assignments_preview"].(map[string]any)
+	s.Require().True(ok, "channel_assignments_preview missing")
+	chs := preview["channel_ids"].([]any)
+	s.Len(chs, 2)
+}
+
+func (s *CreateExpandedSuite) TestCreateConfirmedPerformsAdditiveAssignment() {
+	s.mockBC.EXPECT().CreateProduct(gomock.Any(), gomock.Any()).Return(&bigcommerce.Product{
+		ID: 11, Name: "Channel Product", SKU: "CP-1", Price: 9.99,
+	}, nil)
+	s.mockBC.EXPECT().
+		UpsertProductChannelAssignments(gomock.Any(), []bigcommerce.ProductChannelAssignment{
+			{ProductID: 11, ChannelID: 2},
+			{ProductID: 11, ChannelID: 3},
+		}).
+		Return(nil)
+
+	result, err := s.callTool("catalog/products/create", map[string]any{
+		"name":        "Channel Product",
+		"weight":      float64(1.0),
+		"channel_ids": []any{float64(2), float64(3)},
+		"confirmed":   true,
+	})
+	s.NoError(err)
+	s.False(result.IsError)
+	data := s.parseJSON(result)
+	s.Equal("created", data["status"])
+	ca := data["channel_assignments"].(map[string]any)
+	s.Equal("completed", ca["status"])
+}
+
+func (s *CreateExpandedSuite) TestCreatePartialSuccessOnAssignmentFailure() {
+	s.mockBC.EXPECT().CreateProduct(gomock.Any(), gomock.Any()).Return(&bigcommerce.Product{
+		ID: 12, Name: "Half Done", SKU: "HD-1",
+	}, nil)
+	s.mockBC.EXPECT().
+		UpsertProductChannelAssignments(gomock.Any(), gomock.Any()).
+		Return(fmt.Errorf("BigCommerce API error 422"))
+
+	result, err := s.callTool("catalog/products/create", map[string]any{
+		"name":        "Half Done",
+		"weight":      float64(1.0),
+		"channel_ids": []any{float64(1)},
+		"confirmed":   true,
+	})
+	s.NoError(err)
+	s.False(result.IsError)
+	data := s.parseJSON(result)
+	s.Equal("partial_success", data["status"])
+	ca := data["channel_assignments"].(map[string]any)
+	s.Equal("failed", ca["status"])
+}
+
+func (s *CreateExpandedSuite) TestCreateRejectsTooManyChannelIDs() {
+	ids := make([]any, 0, 21)
+	for i := 1; i <= 21; i++ {
+		ids = append(ids, float64(i))
+	}
+	result, err := s.callTool("catalog/products/create", map[string]any{
+		"name":        "Too Many",
+		"weight":      float64(1.0),
+		"channel_ids": ids,
 	})
 	s.NoError(err)
 	s.True(result.IsError)

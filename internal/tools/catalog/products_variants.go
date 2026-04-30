@@ -254,51 +254,7 @@ func (p *Products) handleVariantUpdate(ctx context.Context, request mcp.CallTool
 	}
 
 	payload := bigcommerce.ProductVariantUpdate{}
-	hasChange := false
-
-	if v, ok := args["sku"].(string); ok {
-		payload.SKU = &v
-		hasChange = true
-	}
-	setFloatChange(args, "price", &payload.Price, &hasChange)
-	setFloatChange(args, "cost_price", &payload.CostPrice, &hasChange)
-	setFloatChange(args, "sale_price", &payload.SalePrice, &hasChange)
-	setFloatChange(args, "retail_price", &payload.RetailPrice, &hasChange)
-	setFloatChange(args, "map_price", &payload.MapPrice, &hasChange)
-	setFloatChange(args, "weight", &payload.Weight, &hasChange)
-	setFloatChange(args, "width", &payload.Width, &hasChange)
-	setFloatChange(args, "height", &payload.Height, &hasChange)
-	setFloatChange(args, "depth", &payload.Depth, &hasChange)
-	setIntChange(args, "inventory_level", &payload.InventoryLevel, &hasChange)
-	setIntChange(args, "inventory_warning_level", &payload.InventoryWarningLevel, &hasChange)
-	if v, ok := args["bin_picking_number"].(string); ok {
-		payload.BinPickingNumber = &v
-		hasChange = true
-	}
-	if v, ok := args["upc"].(string); ok {
-		payload.UPC = &v
-		hasChange = true
-	}
-	if v, ok := args["gtin"].(string); ok {
-		payload.GTIN = &v
-		hasChange = true
-	}
-	if v, ok := args["mpn"].(string); ok {
-		payload.MPN = &v
-		hasChange = true
-	}
-	if v, ok := args["image_url"].(string); ok {
-		payload.ImageURL = &v
-		hasChange = true
-	}
-	if v, ok := args["purchasing_disabled"].(bool); ok {
-		payload.PurchasingDisabled = &v
-		hasChange = true
-	}
-	if v, ok := args["purchasing_disabled_message"].(string); ok {
-		payload.PurchasingDisabledMsg = &v
-		hasChange = true
-	}
+	hasChange := ApplyProductVariantUpdateFromMap(args, &payload)
 
 	if !hasChange {
 		return toolError("provide at least one field to update"), nil
@@ -389,17 +345,3 @@ func extractBoolPtr(args map[string]any, key string, dst **bool) {
 	}
 }
 
-func setFloatChange(args map[string]any, key string, dst **float64, changed *bool) {
-	if v, ok := args[key].(float64); ok {
-		*dst = &v
-		*changed = true
-	}
-}
-
-func setIntChange(args map[string]any, key string, dst **int, changed *bool) {
-	if v, ok := args[key].(float64); ok {
-		i := int(v)
-		*dst = &i
-		*changed = true
-	}
-}

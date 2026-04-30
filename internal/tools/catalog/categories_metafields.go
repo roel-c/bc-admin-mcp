@@ -5,18 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
 	"github.com/mark3labs/mcp-go/mcp"
 )
-
-var validPermissionSets = map[string]bool{
-	"app_only":          true,
-	"read":              true,
-	"write":             true,
-	"read_and_sf_access": true,
-	"write_and_sf_access": true,
-}
 
 // MetafieldSetParams holds parsed arguments for the metafield set tool.
 type MetafieldSetParams struct {
@@ -98,16 +89,11 @@ func ParseMetafieldSetParams(args map[string]any) (*MetafieldSetParams, error) {
 		p.Description = s
 	}
 
-	if v, ok := args["permission_set"]; ok {
-		s, sOk := v.(string)
-		if !sOk {
-			return nil, fmt.Errorf("permission_set must be a string")
-		}
-		if !validPermissionSets[s] {
-			return nil, fmt.Errorf("permission_set must be one of: app_only, read, write, read_and_sf_access, write_and_sf_access")
-		}
-		p.PermissionSet = s
+	ps, err := ParseOptionalPermissionSet(args)
+	if err != nil {
+		return nil, err
 	}
+	p.PermissionSet = ps
 
 	return p, nil
 }
@@ -231,12 +217,7 @@ func (c *Categories) handleMetafieldsList(ctx context.Context, request mcp.CallT
 		return toolError("failed to list metafields: %v", err), nil
 	}
 
-	result := map[string]any{
-		"category_id": resolvedID,
-		"total":       len(mfs),
-		"metafields":  mfs,
-	}
-	return toolJSON(result)
+	return metafieldListJSON(resolvedID, "category_id", mfs)
 }
 
 func (c *Categories) handleMetafieldsSet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -251,74 +232,13 @@ func (c *Categories) handleMetafieldsSet(ctx context.Context, request mcp.CallTo
 	}
 
 	confirmed := middleware.IsConfirmed(request)
-
-	existing, err := c.bc.ListCategoryMetafields(ctx, resolvedID)
-	if err != nil {
-		return toolError("failed to list existing metafields: %v", err), nil
-	}
-
-	var existingMF *bigcommerce.Metafield
-	for i := range existing {
-		if existing[i].Namespace == params.Namespace && existing[i].Key == params.Key {
-			existingMF = &existing[i]
-			break
-		}
-	}
-
-	if !confirmed {
-		action := "create"
-		preview := map[string]any{
-			"status":      "pending_confirmation",
-			"category_id": resolvedID,
-			"namespace":   params.Namespace,
-			"key":         params.Key,
-			"value":       params.Value,
-		}
-		if existingMF != nil {
-			action = "update"
-			preview["existing_value"] = existingMF.Value
-			preview["metafield_id"] = existingMF.ID
-		}
-		preview["action"] = action
-		preview["message"] = fmt.Sprintf(
-			"Will %s metafield %s.%s on category %d. Pass confirmed=true to execute.",
-			action, params.Namespace, params.Key, resolvedID,
-		)
-		return toolJSON(preview)
-	}
-
-	mf := bigcommerce.Metafield{
-		Namespace:     params.Namespace,
-		Key:           params.Key,
-		Value:         params.Value,
-		Description:   params.Description,
-		PermissionSet: params.PermissionSet,
-	}
-
-	if existingMF != nil {
-		updated, updateErr := c.bc.UpdateCategoryMetafield(ctx, resolvedID, existingMF.ID, mf)
-		if updateErr != nil {
-			return toolError("update failed: %v", updateErr), nil
-		}
-		return toolJSON(map[string]any{
-			"status":    "updated",
-			"metafield": updated,
-			"message":   fmt.Sprintf("Metafield %s.%s updated on category %d.", params.Namespace, params.Key, resolvedID),
-		})
-	}
-
-	if mf.PermissionSet == "" {
-		mf.PermissionSet = "write"
-	}
-	created, createErr := c.bc.CreateCategoryMetafield(ctx, resolvedID, mf)
-	if createErr != nil {
-		return toolError("create failed: %v", createErr), nil
-	}
-	return toolJSON(map[string]any{
-		"status":    "created",
-		"metafield": created,
-		"message":   fmt.Sprintf("Metafield %s.%s created on category %d.", params.Namespace, params.Key, resolvedID),
-	})
+	return metafieldUpsertCore(
+		ctx, resolvedID,
+		params.Namespace, params.Key, params.Value, params.Description, params.PermissionSet,
+		categoryMetafieldOps(c.bc),
+		"category_id", "write", confirmed, "category",
+		nil,
+	)
 }
 
 func (c *Categories) handleMetafieldsDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -333,44 +253,11 @@ func (c *Categories) handleMetafieldsDelete(ctx context.Context, request mcp.Cal
 	}
 
 	confirmed := middleware.IsConfirmed(request)
-
-	mfID := params.MetafieldID
-	if mfID == 0 {
-		existing, listErr := c.bc.ListCategoryMetafields(ctx, resolvedID)
-		if listErr != nil {
-			return toolError("failed to list metafields: %v", listErr), nil
-		}
-		for _, mf := range existing {
-			if mf.Namespace == params.Namespace && mf.Key == params.Key {
-				mfID = mf.ID
-				break
-			}
-		}
-		if mfID == 0 {
-			return toolError("no metafield found with namespace %q key %q on category %d", params.Namespace, params.Key, resolvedID), nil
-		}
-	}
-
-	if !confirmed {
-		preview := map[string]any{
-			"status":       "pending_confirmation",
-			"category_id":  resolvedID,
-			"metafield_id": mfID,
-			"message":      fmt.Sprintf("Will delete metafield %d from category %d. Pass confirmed=true to execute.", mfID, resolvedID),
-		}
-		if params.Namespace != "" {
-			preview["namespace"] = params.Namespace
-			preview["key"] = params.Key
-		}
-		return toolJSON(preview)
-	}
-
-	if delErr := c.bc.DeleteCategoryMetafield(ctx, resolvedID, mfID); delErr != nil {
-		return toolError("delete failed: %v", delErr), nil
-	}
-
-	return toolJSON(map[string]any{
-		"status":  "deleted",
-		"message": fmt.Sprintf("Metafield %d deleted from category %d.", mfID, resolvedID),
-	})
+	return metafieldDeleteCore(
+		ctx, resolvedID,
+		params.MetafieldID, params.Namespace, params.Key,
+		categoryMetafieldOps(c.bc),
+		"category_id", confirmed, "category",
+		nil,
+	)
 }

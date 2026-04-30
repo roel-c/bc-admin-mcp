@@ -65,16 +65,16 @@ This server solves all three through progressive disclosure, use-case-driven too
 │  │                  │  │  (R0-R4)     │  │   (slog/JSON)         │  │
 │  │  Categories:     │  │              │  │                       │  │
 │  │  catalog/        │  │  R0: pass    │  │  Every tool call:     │  │
-│  │  orders/         │  │  R1: preview │  │  • tool name          │  │
-│  │  customers/      │  │  R2: confirm │  │  • duration_ms        │  │
-│  │  carts/          │  │  R3: per-ID  │  │  • success/error      │  │
-│  │  inventory/      │  │  R4: block   │  │                       │  │
-│  │  marketing/      │  └──────────────┘  └───────────────────────┘  │
-│  │  store/          │                                               │
+│  │  (only root      │  │  R1: preview │  │  • tool name          │  │
+│  │   registered;    │  │  R2: confirm │  │  • duration_ms        │  │
+│  │   see roadmap)   │  │  R3: per-ID  │  │  • success/error      │  │
+│  │                  │  │  R4: block   │  │                       │  │
+│  │                  │  └──────────────┘  └───────────────────────┘  │
+│  │                  │                                               │
 │  │                  │  ┌──────────────────────────────────────────┐  │
 │  │  Tools:          │  │   Session Cache (TTL-based)              │  │
-│  │  ~36 implemented │  │                                          │  │
-│  │  ~50+ planned    │  │  Per-session, keyed by operation:        │  │
+│  │  67 catalog      │  │                                          │  │
+│  │  leaves (reg.)   │  │  Per-session, keyed by operation:        │  │
 │  └─────────────────┘  │  • product_update → [Product...]         │  │
 │                        │  • 60s default TTL, evictable             │  │
 │                        └──────────────────────────────────────────┘  │
@@ -88,6 +88,7 @@ This server solves all three through progressive disclosure, use-case-driven too
 │  │  • update — R1, unified field update, preview→confirm         │   │
 │  │  • create — R1, all writable fields, preview→confirm          │   │
 │  │  • delete — R3, requires confirmation, irreversible           │   │
+│  │  • product metafields — R0/R1, bulk up to 50 products; shared execution │   │
 │  │                                                               │   │
 │  │  catalog/categories:                                          │   │
 │  │  • list — R0, declarative filters, list_all mode              │   │
@@ -123,7 +124,7 @@ This server solves all three through progressive disclosure, use-case-driven too
                 └────────────────────┘
 ```
 
-**Diagram note (tiers):** `TierEnforcer.Check()` only **rejects R4** at the meta-tool boundary. **R1–R3 preview / `confirmed: true`** enforcement lives in **tool handlers** (via `CheckConfirmation`) plus **registration-time** checks that R1+ schemas declare `confirmed`. The R0–R4 labels in the Tier column are shorthand for the policy model in `BC-Tool-Boundaries.md`, not a literal per-request branch inside `Check()`.
+**Diagram note (tiers):** `TierEnforcer.Check()` only **rejects R4** at the meta-tool boundary. **R1–R3 preview / `confirmed: true`** enforcement lives in **tool handlers** — most call `middleware.IsConfirmed(req)` (or the equivalent `TierEnforcer.CheckConfirmation`) directly and return a preview when the flag is missing — plus **registration-time** checks in `internal/discovery/registry.go` that every R1+ tool's input schema declares a `confirmed` boolean. The R0–R4 labels in the Tier column are shorthand for the policy model in [`BC-Tool-Boundaries.md`](./BC-Tool-Boundaries.md), not a literal per-request branch inside `Check()`.
 
 ---
 
@@ -182,7 +183,7 @@ This server solves all three through progressive disclosure, use-case-driven too
 
 **How it works:**
 
-The `discover_tools(path)` meta-tool navigates a hierarchical category tree. Calling it with an empty path returns 7 root categories (~150 tokens). Drilling into `"catalog"` returns subcategories. Drilling into `"catalog/products"` reveals individual tools with <=150-character summaries.
+The `discover_tools(path)` meta-tool navigates a hierarchical category tree. Calling it with an empty path returns the **`catalog`** root only (~50 tokens); other domains (orders, customers, …) are documented in the expansion roadmap and are **not** registered until tools exist (avoids empty `discover_tools` leaves). Drilling into `"catalog"` returns subcategories; drilling into e.g. `"catalog/products"` reveals tools and deeper categories.
 
 The `execute_tool(tool_path, arguments)` meta-tool invokes any tool by its full path. The full tool schema (parameters, types, descriptions) is never sent to the LLM — it lives server-side and is resolved when the tool is executed.
 
@@ -266,7 +267,7 @@ The MCP spec includes a native `elicitation/create` mechanism for server-initiat
 - `session.Store` manages per-session `Cache` instances, keyed by MCP session ID
 - Each `Cache` is a `sync.RWMutex`-protected `map[string]entry` with TTL expiration
 - Default TTL: 60 seconds (configurable via `BC_CACHE_TTL_SECONDS`)
-- Cache keys are operation-scoped (e.g., `product_update` for the unified update tool, `product_delete` for the delete tool)
+- Cache keys are operation-scoped (e.g., `product_delete` for the delete tool). For `catalog/products/update` the key additionally embeds a **SHA-256 fingerprint of targeting + fields + channel_ids** (`UpdateParams.cacheKey`) so a confirm call whose arguments differ from any cached preview misses the cache and falls back to a fresh fetch — preventing a confirm shaped like preview A from applying its field changes to preview B's products
 - Entries are explicitly deleted after successful execution to prevent stale data reuse
 
 **Known limitation**: The current implementation uses a hardcoded `"default"` session ID because the `execute_tool` meta-tool doesn't propagate the MCP session context into the inner tool call. This is noted in the [Known Limitations](#6-known-limitations--technical-debt) section.
@@ -348,55 +349,102 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 
 ### Files and Their Roles
 
+> Line counts are **approximate** — refresh with `wc -l <path>` after structural
+> changes. They are listed here to give a sense of relative complexity, not as
+> a contract.
+
 | File | Lines | Purpose |
 |------|-------|---------|
-| `cmd/server/main.go` | 65 | Entry point: config load, server wire, transport start, auth middleware |
-| `internal/config/config.go` | 158 | Environment-based config with comprehensive validation |
-| `internal/server/server.go` | 82 | MCP server wiring, category registration, tool registration |
-| `internal/discovery/registry.go` | 278 | Progressive disclosure: hierarchy, meta-tools, registration-time validation |
-| `internal/middleware/tiers.go` | 77 | R0-R4 tier enforcement, `IsConfirmed` check, `CheckConfirmation` utility |
-| `internal/middleware/logging.go` | 49 | Structured slog middleware wrapping all tool calls |
-| `internal/middleware/auth.go` | 37 | Bearer token HTTP middleware with constant-time comparison |
-| `internal/session/cache.go` | 165 | Per-session TTL cache with size limits and eviction |
-| `internal/bigcommerce/client.go` | 342 | HTTP client: throttle, retry, rate-limit headers, GetAll (with ceiling), BatchPut |
-| `internal/bigcommerce/types.go` | ~600 | Domain types: Product, ProductUpdate, ProductCreate, Category, CategoryCreate, CategoryUpdate, Variant types, Image/Option/Modifier types, Metafield, CategoryAssignment, CustomURL, API envelopes, `SafeError()` |
-| `internal/bigcommerce/products.go` | ~300 | Domain methods: product/category search, batch product updates, product CRUD, variant ops, tree ID resolution |
-| `internal/bigcommerce/metafields.go` | ~90 | Client methods for category metafield CRUD and category-assignment upsert/delete |
-| `internal/tools/catalog/products.go` | ~540 | Product tool handlers: search (declarative filters), get, assign_categories; registration for search, get, assign_categories, create, update, delete |
-| `internal/tools/catalog/product_resolve.go` | ~100 | FetchProductsForWrite: resolve products by IDs, exact SKU, or exact name |
-| `internal/tools/catalog/categories.go` | ~1,300 | Category tool handlers: list (with list_all), get, create, bulk_update, move, reorder, products, seo_audit, metafields, delete, bulk_delete |
+| `cmd/server/main.go` | ~65 | Entry point: config load, server wire, transport start, auth middleware |
+| `internal/config/config.go` | ~160 | Environment-based config with comprehensive validation |
+| `internal/server/server.go` | ~90 | MCP server wiring, category registration, tool registration |
+| `internal/discovery/registry.go` | ~310 | Progressive disclosure: hierarchy, meta-tools, registration-time validation |
+| `internal/middleware/tiers.go` | ~80 | R0-R4 tier enforcement, `IsConfirmed` check, `CheckConfirmation` utility |
+| `internal/middleware/logging.go` | ~50 | Structured slog middleware wrapping all tool calls |
+| `internal/middleware/auth.go` | ~40 | Bearer token HTTP middleware with constant-time comparison |
+| `internal/session/cache.go` | ~165 | Per-session TTL cache with size limits and eviction |
+| `internal/bigcommerce/client.go` | ~370 | HTTP client: throttle, retry, rate-limit headers, GetAll (with ceiling), BatchPut |
+| `internal/bigcommerce/types.go` | ~725 | Domain types: Product, ProductUpdate, ProductCreate, Category/Tree types, Brand types, Variant types, Image/Option/Modifier types, Metafield, CategoryAssignment, ChannelAssignment, ChannelListing, CustomURL, API envelopes, `APIError` with `SafeError()` and OAuth-scope hints |
+| `internal/bigcommerce/products.go` | ~375 | Domain methods: product/category search, batch product updates, product CRUD, tree CRUD, tree ID resolution; `categoryBatchSize = 50` for `BatchUpdateCategories` |
+| `internal/bigcommerce/channels.go` | ~50 | `ListStoreChannels` — GET /v3/channels (Management API) for MSF / routing context |
+| `internal/bigcommerce/category_trees.go` | ~65 | `ListCategoryTrees`, `GetTreeIDForChannel` (`GET /v3/catalog/trees`) |
+| `internal/bigcommerce/channel_assignments.go` | ~100 | `ListProductChannelAssignments`, `UpsertProductChannelAssignments`, `DeleteProductChannelAssignments` |
+| `internal/bigcommerce/channel_listings.go` | ~120 | `ListChannelListings`, `CreateChannelListings`, `UpdateChannelListings` |
+| `internal/bigcommerce/metafields.go` | ~315 | Client methods for category, brand, product, and variant metafield CRUD (REST paths per resource) plus product↔category assignment helpers |
+| `internal/bigcommerce/variants_catalog.go` | ~80 | `SearchVariants`, `ListVariantsByProductIDs`, `BatchUpdateVariants` |
+| `internal/bigcommerce/brands.go` | ~90 | REST client for GET/POST/PUT `catalog/brands` |
+| `internal/bigcommerce/product_options.go` | ~70 | Client methods for product options |
+| `internal/bigcommerce/product_variants.go` | ~70 | Client methods for product-scoped variant CRUD |
+| `internal/bigcommerce/product_modifiers.go` | ~55 | Client methods for product modifiers |
+| `internal/bigcommerce/product_images.go` | ~55 | Client methods for product images (JSON URL upload) |
+| `internal/bigcommerce/product_custom_fields.go` | ~70 | Client methods for product custom fields |
+| `internal/tools/catalog/products.go` | ~605 | Product tool registration + handlers: search (declarative filters), get, assign_categories, channel_summary, channel_assignments, create, update, delete |
+| `internal/tools/catalog/products_create.go` | ~360 | Product create handler with optional inline images and additive `channel_ids` post-create assignment |
+| `internal/tools/catalog/products_update.go` | ~910 | Unified product update handler: targeting, field parsing (`fieldExtractor` for type-safe arg extraction), preview/confirm, SHA-256 fingerprinted cache key (`UpdateParams.cacheKey`), additive `channel_ids` post-update assignment |
+| `internal/tools/catalog/products_delete.go` | ~140 | Hard-delete handler with R3 confirmation and per-resource preview |
+| `internal/tools/catalog/products_channel_assignments.go` | ~280 | MSF: list / assign / remove `catalog/products/channel_assignments/*` (GET/PUT/DELETE channel-assignments) with caps |
+| `internal/tools/catalog/products_channel_summary.go` | ~245 | MSF aggregator: joins `/v3/channels`, channel-assignments, and per-channel listings (max 5 products / 25 channels) |
+| `internal/tools/catalog/products_metafields.go` | ~340 | Product metafield tools; set/delete use shared core + app_only / preserve-permission-on-update options |
+| `internal/tools/catalog/products_metafields_bulk.go` | ~400 | Bulk product metafield set/delete (≤ 50 products); reuses `metafieldUpsertExecute` / `metafieldResolveIDByNamespaceKey` / `productMetafieldOps` |
+| `internal/tools/catalog/products_variants.go` | ~350 | Product-scoped variant CRUD handlers |
+| `internal/tools/catalog/products_variants_metafields.go` | ~410 | Variant metafield tools; bulk execution shares `executeVariantMetafieldUpsert` → `metafieldUpsertExecute` + `variantMetafieldOps` |
+| `internal/tools/catalog/products_variants_metafields_bulk.go` | ~910 | Variant bulk metafields (single product and cross-product) with caps |
+| `internal/tools/catalog/products_options.go` | ~300 | Product options handlers (list/create/update/delete) |
+| `internal/tools/catalog/products_modifiers.go` | ~230 | Product modifier handlers |
+| `internal/tools/catalog/products_images.go` | ~210 | Product image handlers (list/add by URL/delete) |
+| `internal/tools/catalog/products_custom_fields.go` | ~225 | Product custom field handlers |
+| `internal/tools/catalog/product_resolve.go` | ~150 | `FetchProductsForWrite`: resolve products by IDs, exact SKU, or exact name |
+| `internal/tools/catalog/categories.go` | ~1,285 | Category tool handlers: list (with `list_all` and optional `channel_id`), get, create (with `parent_name` resolution and MSF `channel_id` / `tree_id`), bulk_update, delete, bulk_delete |
 | `internal/tools/catalog/categories_seo_audit.go` | ~85 | SEO audit scan for missing page_title, meta_description, search_keywords |
 | `internal/tools/catalog/categories_products.go` | ~160 | List products in a category with price/SKU summaries |
-| `internal/tools/catalog/categories_move.go` | ~195 | Category reparenting with cycle detection and descendant counting |
-| `internal/tools/catalog/categories_reorder.go` | ~160 | Reorder sibling categories with configurable start/increment |
-| `internal/tools/catalog/categories_metafields.go` | ~280 | Metafield list, set (upsert), delete handlers |
-| `internal/tools/catalog/categories_assignments.go` | ~85 | Additive category assignment via dedicated BC endpoint |
-| `internal/tools/catalog/products_test.go` | 300 | Product tests: search filters, ExtractFilters, empty filter guard |
-| `internal/tools/catalog/categories_test.go` | 406 | Category tests: search filters, create params, single/bulk delete params |
-| `internal/tools/catalog/categories_seo_audit_test.go` | ~60 | SEO audit field detection tests |
-| `internal/tools/catalog/categories_products_test.go` | ~70 | Category product listing param tests |
-| `internal/tools/catalog/categories_move_test.go` | ~85 | Move/reparent param parsing tests |
-| `internal/tools/catalog/categories_reorder_test.go` | ~70 | Reorder param parsing and validation tests |
-| `internal/tools/catalog/categories_metafields_test.go` | ~140 | Metafield set/delete param parsing tests |
-| `internal/tools/catalog/categories_assignments_test.go` | ~55 | Category assignment param tests |
-| `internal/session/cache_test.go` | 142 | Cache TTL, eviction, size limits |
-| `internal/middleware/auth_test.go` | 71 | Bearer auth middleware |
-| `internal/middleware/tiers_test.go` | 109 | Tier enforcement and IsConfirmed |
-| `internal/config/config_test.go` | 172 | Config validation |
-| `internal/discovery/registry_test.go` | 183 | Registry confirmed param validation, tool discovery |
-| `SECURITY.md` | — | Security review findings, threat model, and remediation details |
+| `internal/tools/catalog/categories_move.go` | ~225 | Category reparenting with cycle detection and descendant counting |
+| `internal/tools/catalog/categories_reorder.go` | ~195 | Reorder sibling categories with configurable start/increment |
+| `internal/tools/catalog/categories_metafields.go` | ~265 | Metafield param parsers + handlers (delegate list/set/delete to `metafield_shared`) |
+| `internal/tools/catalog/categories_assignments.go` | ~180 | Additive `assign_categories` and filter-based `unassign_categories` (R2) with caps (`product_ids ≤ 100`, `category_ids ≤ 50`, pairs ≤ 500) |
+| `internal/tools/catalog/brands.go` | ~495 | Brand list/get/create/update (preview→confirm on writes) |
+| `internal/tools/catalog/brands_metafields.go` | ~325 | Brand metafield list, set (upsert), delete (shared `metafield_*` core) |
+| `internal/tools/catalog/variants_global.go` | ~285 | Global variant list + batch update MCP handlers (`catalog/variants/list`, `bulk_update`) |
+| `internal/tools/catalog/channel_tools.go` | ~165 | `catalog/channels/list`, `catalog/channels/category_trees`; delegates listing tools |
+| `internal/tools/catalog/channel_listings_tools.go` | ~370 | `catalog/channels/listings/list`, `create`, `update` (GET/POST/PUT listings) |
+| `internal/tools/catalog/metafield_shared.go` | ~370 | Shared catalog metafields: `MetafieldResourceOps`, list/upsert/delete MCP helpers, `metafieldUpsertExecute` (single execution path for confirmed tool + bulk upserts), `metafieldResolveIDByNamespaceKey`, product/variant/category/brand op factories |
+| `internal/tools/catalog/metafield_shared.go`/`metafield_permissions.go` | ~40 | Shared metafield permission-set defaults and validation |
+| `internal/tools/catalog/list_filter_helpers.go` | ~45 | Shared list/search helpers: `list_all`, BC filter vs data-param detection |
+| `internal/tools/catalog/variant_update_parse.go` | ~85 | Shared variant field parsing from argument maps (single + bulk variant updates) |
+| `internal/tools/catalog/helpers.go` | ~75 | Shared parsing helpers (positive/non-negative int slice, string slice) and cache-key constants |
+| `internal/tools/catalog/interfaces.go` | ~120 | `BigCommerceAPI` interface (mocked via gomock for tests) |
+| `internal/tools/catalog/mock_bc_test.go` | ~1,060 | gomock-generated mock for `BigCommerceAPI` (test-only) |
+| Test suites (`internal/tools/catalog/*_test.go`) | ~7,300 total | Per-tool testify suites covering search filters, parameter parsing, preview/confirm flows, caps, metafield CRUD, MSF surfaces, type-rejection, etc. |
+| `internal/session/cache_test.go` | ~140 | Cache TTL, eviction, size limits |
+| `internal/middleware/auth_test.go` | ~70 | Bearer auth middleware |
+| `internal/middleware/tiers_test.go` | ~110 | Tier enforcement and IsConfirmed |
+| `internal/config/config_test.go` | ~170 | Config validation |
+| `internal/discovery/registry_test.go` | ~185 | Registry confirmed-param validation, tool discovery |
+| `internal/discovery/metatool_test.go` | ~235 | `discover_tools` / `execute_tool` meta-tool flows |
+| `internal/server/registration_audit_test.go` | ~115 | Locks: root = `catalog` only; every `catalog/**` category has children; every tool's parent path exists |
+| `docs/SECURITY.md` | — | Security review findings, threat model, and remediation details |
 | `.gitignore` | — | Prevents `.env` and binaries from being committed |
+
+### Catalog code reuse (current build)
+
+- **Metafields:** Category, brand, product, and variant MCP metafield tools share `internal/tools/catalog/metafield_shared.go` (`MetafieldResourceOps`, preview/confirm wrappers, list JSON helpers). **Confirmed upserts and bulk upserts** both go through **`metafieldUpsertExecute`** so create/update semantics (defaults, empty `permission_set` on update for product/variant) stay aligned. Bulk deletes resolve ids via **`metafieldResolveIDByNamespaceKey`** and call **`Delete` on the same ops** as single-resource deletes.
+- **List / search:** `list_filter_helpers.go` centralizes `list_all`, “data filter vs sort-only” BC query params, and invalid-sort errors for product search, category/brand lists, and global variant list.
+- **Variant field maps:** `variant_update_parse.go` maps tool argument maps into `ProductVariantUpdate` for single-variant and bulk variant updates.
 
 ### Implemented Tools
 
 | Tool Path | Tier | Description |
 |-----------|------|-------------|
-| `catalog/products/search` | R0 | Declarative filter search (name, SKU, price range, category, brand, visibility, keyword), server-side pagination |
+| `catalog/products/search` | R0 | Declarative filter search (name, SKU, price range, category, brand, visibility, keyword, MSF `channel_ids` → `channel_id:in`), server-side pagination |
 | `catalog/products/get` | R0 | Single product with variant pricing detection and `calculated_price` |
-| `catalog/products/create` | R1 | Create a product with all writable fields, optional inline images, categories; preview→confirm |
-| `catalog/products/update` | R1 | **Unified update**: any writable field on one or more products; target by product_ids, sku, product_name, or category_id; preview→confirm |
+| `catalog/products/create` | R1 | Create a product with all writable fields, optional inline images, categories; optional MSF **`channel_ids`** triggers additive post-create PUT to `/v3/catalog/products/channel-assignments`; preview→confirm |
+| `catalog/products/update` | R1 | **Unified update**: any writable field on one or more products; target by product_ids, sku, product_name, or category_id; optional MSF **`channel_ids`** triggers additive post-update assignment when all targets succeed; `partial_success` if any catalog write fails; **≤ 500** product×channel pairs per call; preview→confirm |
 | `catalog/products/delete` | R3 | Permanently delete products; preview with warnings; requires confirmation |
-| `catalog/products/assign_categories` | R1 | Additive product-to-category assignment via dedicated BC endpoint |
+| `catalog/products/assign_categories` | R1 | Additive product-to-category assignment via dedicated BC endpoint; caps **product_ids ≤ 100**, **category_ids ≤ 50**, **product×category pairs ≤ 500** |
+| `catalog/products/unassign_categories` | R2 | Filter-based `DELETE /v3/catalog/products/category-assignments` (`product_id:in` × `category_id:in`); preview→confirm; preserves other category links |
+| `catalog/products/channel_summary` | R0 | Aggregated MSF snapshot per product: combines `GET /v3/channels`, `GET /v3/catalog/products/channel-assignments`, and `GET /v3/channels/{id}/listings` for each assigned channel; flags assignments-without-listings and listings-without-assignments; max 5 products / 25 channels per call |
+| `catalog/products/channel_assignments/list` | R0 | `GET /v3/catalog/products/channel-assignments` — requires `product_ids` and/or `channel_ids` filters (caps in tool) |
+| `catalog/products/channel_assignments/assign` | R1 | `PUT` — cartesian product×channel pairs; preview→confirm; max 500 pairs; chunked `ProductBatchSize` |
+| `catalog/products/channel_assignments/remove` | R2 | `DELETE` — `product_ids` required, optional `channel_ids`; preview→confirm |
 | `catalog/products/images/list` | R0 | List all images for a product |
 | `catalog/products/images/add` | R1 | Add image by URL (JPEG, PNG, GIF, WebP); preview→confirm |
 | `catalog/products/images/delete` | R2 | Delete a product image; preview→confirm |
@@ -408,15 +456,27 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `catalog/products/variants/create` | R1 | Create variant with option values; preview→confirm |
 | `catalog/products/variants/update` | R1 | Update variant fields; preview→confirm |
 | `catalog/products/variants/delete` | R2 | Delete variant; preview→confirm |
+| `catalog/products/variants/metafields/list` | R0 | List variant metafields (resolve product + variant; variant by `variant_id` or `variant_sku`) |
+| `catalog/products/variants/metafields/set` | R1 | Upsert variant metafield; create default **`app_only`** unless `permission_set`; preview→confirm |
+| `catalog/products/variants/metafields/delete` | R1 | Delete by metafield id or namespace+key; preview→confirm |
+| `catalog/products/variants/metafields/bulk_set` | R1 | Upsert on up to 50 variants: `variant_ids` or `variant_sku_contains` (case-insensitive substring); preview→confirm |
+| `catalog/products/variants/metafields/bulk_delete` | R1 | Delete by namespace+key; same targeting as bulk_set; skips missing; preview→confirm |
+| `catalog/products/variants/metafields/bulk_set_products` | R1 | Cross-product: up to 50 `product_ids`, variant_scope all_variants | first_variant_only | sku_contains (+ variant_sku_contains); max 500 writes/call; preview→confirm |
+| `catalog/products/variants/metafields/bulk_delete_products` | R1 | Cross-product delete by namespace+key; same caps and scopes as bulk_set_products |
 | `catalog/products/custom_fields/list` | R0 | List product custom fields |
 | `catalog/products/custom_fields/set` | R1 | Upsert custom field by name; preview→confirm |
 | `catalog/products/custom_fields/delete` | R2 | Delete custom field; preview→confirm |
 | `catalog/products/modifiers/list` | R0 | List product modifiers |
 | `catalog/products/modifiers/create` | R1 | Create modifier; preview→confirm |
 | `catalog/products/modifiers/delete` | R2 | Delete modifier; preview→confirm |
-| `catalog/categories/list` | R0 | Declarative filter search (name, keyword, parent_id, tree_id, visibility) with `list_all` mode |
+| `catalog/products/metafields/list` | R0 | List product metafields (resolve product by id, exact SKU, or exact name) |
+| `catalog/products/metafields/set` | R1 | Upsert metafield; optional `permission_set` (create default **`app_only`** unless set; Storefront via `read_and_sf_access` / `write_and_sf_access`); preview→confirm |
+| `catalog/products/metafields/delete` | R1 | Delete by metafield id or namespace+key; preview→confirm |
+| `catalog/products/metafields/bulk_set` | R1 | Upsert same namespace+key+value on up to 50 `product_ids` (sequential); preview→confirm |
+| `catalog/products/metafields/bulk_delete` | R1 | Delete namespace+key across up to 50 products; skips missing; preview→confirm |
+| `catalog/categories/list` | R0 | Declarative filter search (name, keyword, parent_id, tree_id, visibility) with `list_all` mode; optional MSF **`channel_id`** resolves to `tree_id` server-side |
 | `catalog/categories/get` | R0 | Single category by ID |
-| `catalog/categories/create` | R1 | Create categories with `parent_name` resolution (name→ID); handles `tree_id` inheritance for subcategories |
+| `catalog/categories/create` | R1 | Create categories with `parent_name` resolution (name→ID); handles `tree_id` inheritance for subcategories; optional MSF **`channel_id`** or explicit **`tree_id`** |
 | `catalog/categories/bulk_update` | R1 | Preview→confirm batch update of category fields (name, description, SEO, visibility, sort order) |
 | `catalog/categories/products` | R0 | List products in a category (by ID or name) with price/SKU/category summaries |
 | `catalog/categories/seo_audit` | R0 | Scan categories for missing SEO fields (page_title, meta_description, search_keywords) |
@@ -427,39 +487,43 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `catalog/categories/metafields/delete` | R1 | Delete a metafield by ID or namespace+key |
 | `catalog/categories/delete` | R3 | Single category deletion; child detection → `include_children` safety gate; products remain in store |
 | `catalog/categories/bulk_delete` | R3 | Multi-category deletion; same child safeguard as single delete |
+| `catalog/brands/list` | R0 | Brand list/search with `list_all` or BC filters (name, keyword, page_title, id, sort) |
+| `catalog/brands/get` | R0 | Single brand by ID |
+| `catalog/brands/create` | R1 | POST brand; preview→confirm |
+| `catalog/brands/update` | R1 | PUT brand; partial fields; preview→confirm |
+| `catalog/brands/metafields/list` | R0 | List metafields; target by `brand_id` or exact `brand_name` |
+| `catalog/brands/metafields/set` | R1 | Upsert namespace+key; default permission **write**; preview→confirm |
+| `catalog/brands/metafields/delete` | R1 | Delete by id or namespace+key; preview→confirm |
+| `catalog/variants/list` | R0 | Global `GET /v3/catalog/variants` with filters or `list_all` |
+| `catalog/variants/bulk_update` | R2 | Global batch `PUT /v3/catalog/variants` (≤200 rows/call, chunk 10); preview→confirm |
+| `catalog/channels/list` | R0 | `GET /v3/channels` — channels for the connected store; optional `type` / `status`; includes `multi_storefront_likely` heuristic (requires `store_channel_settings` scope) |
+| `catalog/channels/category_trees` | R0 | `GET /v3/catalog/trees` — MSF: list trees, optional `channel_id` filter; Products OAuth scope |
+| `catalog/channels/listings/list` | R0 | `GET .../channels/{id}/listings` — cursor pagination; optional `product_ids`; cap 2000 rows |
+| `catalog/channels/listings/create` | R1 | `POST` — `listings_json` array (max 10); preview→confirm; **store_channel_listings** |
+| `catalog/channels/listings/update` | R2 | `PUT` — same JSON limits; requires **listing_id** per row; preview→confirm |
 
 ### Registered Category Hierarchy
+
+**Discovery (`discover_tools`)** only registers **`catalog/**` today.** Domains such as `orders/`, `customers/`, … appear in the [Expansion Roadmap](#7-expansion-roadmap) but are **not** category nodes until tools ship (see [`discovery-registration-audit.md`](./discovery-registration-audit.md)).
 
 ```
 catalog/                    — Product catalog: products, categories, brands, variants
   catalog/products/         — Product operations: search, get, create, update, delete, sub-resources
+    catalog/products/channel_assignments/ — MSF catalog: list, assign, remove product↔channel
     catalog/products/images/         — Product image management: list, add by URL, delete
     catalog/products/options/        — Product option CRUD: list, create, update, delete
     catalog/products/variants/       — Product variant CRUD: list, create, update, delete
+    catalog/products/variants/metafields/ — Variant metafield CRUD: list, set, delete; bulk by product or by product list + scope
     catalog/products/custom_fields/  — Product custom field management: list, set, delete
     catalog/products/modifiers/      — Product modifier management: list, create, delete
+    catalog/products/metafields/     — Product metafield CRUD: list, set, delete, bulk_set, bulk_delete
   catalog/categories/       — Category operations: list, get, create, update, SEO, metafields
     catalog/categories/metafields/ — Category metafield CRUD: list, set, delete
-  catalog/brands/           — Placeholder category (no tools registered yet)
-  catalog/variants/         — Placeholder category (no tools registered yet)
-orders/                     — Order management: list, get, update status, shipments, refunds
-  orders/management/        — Core order operations: list, get, update status
-  orders/fulfillment/       — Shipment creation, tracking, and management
-  orders/refunds/           — Refund processing and history
-customers/                  — Customer management: list, get, create, update, segments
-  customers/management/     — Core customer operations
-  customers/groups/         — Customer group management
-  customers/addresses/      — Customer address management
-carts/                      — Cart and checkout operations
-  carts/management/         — Cart CRUD and item management
-  carts/checkout/           — Checkout link creation and management
-inventory/                  — Inventory levels and adjustments across locations
-marketing/                  — Promotions, coupons, and marketing tools
-  marketing/promotions/     — Promotion management
-  marketing/coupons/        — Coupon code management
-store/                      — Store settings, SEO, shipping configuration
-  store/settings/           — Store-level configuration and SEO
-  store/shipping/           — Shipping zones, methods, and carriers
+  catalog/brands/           — Brand list, get, create, update (V3 catalog/brands)
+    catalog/brands/metafields/ — Brand metafield list, set (upsert), delete
+  catalog/variants/         — Global variant list (GET) and batch update (PUT); product CRUD under catalog/products/variants
+  catalog/channels/         — Management GET /v3/channels (storefront IDs, MSF awareness)
+    catalog/channels/listings/ — Channel product listings: list, create (POST), update (PUT)
 ```
 
 ---
@@ -529,6 +593,12 @@ store/                      — Store settings, SEO, shipping configuration
 ---
 
 ## 7. Expansion Roadmap
+
+### Catalog completion gate (before other domains)
+
+Work through **[`catalog-completion-checklist.md`](./catalog-completion-checklist.md)** so catalog discovery matches implemented tools, intentional stubs (e.g. reserved `catalog/variants` for global variant API) are documented, and patterns (tiers, preview/confirm, bulk caps, metafields) are stable before layering **orders**, **customers**, and the rest of the roadmap below.
+
+Multi-storefront / channel work: see **[`msf-research-outline.md`](./msf-research-outline.md)** for API inventory, MSF detection heuristics, and code insertion points.
 
 ### Priority 1 — High-Value Merchant Operations
 
@@ -639,7 +709,7 @@ func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, cache *sessi
 }
 ```
 
-The category hierarchy is already registered (`orders/management/` exists in `registerCategories`), so the new tools will automatically appear when the LLM calls `discover_tools("orders/management")`.
+Register the category path (and any parents) in `registerCategories` **before** or **with** the new tools so `discover_tools` stays non-empty at every node. Today only **`catalog/**`** is registered; add e.g. `orders` and `orders/management` when the first order tool lands.
 
 ---
 
@@ -744,6 +814,11 @@ A comprehensive line-by-line security audit was performed across all source file
 - [BC-API-SPECIFICITY.md](./BC-API-SPECIFICITY.md) — Field-level API quirks, undocumented behaviors, and response shape differences discovered during development
 - [BC-Tool-Boundaries.md](./BC-Tool-Boundaries.md) — Tool tiers (R0-R4), numeric caps, safety rules, and MCP tool shape guidelines
 - [bc_system_prompt.md](./bc_system_prompt.md) — Agent operating guidelines, workflow patterns, and safety constraints
+- [discovery-registration-audit.md](./discovery-registration-audit.md) — Discovery tree vs `registerCategories` / `registerTools` policy and audit outcome
+- [catalog-completion-checklist.md](./catalog-completion-checklist.md) — Catalog completeness gate before adding new tool domains
+- [msf-research-outline.md](./msf-research-outline.md) — Multi-storefront / channels research and insertion points
+- [channels-msf-implementation-roadmap.md](./channels-msf-implementation-roadmap.md) — Phased MSF MCP features
+- [architecture-executive-summary.md](./architecture-executive-summary.md) — Executive-level architecture summary
 - [MCP Specification](https://modelcontextprotocol.io/specification/latest) — Protocol reference
 - [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) — SDK documentation
 - [Progressive Disclosure MCP: 85x Token Savings](https://matthewkruczek.ai/blog/progressive-disclosure-mcp-servers.html) — Research on the lazy loading pattern

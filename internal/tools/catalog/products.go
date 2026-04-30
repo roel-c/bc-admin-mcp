@@ -153,6 +153,10 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 			mcp.WithString("include_fields",
 				mcp.Description("Comma-separated list of product fields to return. Reduces response size and token usage."),
 			),
+			mcp.WithArray("channel_ids",
+				mcp.Description("MSF: restrict to products available on these BigCommerce channel IDs (max 20). Sent as channel_id:in. Use catalog/channels/list to discover channel IDs."),
+				mcp.WithNumberItems(),
+			),
 		),
 		Handler: p.handleSearch,
 	})
@@ -175,7 +179,9 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 		Summary: "Additively assign products to categories (no removal, no fetch needed)",
 		Description: "Uses the dedicated PUT /v3/catalog/products/category-assignments endpoint to add " +
 			"product-to-category mappings. Purely additive — existing memberships are preserved. " +
-			"Does not need to fetch current category lists first.",
+			"Does not need to fetch current category lists first. " +
+			"Caps: product_ids (max 100), category_ids (max 50), product×category pairs (max 500). " +
+			"Split larger fan-outs across multiple calls.",
 		Tool: mcp.NewTool("catalog_products_assign_categories",
 			mcp.WithDescription(
 				"Assign products to categories additively. Provide product_ids and category_ids arrays. "+
@@ -183,12 +189,12 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 					"Preview first; pass confirmed=true to execute.",
 			),
 			mcp.WithArray("product_ids",
-				mcp.Description("Product IDs to assign."),
+				mcp.Description("Product IDs to assign (max 100). product_ids × category_ids ≤ 500."),
 				mcp.WithNumberItems(),
 				mcp.Required(),
 			),
 			mcp.WithArray("category_ids",
-				mcp.Description("Category IDs to assign the products to."),
+				mcp.Description("Category IDs to assign the products to (max 50). product_ids × category_ids ≤ 500."),
 				mcp.WithNumberItems(),
 				mcp.Required(),
 			),
@@ -197,6 +203,35 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 			),
 		),
 		Handler: p.handleAssignCategories,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "catalog/products/unassign_categories",
+		Tier:    middleware.TierR2,
+		Summary: "Remove products from specific categories (filter-based DELETE; non-destructive to other categories)",
+		Description: "Uses DELETE /v3/catalog/products/category-assignments with product_id:in and category_id:in. " +
+			"Removes only the listed (product, category) memberships; other category links are preserved. " +
+			"Prefer this over catalog/products/update with a categories array (which fully replaces categories). " +
+			"Preview first; pass confirmed=true to execute.",
+		Tool: mcp.NewTool("catalog_products_unassign_categories",
+			mcp.WithDescription(
+				"Remove product↔category links. Provide product_ids and category_ids; preview then confirmed=true.",
+			),
+			mcp.WithArray("product_ids",
+				mcp.Description("Product IDs (max 100)."),
+				mcp.WithNumberItems(),
+				mcp.Required(),
+			),
+			mcp.WithArray("category_ids",
+				mcp.Description("Category IDs to remove from each product (max 50)."),
+				mcp.WithNumberItems(),
+				mcp.Required(),
+			),
+			mcp.WithBoolean("confirmed",
+				mcp.Description("Set true to execute after reviewing the preview."),
+			),
+		),
+		Handler: p.handleUnassignCategories,
 	})
 
 	reg.RegisterTool(&discovery.ToolDef{
@@ -266,6 +301,14 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 			mcp.WithBoolean("open_graph_use_image", mcp.Description("Use product image for OG")),
 			mcp.WithString("layout_file", mcp.Description("Layout template file")),
 			mcp.WithArray("images", mcp.Description("Inline images: [{image_url, is_thumbnail, description, sort_order}]")),
+			mcp.WithArray("channel_ids",
+				mcp.Description(
+					"MSF (optional): after the product is created, PUT /v3/catalog/products/channel-assignments "+
+						"will additively assign the new product to these channel IDs. Max 20. Existing assignments preserved. "+
+						"Use catalog/channels/list to discover channel IDs.",
+				),
+				mcp.WithNumberItems(),
+			),
 			mcp.WithBoolean("confirmed", mcp.Description("Set to true to create the product after reviewing preview")),
 		),
 		Handler: p.handleCreate,
@@ -278,7 +321,9 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 			"visibility, inventory, shipping, dimensions, identifiers, Open Graph, and more)",
 		Description: "Unified product update tool. Target products by product_ids, sku, " +
 			"product_name, or category_id. Pass only the fields you want to change — " +
-			"all field parameters are optional. Preview shows a diff; pass confirmed=true to apply.",
+			"all field parameters are optional. Optional MSF `channel_ids` triggers an additive " +
+			"PUT to /v3/catalog/products/channel-assignments after the catalog update succeeds. " +
+			"Preview shows a diff; pass confirmed=true to apply.",
 		Tool: mcp.NewTool("catalog_products_update",
 			mcp.WithDescription(
 				"Update any writable field on one or more products. "+
@@ -362,6 +407,16 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 			// --- Categories ---
 			mcp.WithArray("categories", mcp.Description("Full replacement of category IDs"), mcp.WithNumberItems()),
 			mcp.WithNumber("brand_id", mcp.Description("Brand ID")),
+			// --- MSF channel assignments (additive side-effect) ---
+			mcp.WithArray("channel_ids",
+				mcp.Description(
+					"MSF (optional, additive): after every targeted product is updated, PUT "+
+						"/v3/catalog/products/channel-assignments to add each product to these channel IDs. "+
+						"Existing assignments are preserved; use catalog/products/channel_assignments/remove to drop. "+
+						"Max 20 channel IDs; total (products × channels) ≤ 500 per call.",
+				),
+				mcp.WithNumberItems(),
+			),
 			// --- Purchasability ---
 			mcp.WithNumber("order_quantity_minimum", mcp.Description("Minimum order quantity")),
 			mcp.WithNumber("order_quantity_maximum", mcp.Description("Maximum order quantity (0 = unlimited)")),
@@ -398,6 +453,8 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 		),
 		Handler: p.handleDelete,
 	})
+	p.registerChannelAssignmentTools(reg)
+	p.registerChannelSummaryTool(reg)
 }
 
 func (p *Products) handleSearch(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -408,21 +465,20 @@ func (p *Products) handleSearch(ctx context.Context, request mcp.CallToolRequest
 		return toolError("%s", err.Error()), nil
 	}
 
-	hasFilter := false
-	for k := range params {
-		bcKey := k
-		isNonFilter := false
-		for _, f := range ProductSearchFilters {
-			if f.BCKey == bcKey && nonFilterKeys[f.ToolKey] {
-				isNonFilter = true
-				break
-			}
+	if v, ok := args["channel_ids"]; ok && v != nil {
+		ids, perr := parseFloat64SliceToPositiveInts(v, "channel_ids")
+		if perr != nil {
+			return toolError("%s", perr.Error()), nil
 		}
-		if !isNonFilter {
-			hasFilter = true
-			break
+		if len(ids) > 0 {
+			if len(ids) > 20 {
+				return toolError("channel_ids: maximum 20 ids per request"), nil
+			}
+			params["channel_id:in"] = joinIntSlice(ids)
 		}
 	}
+
+	hasFilter := HasDataFilterBCParams(params, ProductSearchFilters, nonFilterKeys) || params["channel_id:in"] != ""
 	if !hasFilter {
 		return toolError(
 			"at least one filter parameter is required (e.g. name_like, keyword, " +
@@ -430,13 +486,9 @@ func (p *Products) handleSearch(ctx context.Context, request mcp.CallToolRequest
 		), nil
 	}
 
-	if sortVal, ok := params["sort"]; ok {
-		if !validSortFields[sortVal] {
-			return toolError(
-				"invalid sort field %q — valid options: id, name, sku, price, date_modified, "+
-					"date_last_imported, inventory_level, is_visible, total_sold", sortVal,
-			), nil
-		}
+	if err := ErrInvalidBCSort(params, validSortFields,
+		"valid options: id, name, sku, price, date_modified, date_last_imported, inventory_level, is_visible, total_sold"); err != nil {
+		return toolError("%s", err.Error()), nil
 	}
 
 	if _, ok := params["include_fields"]; !ok {

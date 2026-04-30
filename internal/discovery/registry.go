@@ -8,27 +8,27 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/roel-c/bc-admin-mcp/internal/middleware"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/roel-c/bc-admin-mcp/internal/middleware"
 )
 
 // ToolDef is a registered tool with its handler and metadata, kept internal
 // to the registry. Only stubs are exposed to the LLM via the meta-tools.
 type ToolDef struct {
-	Path        string              // e.g. "catalog/products/search"
-	Tier        middleware.Tier      // R0-R4 from BC-Tool-Boundaries.md
-	Summary     string              // <=150 chars, shown in discover_tools
-	Description string              // Full description, shown on execute
-	Tool        mcp.Tool            // Full MCP tool definition with schema
+	Path        string          // e.g. "catalog/products/search"
+	Tier        middleware.Tier // R0-R4 from BC-Tool-Boundaries.md
+	Summary     string          // <=150 chars, shown in discover_tools
+	Description string          // Full description, shown on execute
+	Tool        mcp.Tool        // Full MCP tool definition with schema
 	Handler     server.ToolHandlerFunc
 }
 
 // CategoryDef is a node in the tool hierarchy tree.
 type CategoryDef struct {
-	Path        string
-	Summary     string
-	Children    []string // child category paths or tool paths
+	Path     string
+	Summary  string
+	Children []string // child category paths or tool paths
 }
 
 // Registry holds the two-tier progressive disclosure hierarchy.
@@ -149,6 +149,38 @@ func (r *Registry) GetTool(path string) *ToolDef {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.tools[path]
+}
+
+// ListCategoryPaths returns every registered category path, sorted.
+func (r *Registry) ListCategoryPaths() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]string, 0, len(r.categories))
+	for p := range r.categories {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ListToolPaths returns every registered tool path, sorted.
+func (r *Registry) ListToolPaths() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]string, 0, len(r.tools))
+	for p := range r.tools {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// HasCategory reports whether a category path is registered.
+func (r *Registry) HasCategory(path string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.categories[path]
+	return ok
 }
 
 func (r *Registry) rootEntries() []DiscoveryEntry {

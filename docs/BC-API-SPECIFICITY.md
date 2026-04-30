@@ -369,15 +369,15 @@ The `GET /v3/catalog/trees/categories` endpoint supports these filters:
 |---|---|---|
 | Name exact | `name=value` | |
 | Name partial | `name:like=value` | Case-insensitive |
-| Parent ID | `parent_id=N` | Find direct children |
-| Tree ID | `tree_id=N` | Multi-storefront filter |
+| Parent ID | `parent_id:in=N` | Direct children of that parent. Plain `parent_id=N` is rejected with **422** on this endpoint; use `:in` even for a single ID (including `0` for root-level categories). |
+| Tree ID | `tree_id:in=N` | Multi-storefront filter. Plain `tree_id=N` is rejected with **422** (“not valid filter parameter”); use `:in` even for a single tree ID. |
 | Visibility | `is_visible=true/false` | |
 | Keyword | `keyword=value` | Full-text search |
 | ID in | `category_id:in=1,2,3` | Fetch specific IDs |
 
 ### Our Implementation
 
-- `CategorySearchFilters` table in `categories.go` maps tool params to BC query params
+- `CategorySearchFilters` in `categories.go` maps tool params **`tree_id` → `tree_id:in`** and **`parent_id` → `parent_id:in`** (and `channel_id` resolution sets `tree_id:in` the same way)
 - `CategoryUpdate` struct uses pointer fields to distinguish "not included" from "set to empty"
 - `BatchUpdateCategories` uses `BatchPut` with a batch size of 50
 - The `bulk_update` tool follows the same preview-then-confirm pattern as product bulk updates
@@ -628,27 +628,39 @@ When working with category metafields, always use the legacy `/v3/catalog/catego
 
 ---
 
-## 13. Dedicated Category-Assignments Endpoint Is Purely Additive
+## 13. Dedicated Category-Assignments Endpoints Mirror the Catalog-Side Pattern
 
-**Discovered:** 2026-04-14
-**Affected files:** `internal/bigcommerce/metafields.go`, `internal/tools/catalog/categories_assignments.go`
+**Discovered:** 2026-04-14 (PUT) / 2026-04-28 (DELETE)
+**Affected files:** `internal/bigcommerce/metafields.go`, `internal/tools/catalog/categories_assignments.go`, `internal/tools/catalog/products.go`
 
 ### Behavior
 
 `PUT /v3/catalog/products/category-assignments` accepts `[{product_id, category_id}]` pairs and performs an **upsert**:
+
 - If the assignment doesn't exist, it creates it
 - If it already exists, the call succeeds silently (204 No Content)
 - It **never removes** existing assignments — it's purely additive
 
-This contrasts with the batch `PUT /v3/catalog/products` approach where you replace the entire `categories` array on a product. The dedicated endpoint is more efficient for add-only bulk operations because it doesn't require fetching the current category list for each product first.
+`DELETE /v3/catalog/products/category-assignments?product_id:in=…&category_id:in=…` is the matching tear-down: it removes only the (product, category) pairs in the Cartesian intersection of the two filter lists, leaving every other category assignment on those products intact.
 
-### When to Use Which
+Both endpoints contrast with the batch `PUT /v3/catalog/products` approach where you replace the entire `categories` array on a product (which is destructive — it silently drops any category not in the request body).
 
-| Scenario | Recommended Approach |
-|----------|---------------------|
-| Add products to categories (no removal) | `PUT /v3/catalog/products/category-assignments` |
-| Remove products from categories | Batch `PUT /v3/catalog/products` with updated `categories` array |
-| Replace all category assignments | Batch `PUT /v3/catalog/products` with new `categories` array |
+### Tool Mapping
+
+| Scenario | Tool | Underlying call |
+|----------|------|------------------|
+| Add products to categories (no removal) | `catalog/products/assign_categories` (R1) | `PUT /v3/catalog/products/category-assignments` |
+| Remove specific (product, category) links **without** clobbering other assignments | `catalog/products/unassign_categories` (R2, preview → confirm) | `DELETE /v3/catalog/products/category-assignments?product_id:in=…&category_id:in=…` |
+| Replace the **entire** category set on a product | `catalog/products/update` with `category_ids` (R1) | Batch `PUT /v3/catalog/products` with new `categories` array |
+
+`unassign_categories` is preferred over `products/update categories=[…]` for partial removals because the latter is a full-array replacement and silently drops any category you forget to include.
+
+### Caps (enforced in handlers)
+
+| Tool | `product_ids` | `category_ids` | Pairs |
+|------|---------------|----------------|-------|
+| `assign_categories` | ≤ 100 | ≤ 50 | ≤ 500 |
+| `unassign_categories` | ≤ 100 | ≤ 50 | (same intersection) |
 
 ---
 

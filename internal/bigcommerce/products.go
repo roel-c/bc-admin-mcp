@@ -141,47 +141,6 @@ func (c *Client) ListVariantsForProduct(ctx context.Context, productID int) ([]V
 	return variants, nil
 }
 
-// ListVariantsByProductIDs batch-fetches variants for multiple products in a
-// single paginated request using GET /v3/catalog/variants?product_id:in=1,2,3.
-// This avoids the N+1 problem of calling ListVariantsForProduct per product.
-// Product IDs are chunked to keep URL lengths safe (~100 IDs per request).
-func (c *Client) ListVariantsByProductIDs(ctx context.Context, productIDs []int) ([]Variant, error) {
-	if len(productIDs) == 0 {
-		return nil, nil
-	}
-
-	const chunkSize = 100
-	var allVariants []Variant
-
-	for i := 0; i < len(productIDs); i += chunkSize {
-		end := i + chunkSize
-		if end > len(productIDs) {
-			end = len(productIDs)
-		}
-		chunk := productIDs[i:end]
-
-		strs := make([]string, len(chunk))
-		for j, id := range chunk {
-			strs[j] = strconv.Itoa(id)
-		}
-		path := "catalog/variants?product_id:in=" + strings.Join(strs, ",")
-
-		raw, err := c.GetAll(ctx, path)
-		if err != nil {
-			return nil, fmt.Errorf("list variants for products (offset %d): %w", i, err)
-		}
-		for _, r := range raw {
-			var v Variant
-			if err := json.Unmarshal(r, &v); err != nil {
-				return nil, fmt.Errorf("unmarshal variant: %w", err)
-			}
-			allVariants = append(allVariants, v)
-		}
-	}
-
-	return allVariants, nil
-}
-
 // DeleteProduct deletes a single product by ID via DELETE /v3/catalog/products/{id}.
 func (c *Client) DeleteProduct(ctx context.Context, productID int) error {
 	_, err := c.Delete(ctx, fmt.Sprintf("catalog/products/%d", productID))

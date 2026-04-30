@@ -30,17 +30,21 @@ Use these tiers when defining MCP tools (or HTTP actions) so permissions and con
 
 ### 2.1 Implemented in the MCP server (`internal/config/config.go`)
 
-| Constant | Value | Meaning |
-|----------|-------|---------|
-| `DEFAULT_REQUESTS_PER_SECOND` | `2.0` | Global throttle between requests |
-| `QUOTA_SAFETY_BUFFER` | `25` | If `X-Rate-Limit-Requests-Left` ≤ this, pause until reset |
-| `MAX_RETRIES` | `6` | 429 / 5xx backoff rounds |
-| `PRODUCT_BATCH_SIZE` | `10` | Max items per batch **PUT** `/v3/catalog/products` |
-| `VARIANT_BATCH_SIZE` | `10` | Max items per batch **PUT** `/v3/catalog/variants` |
-| `INVENTORY_BATCH_SIZE` | `10` | Safe batch size for inventory adjustments |
-| `DEFAULT_PAGE_LIMIT` | `250` | Page size for most V3 list endpoints |
+| Env var | Default | Meaning |
+|---------|---------|---------|
+| `BC_REQUESTS_PER_SECOND` | `2.0` | Global throttle between requests |
+| `BC_QUOTA_SAFETY_BUFFER` | `25` | If `X-Rate-Limit-Requests-Left` ≤ this, pause until reset |
+| `BC_MAX_RETRIES` | `6` | 429 / 5xx backoff rounds |
+| `BC_PRODUCT_BATCH_SIZE` | `10` | Max items per batch **PUT** `/v3/catalog/products` (validated 1–10) |
+| `BC_VARIANT_BATCH_SIZE` | `10` | Max items per batch **PUT** `/v3/catalog/variants` (validated 1–10) |
+| `BC_INVENTORY_BATCH_SIZE` | `10` | Safe batch size for inventory adjustments (reserved — no inventory tools shipped yet) |
+| `BC_DEFAULT_PAGE_LIMIT` | `250` | Page size for most V3 list endpoints (validated 1–250) |
+| `BC_MAX_TOTAL_RECORDS` | `10000` | Pagination ceiling for `GetAll` (set `0` for unlimited) |
+| `BC_DELAY_BETWEEN_CHUNKS_MS` | `500` | Inter-chunk pause inside `BatchPut` (on top of the throttle) |
+| `BC_MAX_WRITE_CONCURRENCY` | `1` | Reserved for throughput mode; **`BatchPut` is sequential today** regardless of this value |
+| `BC_CACHE_TTL_SECONDS` | `60` | Per-session cache TTL for preview/confirm snapshots |
 
-`batch_put` / `batch_post` also use **`delay_between_chunks`** default **`0.5`** s (on top of throttle).
+The `categories` batch-update endpoint (`PUT /v3/catalog/trees/categories`) uses an internal `categoryBatchSize = 50` constant in `internal/bigcommerce/products.go` — not configurable today.
 
 ### 2.2 Store plan quotas (from `BC-API-Reference.md`)
 
@@ -68,6 +72,27 @@ Always honor response headers; **the MCP server does not raise plan-specific cei
 ### 2.4 Operator “test mode” (prompt policy)
 
 - First bulk run: **≤ 5 records** sample; scale after confirmation.
+
+### 2.5 Per-tool caps enforced in handlers
+
+These caps live in `internal/tools/catalog/` and are validated **before** any BigCommerce request fires. Exceeding them returns an explicit error so the LLM can split the call instead of round-tripping a 422.
+
+| Tool | Cap | Source |
+|------|-----|--------|
+| `catalog/products/update` | ≤ 500 product × `channel_ids` pairs (additive post-write assignment) | `products_update.go` |
+| `catalog/products/assign_categories` | `product_ids ≤ 100`, `category_ids ≤ 50`, pairs ≤ 500 | `categories_assignments.go` |
+| `catalog/products/unassign_categories` | `product_ids ≤ 100`, `category_ids ≤ 50` | `categories_assignments.go` |
+| `catalog/products/channel_assignments/list` | `product_ids ≤ 100`, `channel_ids ≤ 20` | `products_channel_assignments.go` |
+| `catalog/products/channel_assignments/assign` | pairs ≤ 500 | `products_channel_assignments.go` |
+| `catalog/products/channel_assignments/remove` | `product_ids ≤ 100`, `channel_ids ≤ 20` | `products_channel_assignments.go` |
+| `catalog/products/channel_summary` | `product_ids ≤ 5`, channels touched ≤ 25 | `products_channel_summary.go` |
+| `catalog/products/metafields/bulk_set` / `bulk_delete` | `product_ids ≤ 50` | `products_metafields_bulk.go` |
+| `catalog/products/variants/metafields/bulk_set` / `bulk_delete` | one product, ≤ 50 variants | `products_variants_metafields_bulk.go` |
+| `catalog/products/variants/metafields/bulk_set_products` / `bulk_delete_products` | `product_ids ≤ 50`, total variant writes ≤ 500 | `products_variants_metafields_bulk.go` |
+| `catalog/variants/list` | `product_ids ≤ 100`, `variant_ids ≤ 100` | `variants_global.go` |
+| `catalog/variants/bulk_update` | ≤ 200 rows per call (server chunks by `BC_VARIANT_BATCH_SIZE`) | `variants_global.go` |
+| `catalog/channels/listings/list` | up to 2000 rows fetched per call; `product_ids` filter ≤ 50 | `channel_listings_tools.go` |
+| `catalog/channels/listings/create` / `update` | `listings_json` ≤ 10 objects, payload ≤ 256 KiB | `channel_listings_tools.go` |
 
 ---
 

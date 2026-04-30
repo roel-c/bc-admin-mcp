@@ -128,3 +128,20 @@ func resolveCategoryByExactName(ctx context.Context, bc BigCommerceAPI, name str
 	return cats[0].ID, nil
 }
 
+func resolveBrandByExactName(ctx context.Context, bc BigCommerceAPI, name string) (int, error) {
+	brands, err := bc.SearchBrands(ctx, map[string]string{"name": name})
+	if err != nil {
+		return 0, fmt.Errorf("search brand %q: %w", name, err)
+	}
+	if len(brands) == 0 {
+		return 0, fmt.Errorf("no brand found with name %q — check spelling or use brand_id", name)
+	}
+	if len(brands) > 1 {
+		ids := make([]int, len(brands))
+		for i, br := range brands {
+			ids[i] = br.ID
+		}
+		return 0, fmt.Errorf("multiple brands match name %q (IDs: %v) — use brand_id", name, ids)
+	}
+	return brands[0].ID, nil
+}

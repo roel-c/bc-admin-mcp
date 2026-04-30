@@ -17,8 +17,8 @@ import (
 var CategorySearchFilters = []SearchFilter{
 	{"name", "name", "string"},
 	{"name_like", "name:like", "string"},
-	{"parent_id", "parent_id", "number"},
-	{"tree_id", "tree_id", "number"},
+	{"parent_id", "parent_id:in", "number"},
+	{"tree_id", "tree_id:in", "number"},
 	{"is_visible", "is_visible", "bool"},
 	{"keyword", "keyword", "string"},
 }
@@ -55,10 +55,13 @@ func (c *Categories) RegisterTools(reg *discovery.Registry) {
 				mcp.Description("Partial name match (SQL LIKE). Use when the user gives a partial name or wants categories containing a word."),
 			),
 			mcp.WithNumber("parent_id",
-				mcp.Description("Filter by parent category ID. Use to find sub-categories of a specific parent."),
+				mcp.Description("Filter by parent category ID (direct children only). Sent to BigCommerce as parent_id:in."),
 			),
 			mcp.WithNumber("tree_id",
-				mcp.Description("Filter by category tree ID (for multi-storefront stores)."),
+				mcp.Description("Filter by category tree ID (multi-storefront). Sent to BigCommerce as tree_id:in. Mutually exclusive with channel_id."),
+			),
+			mcp.WithNumber("channel_id",
+				mcp.Description("MSF: resolve tree_id automatically from this channel ID via /v3/catalog/trees?channel_id:in=… and apply it as tree_id:in on GET /v3/catalog/trees/categories. Mutually exclusive with tree_id."),
 			),
 			mcp.WithBoolean("is_visible",
 				mcp.Description("Filter by storefront visibility. true = visible only, false = hidden only."),
@@ -88,7 +91,9 @@ func (c *Categories) RegisterTools(reg *discovery.Registry) {
 		Summary: "Create a new category in the store's catalog",
 		Description: "Creates a single category. Requires a name; optionally accepts parent_name or " +
 			"parent_id to create a subcategory, plus visibility, description, and SEO fields. " +
-			"Uses the store's default category tree. Returns a preview first; pass confirmed=true to execute.",
+			"For multi-storefront stores, pass channel_id to scope to that storefront's tree, or pass tree_id directly. " +
+			"Defaults to the first tree returned by GET /v3/catalog/trees if neither is provided. " +
+			"Returns a preview first; pass confirmed=true to execute.",
 		Tool: mcp.NewTool("catalog_categories_create",
 			mcp.WithDescription(
 				"Create a new category. Provide at least a name. "+
@@ -125,6 +130,12 @@ func (c *Categories) RegisterTools(reg *discovery.Registry) {
 			),
 			mcp.WithString("default_product_sort",
 				mcp.Description("Product sort on category page. Valid: best_selling, price_desc, price_asc, avg_customer_review, alpha_asc, alpha_desc, featured, newest, use_store_settings."),
+			),
+			mcp.WithNumber("tree_id",
+				mcp.Description("Optional: explicit category tree ID. Use when you already know the tree (skip channel resolution). Mutually exclusive with channel_id."),
+			),
+			mcp.WithNumber("channel_id",
+				mcp.Description("Optional MSF helper: resolve tree_id from this BigCommerce channel ID via GET /v3/catalog/trees?channel_id:in=… Mutually exclusive with tree_id."),
 			),
 			mcp.WithBoolean("confirmed",
 				mcp.Description("Set to true to execute after reviewing the preview."),
@@ -252,7 +263,7 @@ func (c *Categories) RegisterTools(reg *discovery.Registry) {
 					"Optionally filter by parent_id or tree_id.",
 			),
 			mcp.WithNumber("parent_id",
-				mcp.Description("Only audit categories under this parent ID."),
+				mcp.Description("Only audit categories whose direct parent ID matches. Sent to BigCommerce as parent_id:in."),
 			),
 			mcp.WithNumber("tree_id",
 				mcp.Description("Only audit categories in this tree (multi-storefront)."),
@@ -415,21 +426,31 @@ func (c *Categories) RegisterTools(reg *discovery.Registry) {
 func (c *Categories) handleList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
 
-	listAll := false
-	if v, ok := args["list_all"]; ok {
-		if b, bOk := v.(bool); bOk {
-			listAll = b
-		}
-	}
+	listAll := ReadListAllBoolean(args, "list_all")
 
 	params, err := ExtractFilters(args, CategorySearchFilters)
 	if err != nil {
 		return toolError("%s", err.Error()), nil
 	}
 
-	if len(params) == 0 && !listAll {
+	if v, ok := args["channel_id"]; ok && v != nil {
+		if _, treePassed := args["tree_id"]; treePassed {
+			return toolError("channel_id and tree_id are mutually exclusive; provide one or neither"), nil
+		}
+		ch, perr := argPositiveInt("channel_id", v)
+		if perr != nil {
+			return toolError("%s", perr.Error()), nil
+		}
+		treeID, terr := c.bc.GetTreeIDForChannel(ctx, ch)
+		if terr != nil {
+			return toolError("failed to resolve tree for channel %d: %v", ch, terr), nil
+		}
+		params["tree_id:in"] = strconv.Itoa(treeID)
+	}
+
+	if !HasDataFilterBCParams(params, CategorySearchFilters, nil) && !listAll {
 		return toolError(
-			"provide at least one filter (e.g. name, name_like, parent_id, is_visible) "+
+			"provide at least one filter (e.g. name, name_like, parent_id, is_visible, tree_id, channel_id) "+
 				"or set list_all=true to return every category.",
 		), nil
 	}
@@ -801,6 +822,14 @@ func (c *Categories) handleCreate(ctx context.Context, request mcp.CallToolReque
 	if params.Payload.ParentID > 0 {
 		// Child categories inherit the tree from their parent; no need to set tree_id.
 		params.Payload.TreeID = 0
+	} else if params.TreeID > 0 {
+		params.Payload.TreeID = params.TreeID
+	} else if params.ChannelID > 0 {
+		treeID, err := c.bc.GetTreeIDForChannel(ctx, params.ChannelID)
+		if err != nil {
+			return toolError("failed to resolve tree for channel %d: %v", params.ChannelID, err), nil
+		}
+		params.Payload.TreeID = treeID
 	} else {
 		treeID, err := c.bc.GetDefaultTreeID(ctx)
 		if err != nil {
@@ -825,6 +854,8 @@ func (c *Categories) resolveParentName(ctx context.Context, name string) (int, e
 type CategoryCreateParams struct {
 	Payload    bigcommerce.CategoryCreate
 	ParentName string
+	ChannelID  int
+	TreeID     int
 	Confirmed  bool
 }
 
@@ -933,6 +964,26 @@ func ParseCategoryCreateParams(args map[string]any) (*CategoryCreateParams, erro
 		if bOk {
 			p.Confirmed = b
 		}
+	}
+
+	_, hasTreeID := args["tree_id"]
+	_, hasChannelID := args["channel_id"]
+	if hasTreeID && hasChannelID {
+		return nil, fmt.Errorf("tree_id and channel_id are mutually exclusive; provide one or neither")
+	}
+	if v, ok := args["tree_id"]; ok {
+		f, fOk := v.(float64)
+		if !fOk || f <= 0 || f != float64(int(f)) {
+			return nil, fmt.Errorf("tree_id must be a positive integer")
+		}
+		p.TreeID = int(f)
+	}
+	if v, ok := args["channel_id"]; ok {
+		f, fOk := v.(float64)
+		if !fOk || f <= 0 || f != float64(int(f)) {
+			return nil, fmt.Errorf("channel_id must be a positive integer")
+		}
+		p.ChannelID = int(f)
 	}
 
 	return p, nil
@@ -1228,6 +1279,6 @@ func (c *Categories) processDelete(ctx context.Context, params *DeleteParams) (*
 // getDirectChildren returns the immediate children of a category.
 func (c *Categories) getDirectChildren(ctx context.Context, categoryID int) ([]bigcommerce.Category, error) {
 	return c.bc.SearchCategories(ctx, map[string]string{
-		"parent_id": strconv.Itoa(categoryID),
+		"parent_id:in": strconv.Itoa(categoryID),
 	})
 }

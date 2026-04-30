@@ -9,6 +9,16 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// Per-call caps for the additive product↔category assignment tool.
+// Mirrors the channel_assignments/assign cap of 500 pairs to keep PUT bodies
+// small enough that BigCommerce won't 422 on body size and so a misbehaving
+// agent can't dump tens of thousands of assignment rows in a single call.
+const (
+	maxAssignCategoriesProducts   = 100
+	maxAssignCategoriesCategories = 50
+	maxAssignCategoriesPairs      = 500
+)
+
 // AssignmentParams holds parsed arguments for the category assignment tool.
 type AssignmentParams struct {
 	ProductIDs  []int
@@ -29,6 +39,9 @@ func ParseAssignmentParams(args map[string]any) (*AssignmentParams, error) {
 	if len(p.ProductIDs) == 0 {
 		return nil, fmt.Errorf("product_ids is required and must not be empty")
 	}
+	if len(p.ProductIDs) > maxAssignCategoriesProducts {
+		return nil, fmt.Errorf("product_ids: maximum %d per call", maxAssignCategoriesProducts)
+	}
 
 	if v, ok := args["category_ids"]; ok {
 		ids, err := parseFloat64SliceToPositiveInts(v, "category_ids")
@@ -39,6 +52,17 @@ func ParseAssignmentParams(args map[string]any) (*AssignmentParams, error) {
 	}
 	if len(p.CategoryIDs) == 0 {
 		return nil, fmt.Errorf("category_ids is required and must not be empty")
+	}
+	if len(p.CategoryIDs) > maxAssignCategoriesCategories {
+		return nil, fmt.Errorf("category_ids: maximum %d per call", maxAssignCategoriesCategories)
+	}
+
+	if pairs := len(p.ProductIDs) * len(p.CategoryIDs); pairs > maxAssignCategoriesPairs {
+		return nil, fmt.Errorf(
+			"product_ids × category_ids would create %d (product, category) pairs; "+
+				"maximum %d per call. Split the call into smaller batches.",
+			pairs, maxAssignCategoriesPairs,
+		)
 	}
 
 	return p, nil
@@ -86,5 +110,70 @@ func (p *Products) handleAssignCategories(ctx context.Context, request mcp.CallT
 	return toolJSON(map[string]any{
 		"status":  "completed",
 		"message": fmt.Sprintf("Successfully assigned %d products to %d categories (%d total assignments).", len(params.ProductIDs), len(params.CategoryIDs), len(assignments)),
+	})
+}
+
+const (
+	maxUnassignProducts   = 100
+	maxUnassignCategories = 50
+)
+
+func (p *Products) handleUnassignCategories(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+
+	productIDs, err := parseFloat64SliceToPositiveInts(args["product_ids"], "product_ids")
+	if err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+	if len(productIDs) == 0 {
+		return toolError("product_ids is required and must not be empty"), nil
+	}
+	if len(productIDs) > maxUnassignProducts {
+		return toolError("product_ids: maximum %d per call", maxUnassignProducts), nil
+	}
+
+	categoryIDs, err := parseFloat64SliceToPositiveInts(args["category_ids"], "category_ids")
+	if err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+	if len(categoryIDs) == 0 {
+		return toolError(
+			"category_ids is required and must not be empty. " +
+				"Removing a product from ALL category assignments is not exposed by this tool — " +
+				"use catalog/products/update with categories=[] for that intent (full replacement).",
+		), nil
+	}
+	if len(categoryIDs) > maxUnassignCategories {
+		return toolError("category_ids: maximum %d per call", maxUnassignCategories), nil
+	}
+
+	confirmed := middleware.IsConfirmed(request)
+	if !confirmed {
+		return toolJSON(map[string]any{
+			"status":         "pending_confirmation",
+			"product_count":  len(productIDs),
+			"category_count": len(categoryIDs),
+			"product_ids":    productIDs,
+			"category_ids":   categoryIDs,
+			"api":            "DELETE /v3/catalog/products/category-assignments",
+			"message": fmt.Sprintf(
+				"Will remove %d product(s) from %d category(ies). "+
+					"Other category memberships are preserved (filter-based delete). "+
+					"Pass confirmed=true to execute.",
+				len(productIDs), len(categoryIDs),
+			),
+		})
+	}
+
+	if err := p.bc.DeleteCategoryAssignmentsByFilter(ctx, productIDs, categoryIDs); err != nil {
+		return toolError("unassign failed: %v", err), nil
+	}
+
+	return toolJSON(map[string]any{
+		"status": "completed",
+		"message": fmt.Sprintf(
+			"Removed assignments matching %d product(s) × %d category(ies).",
+			len(productIDs), len(categoryIDs),
+		),
 	})
 }

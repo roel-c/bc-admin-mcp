@@ -2,7 +2,12 @@ package catalog
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
@@ -87,6 +92,11 @@ type UpdateParams struct {
 
 	LayoutFile *string
 
+	// MSF additive side-effect: after the catalog update succeeds for all
+	// targeted products, additively assign each one to these channels.
+	// Existing assignments are preserved.
+	ChannelIDs []int
+
 	Confirmed bool
 }
 
@@ -160,36 +170,50 @@ func parseUpdateParams(args map[string]any) (*UpdateParams, error) {
 
 	if v, ok := args["limit"]; ok {
 		f, fOk := v.(float64)
-		if fOk && f > 0 {
+		if !fOk {
+			return nil, fmt.Errorf("limit must be a number")
+		}
+		if f > 0 {
 			p.Limit = int(f)
 		}
 	}
 	if v, ok := args["sort"]; ok {
-		s, _ := v.(string)
+		s, sOk := v.(string)
+		if !sOk {
+			return nil, fmt.Errorf("sort must be a string")
+		}
 		p.Sort = s
 	}
 	if v, ok := args["sort_direction"]; ok {
-		s, _ := v.(string)
+		s, sOk := v.(string)
+		if !sOk {
+			return nil, fmt.Errorf("sort_direction must be a string")
+		}
 		p.SortDir = s
 	}
 
 	// --- Updatable fields ---
-	extractString(args, "name", &p.Name)
-	extractString(args, "type", &p.Type)
-	extractString(args, "sku_field", &p.SKUField)
-	extractString(args, "description", &p.Description)
+	// All extractors below reject wrong types (rather than silently dropping
+	// them), so an LLM that passes e.g. price="24.99" gets a structured error
+	// instead of a silently no-op update.
+	e := fieldExtractor{args: args}
 
-	extractFloat(args, "weight", &p.Weight)
-	extractFloat(args, "width", &p.Width)
-	extractFloat(args, "height", &p.Height)
-	extractFloat(args, "depth", &p.Depth)
+	e.String("name", &p.Name)
+	e.String("type", &p.Type)
+	e.String("sku_field", &p.SKUField)
+	e.String("description", &p.Description)
 
-	extractFloat(args, "price", &p.Price)
-	extractFloat(args, "cost_price", &p.CostPrice)
-	extractFloat(args, "retail_price", &p.RetailPrice)
-	extractFloat(args, "sale_price", &p.SalePrice)
-	extractFloat(args, "map_price", &p.MapPrice)
-	extractInt(args, "tax_class_id", &p.TaxClassID)
+	e.Float("weight", &p.Weight)
+	e.Float("width", &p.Width)
+	e.Float("height", &p.Height)
+	e.Float("depth", &p.Depth)
+
+	e.Float("price", &p.Price)
+	e.Float("cost_price", &p.CostPrice)
+	e.Float("retail_price", &p.RetailPrice)
+	e.Float("sale_price", &p.SalePrice)
+	e.Float("map_price", &p.MapPrice)
+	e.Int("tax_class_id", &p.TaxClassID)
 
 	if v, ok := args["categories"]; ok {
 		ids, err := parseFloat64SliceToNonNegativeInts(v, "categories")
@@ -198,42 +222,42 @@ func parseUpdateParams(args map[string]any) (*UpdateParams, error) {
 		}
 		p.Categories = ids
 	}
-	extractInt(args, "brand_id", &p.BrandID)
+	e.Int("brand_id", &p.BrandID)
 
-	extractString(args, "inventory_tracking", &p.InventoryTracking)
-	extractInt(args, "inventory_level", &p.InventoryLevel)
-	extractInt(args, "inventory_warning_level", &p.InventoryWarningLevel)
+	e.String("inventory_tracking", &p.InventoryTracking)
+	e.Int("inventory_level", &p.InventoryLevel)
+	e.Int("inventory_warning_level", &p.InventoryWarningLevel)
 
-	extractBool(args, "is_visible", &p.IsVisible)
-	extractBool(args, "is_featured", &p.IsFeatured)
-	extractInt(args, "sort_order", &p.SortOrder)
-	extractString(args, "condition", &p.Condition)
-	extractBool(args, "is_condition_shown", &p.IsConditionShown)
+	e.Bool("is_visible", &p.IsVisible)
+	e.Bool("is_featured", &p.IsFeatured)
+	e.Int("sort_order", &p.SortOrder)
+	e.String("condition", &p.Condition)
+	e.Bool("is_condition_shown", &p.IsConditionShown)
 
-	extractString(args, "page_title", &p.PageTitle)
-	extractString(args, "meta_description", &p.MetaDescription)
-	extractString(args, "search_keywords", &p.SearchKeywords)
-	extractString(args, "custom_url", &p.CustomURL)
+	e.String("page_title", &p.PageTitle)
+	e.String("meta_description", &p.MetaDescription)
+	e.String("search_keywords", &p.SearchKeywords)
+	e.String("custom_url", &p.CustomURL)
 
-	extractString(args, "availability", &p.Availability)
-	extractString(args, "availability_description", &p.AvailabilityDescription)
-	extractBool(args, "is_preorder_only", &p.IsPreorderOnly)
-	extractString(args, "preorder_message", &p.PreorderMessage)
-	extractString(args, "preorder_release_date", &p.PreorderReleaseDate)
+	e.String("availability", &p.Availability)
+	e.String("availability_description", &p.AvailabilityDescription)
+	e.Bool("is_preorder_only", &p.IsPreorderOnly)
+	e.String("preorder_message", &p.PreorderMessage)
+	e.String("preorder_release_date", &p.PreorderReleaseDate)
 
-	extractBool(args, "is_free_shipping", &p.IsFreeShipping)
-	extractFloat(args, "fixed_cost_shipping_price", &p.FixedCostShippingPrice)
+	e.Bool("is_free_shipping", &p.IsFreeShipping)
+	e.Float("fixed_cost_shipping_price", &p.FixedCostShippingPrice)
 
-	extractString(args, "upc", &p.UPC)
-	extractString(args, "gtin", &p.GTIN)
-	extractString(args, "mpn", &p.MPN)
-	extractString(args, "bin_picking_number", &p.BinPickingNumber)
+	e.String("upc", &p.UPC)
+	e.String("gtin", &p.GTIN)
+	e.String("mpn", &p.MPN)
+	e.String("bin_picking_number", &p.BinPickingNumber)
 
-	extractString(args, "warranty", &p.Warranty)
-	extractInt(args, "order_quantity_minimum", &p.OrderQuantityMinimum)
-	extractInt(args, "order_quantity_maximum", &p.OrderQuantityMaximum)
+	e.String("warranty", &p.Warranty)
+	e.Int("order_quantity_minimum", &p.OrderQuantityMinimum)
+	e.Int("order_quantity_maximum", &p.OrderQuantityMaximum)
 
-	extractString(args, "gift_wrapping_options_type", &p.GiftWrappingOptionsType)
+	e.String("gift_wrapping_options_type", &p.GiftWrappingOptionsType)
 	if v, ok := args["gift_wrapping_options_list"]; ok {
 		ids, err := parseFloat64SliceToNonNegativeInts(v, "gift_wrapping_options_list")
 		if err != nil {
@@ -249,21 +273,89 @@ func parseUpdateParams(args map[string]any) (*UpdateParams, error) {
 		p.RelatedProducts = ids
 	}
 
-	extractString(args, "open_graph_type", &p.OpenGraphType)
-	extractString(args, "open_graph_title", &p.OpenGraphTitle)
-	extractString(args, "open_graph_description", &p.OpenGraphDescription)
-	extractBool(args, "open_graph_use_meta_description", &p.OpenGraphUseMetaDesc)
-	extractBool(args, "open_graph_use_product_name", &p.OpenGraphUseProductName)
-	extractBool(args, "open_graph_use_image", &p.OpenGraphUseImage)
+	e.String("open_graph_type", &p.OpenGraphType)
+	e.String("open_graph_title", &p.OpenGraphTitle)
+	e.String("open_graph_description", &p.OpenGraphDescription)
+	e.Bool("open_graph_use_meta_description", &p.OpenGraphUseMetaDesc)
+	e.Bool("open_graph_use_product_name", &p.OpenGraphUseProductName)
+	e.Bool("open_graph_use_image", &p.OpenGraphUseImage)
 
-	extractString(args, "layout_file", &p.LayoutFile)
+	e.String("layout_file", &p.LayoutFile)
 
-	if !p.hasFields() {
-		return nil, fmt.Errorf("provide at least one field to update")
+	if e.err != nil {
+		return nil, e.err
+	}
+
+	if v, ok := args["channel_ids"]; ok && v != nil {
+		ids, err := parseFloat64SliceToPositiveInts(v, "channel_ids")
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) > maxChannelAssignListChannels {
+			return nil, fmt.Errorf("channel_ids: maximum %d channels per call", maxChannelAssignListChannels)
+		}
+		p.ChannelIDs = ids
+	}
+
+	if !p.hasFields() && len(p.ChannelIDs) == 0 {
+		return nil, fmt.Errorf("provide at least one field to update or a channel_ids list to assign")
 	}
 
 	p.Confirmed = middleware.IsConfirmedFromArgs(args)
 	return p, nil
+}
+
+// cacheKey returns the session-cache key used to bind a preview to its
+// matching confirm call. The key combines a stable fingerprint of the
+// targeting fields plus the field map being applied. Two consequences:
+//
+//  1. A confirm call with the SAME targeting+fields as a preview reuses the
+//     cached snapshot (no redundant BC fetch).
+//  2. A confirm call with DIFFERENT targeting+fields than its preview misses
+//     the cache and falls back to a fresh fetch — applying the current
+//     call's fields to products resolved from the current call's targeting.
+//     This eliminates the failure mode where a cached snapshot from preview
+//     A is updated using preview B's params.
+func (p *UpdateParams) cacheKey() string {
+	var b strings.Builder
+	b.WriteString("c:")
+	b.WriteString(strconv.Itoa(p.CategoryID))
+	b.WriteString("|ids:")
+	if len(p.ProductIDs) > 0 {
+		sorted := append([]int(nil), p.ProductIDs...)
+		sort.Ints(sorted)
+		for _, id := range sorted {
+			b.WriteString(strconv.Itoa(id))
+			b.WriteByte(',')
+		}
+	}
+	b.WriteString("|sku:")
+	b.WriteString(p.SKU)
+	b.WriteString("|name:")
+	b.WriteString(p.ProductName)
+	b.WriteString("|limit:")
+	b.WriteString(strconv.Itoa(p.Limit))
+	b.WriteString("|sort:")
+	b.WriteString(p.Sort)
+	b.WriteString("|dir:")
+	b.WriteString(p.SortDir)
+	b.WriteString("|fields:")
+	for _, f := range listChangedFields(p) {
+		b.WriteString(f)
+		b.WriteByte(',')
+	}
+	b.WriteString("|channels:")
+	if len(p.ChannelIDs) > 0 {
+		sorted := append([]int(nil), p.ChannelIDs...)
+		sort.Ints(sorted)
+		for _, id := range sorted {
+			b.WriteString(strconv.Itoa(id))
+			b.WriteByte(',')
+		}
+	}
+
+	sum := sha256.Sum256([]byte(b.String()))
+	return cacheKeyProductUpdate + ":" + hex.EncodeToString(sum[:8])
 }
 
 // buildProductUpdate converts parsed params into a ProductUpdate for a given product ID.
@@ -361,8 +453,20 @@ func (p *Products) previewUpdate(ctx context.Context, params *UpdateParams) (*mc
 		return toolError("no products found for the given criteria"), nil
 	}
 
+	if len(params.ChannelIDs) > 0 {
+		pairs := len(products) * len(params.ChannelIDs)
+		if pairs > maxChannelAssignPairsPerCall {
+			return toolError(
+				"channel_ids × products would create %d (product, channel) pairs; "+
+					"maximum %d per call. Split the update into smaller batches or call "+
+					"catalog/products/channel_assignments/assign separately.",
+				pairs, maxChannelAssignPairsPerCall,
+			), nil
+		}
+	}
+
 	sessionCache := p.cache.ForSession(sessionKeyDefault)
-	sessionCache.Set(cacheKeyProductUpdate, products)
+	sessionCache.Set(params.cacheKey(), products)
 
 	sampleSize := min(5, len(products))
 	samples := make([]map[string]any, sampleSize)
@@ -400,7 +504,7 @@ func (p *Products) previewUpdate(ctx context.Context, params *UpdateParams) (*mc
 
 	fields := listChangedFields(params)
 
-	return toolJSON(map[string]any{
+	resp := map[string]any{
 		"status":         "pending_confirmation",
 		"total_products": len(products),
 		"fields_updated": fields,
@@ -409,12 +513,26 @@ func (p *Products) previewUpdate(ctx context.Context, params *UpdateParams) (*mc
 			"%d product(s) will be updated (%d field(s)). Pass confirmed=true to execute.",
 			len(products), len(fields),
 		),
-	})
+	}
+
+	if len(params.ChannelIDs) > 0 {
+		resp["channel_assignments_preview"] = map[string]any{
+			"channel_ids":         params.ChannelIDs,
+			"target_product_count": len(products),
+			"total_pairs":          len(products) * len(params.ChannelIDs),
+			"effect": "After successful catalog update of every targeted product, " +
+				"PUT /v3/catalog/products/channel-assignments will additively assign each product to each listed channel " +
+				"(existing assignments preserved). Skipped if any catalog update fails.",
+		}
+	}
+
+	return toolJSON(resp)
 }
 
 func (p *Products) executeUpdate(ctx context.Context, params *UpdateParams) (*mcp.CallToolResult, error) {
 	sessionCache := p.cache.ForSession(sessionKeyDefault)
-	cached, ok := sessionCache.Get(cacheKeyProductUpdate)
+	key := params.cacheKey()
+	cached, ok := sessionCache.Get(key)
 	var products []bigcommerce.Product
 	if ok {
 		products, _ = cached.([]bigcommerce.Product)
@@ -435,22 +553,73 @@ func (p *Products) executeUpdate(ctx context.Context, params *UpdateParams) (*mc
 		updates[i] = buildProductUpdate(prod.ID, params)
 	}
 
-	result, err := p.bc.BatchUpdateProducts(ctx, updates)
-	if err != nil {
-		return toolError("batch update failed: %v", err), nil
+	var batchResult *bigcommerce.BatchResult
+	if params.hasFields() {
+		var err error
+		batchResult, err = p.bc.BatchUpdateProducts(ctx, updates)
+		if err != nil {
+			return toolError("batch update failed: %v", err), nil
+		}
+	} else {
+		// channel_ids only — no catalog write needed; treat all targets as succeeded.
+		batchResult = &bigcommerce.BatchResult{Succeeded: len(products)}
 	}
 
-	sessionCache.Delete(cacheKeyProductUpdate)
+	sessionCache.Delete(key)
 
 	resp := map[string]any{
 		"status":           "completed",
-		"products_updated": result.Succeeded,
-		"products_failed":  result.Failed,
+		"products_updated": batchResult.Succeeded,
+		"products_failed":  batchResult.Failed,
 	}
-	if len(result.Errors) > 0 {
-		resp["errors"] = result.Errors
+	if len(batchResult.Errors) > 0 {
+		resp["errors"] = batchResult.Errors
 	}
+
+	if len(params.ChannelIDs) > 0 {
+		if batchResult.Failed > 0 {
+			resp["status"] = "partial_success"
+			resp["channel_assignments"] = map[string]any{
+				"status": "skipped",
+				"reason": "one or more catalog updates failed; channel assignment not attempted to avoid mixed state",
+			}
+			return toolJSON(resp)
+		}
+		assignments := make([]bigcommerce.ProductChannelAssignment, 0, len(products)*len(params.ChannelIDs))
+		for _, prod := range products {
+			for _, cid := range params.ChannelIDs {
+				assignments = append(assignments, bigcommerce.ProductChannelAssignment{
+					ProductID: prod.ID,
+					ChannelID: cid,
+				})
+			}
+		}
+		if err := p.bc.UpsertProductChannelAssignments(ctx, assignments); err != nil {
+			resp["status"] = "partial_success"
+			resp["channel_assignments"] = map[string]any{
+				"status":      "failed",
+				"channel_ids": params.ChannelIDs,
+				"product_ids": collectProductIDs(products),
+				"error":       err.Error(),
+			}
+			return toolJSON(resp)
+		}
+		resp["channel_assignments"] = map[string]any{
+			"status":      "completed",
+			"channel_ids": params.ChannelIDs,
+			"pairs":       len(assignments),
+		}
+	}
+
 	return toolJSON(resp)
+}
+
+func collectProductIDs(products []bigcommerce.Product) []int {
+	out := make([]int, len(products))
+	for i, prod := range products {
+		out[i] = prod.ID
+	}
+	return out
 }
 
 func (p *Products) fetchUpdateTargets(ctx context.Context, params *UpdateParams) ([]bigcommerce.Product, error) {
@@ -475,41 +644,79 @@ func (p *Products) fetchUpdateTargets(ctx context.Context, params *UpdateParams)
 // Helper functions for argument extraction and diff generation
 // ---------------------------------------------------------------------------
 
-func extractString(args map[string]any, key string, dst **string) {
-	if v, ok := args[key]; ok {
-		s, sOk := v.(string)
-		if sOk {
-			*dst = &s
-		}
-	}
+// fieldExtractor reads typed fields from an MCP args map and accumulates the
+// first type-mismatch error so callers can validate many fields with a single
+// trailing check. Wrong-typed inputs produce a structured error instead of
+// being silently dropped — silent drops let an LLM believe a field was set
+// when the resulting BC payload omitted it.
+type fieldExtractor struct {
+	args map[string]any
+	err  error
 }
 
-func extractFloat(args map[string]any, key string, dst **float64) {
-	if v, ok := args[key]; ok {
-		f, fOk := v.(float64)
-		if fOk {
-			*dst = &f
-		}
+func (e *fieldExtractor) String(key string, dst **string) {
+	if e.err != nil {
+		return
 	}
+	v, ok := e.args[key]
+	if !ok {
+		return
+	}
+	s, sOk := v.(string)
+	if !sOk {
+		e.err = fmt.Errorf("%s must be a string", key)
+		return
+	}
+	*dst = &s
 }
 
-func extractInt(args map[string]any, key string, dst **int) {
-	if v, ok := args[key]; ok {
-		f, fOk := v.(float64)
-		if fOk {
-			i := int(f)
-			*dst = &i
-		}
+func (e *fieldExtractor) Float(key string, dst **float64) {
+	if e.err != nil {
+		return
 	}
+	v, ok := e.args[key]
+	if !ok {
+		return
+	}
+	f, fOk := v.(float64)
+	if !fOk {
+		e.err = fmt.Errorf("%s must be a number", key)
+		return
+	}
+	*dst = &f
 }
 
-func extractBool(args map[string]any, key string, dst **bool) {
-	if v, ok := args[key]; ok {
-		b, bOk := v.(bool)
-		if bOk {
-			*dst = &b
-		}
+func (e *fieldExtractor) Int(key string, dst **int) {
+	if e.err != nil {
+		return
 	}
+	v, ok := e.args[key]
+	if !ok {
+		return
+	}
+	f, fOk := v.(float64)
+	if !fOk {
+		e.err = fmt.Errorf("%s must be a number", key)
+		return
+	}
+	i := int(f)
+	*dst = &i
+}
+
+func (e *fieldExtractor) Bool(key string, dst **bool) {
+	if e.err != nil {
+		return
+	}
+	v, ok := e.args[key]
+	if !ok {
+		return
+	}
+	b, bOk := v.(bool)
+	if !bOk {
+		e.err = fmt.Errorf("%s must be a boolean", key)
+		return
+	}
+	*dst = &b
 }
 
 func addDiff(m map[string]any, field string, old float64, new *float64) {

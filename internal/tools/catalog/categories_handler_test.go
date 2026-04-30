@@ -181,6 +181,52 @@ func (s *CategoryHandlerSuite) TestCreateRejectsParentIDAndName() {
 	s.True(result.IsError)
 }
 
+func (s *CategoryHandlerSuite) TestCreateWithChannelIDResolvesTree() {
+	s.mockBC.EXPECT().GetTreeIDForChannel(gomock.Any(), 7).Return(42, nil)
+	s.mockBC.EXPECT().CreateCategory(gomock.Any(), gomock.AssignableToTypeOf(bigcommerce.CategoryCreate{})).
+		DoAndReturn(func(_ context.Context, payload bigcommerce.CategoryCreate) ([]bigcommerce.Category, error) {
+			s.Equal(42, payload.TreeID)
+			return []bigcommerce.Category{{ID: 11, Name: payload.Name, TreeID: payload.TreeID}}, nil
+		})
+
+	result, err := s.callTool("catalog/categories/create", map[string]any{
+		"name":       "EU Promos",
+		"channel_id": float64(7),
+		"confirmed":  true,
+	})
+	s.NoError(err)
+	s.False(result.IsError)
+	data := s.parseJSON(result)
+	s.Equal("created", data["status"])
+}
+
+func (s *CategoryHandlerSuite) TestCreateRejectsTreeAndChannelTogether() {
+	result, err := s.callTool("catalog/categories/create", map[string]any{
+		"name":       "Conflict",
+		"tree_id":    float64(1),
+		"channel_id": float64(7),
+	})
+	s.NoError(err)
+	s.True(result.IsError)
+}
+
+func (s *CategoryHandlerSuite) TestListChannelIDResolvesTreeFilter() {
+	s.mockBC.EXPECT().GetTreeIDForChannel(gomock.Any(), 7).Return(42, nil)
+	s.mockBC.EXPECT().SearchCategories(gomock.Any(), gomock.AssignableToTypeOf(map[string]string{})).
+		DoAndReturn(func(_ context.Context, params map[string]string) ([]bigcommerce.Category, error) {
+			s.Equal("42", params["tree_id:in"])
+			return []bigcommerce.Category{{ID: 1, Name: "EU Cat"}}, nil
+		})
+
+	result, err := s.callTool("catalog/categories/list", map[string]any{
+		"channel_id": float64(7),
+	})
+	s.NoError(err)
+	s.False(result.IsError)
+	data := s.parseJSON(result)
+	s.Equal(float64(1), data["total"])
+}
+
 // --- Category Bulk Update Tests ---
 
 func (s *CategoryHandlerSuite) TestBulkUpdatePreview() {

@@ -13,7 +13,7 @@ It implements the **Model Context Protocol (MCP)**, the emerging open standard f
 | Layer | What It Does | Why It Matters |
 |-------|-------------|----------------|
 | **Transport** | Supports stdio, **streamable HTTP**, and SSE with bearer-token auth on the HTTP transports | Deploy locally for dev (stdio) or as a remote service with no code changes |
-| **Progressive Disclosure** | Only 2 tools are exposed to the AI: `discover_tools` and `execute_tool` | Prevents context-window bloat — the AI navigates **~36** catalog tools on-demand via stubs instead of loading full schemas upfront |
+| **Progressive Disclosure** | Only 2 tools are exposed to the AI: `discover_tools` and `execute_tool` | Prevents context-window bloat — the AI navigates **~67** catalog leaf tools on-demand via stubs instead of loading full schemas upfront |
 | **Middleware** | R4 blocklist in `Check()`, confirmation helpers for handlers, bearer auth, structured JSON logging | R1–R3 preview / `confirmed` flows are enforced in **handlers** and schema registration, not solely in `Check()` |
 | **Tool Registry** | Hierarchical catalog of BigCommerce operations (products, categories, images, variants, options, modifiers, metafields) | Organized for discoverability; extensible to orders, customers, inventory, and marketing |
 | **BC HTTP Client** | Rate limiting, exponential backoff, auto-pagination, batch chunking | Respects BigCommerce API quotas automatically; no manual throttling or pagination logic needed |
@@ -36,11 +36,11 @@ This prevents the AI from accidentally bulk-deleting products or making unintend
 Each tool is classified by risk level:
 - **R0** — Read-only (search, list, get)
 - **R1** — Standard writes (create, update)
-- **R2** — High-risk writes (e.g. category move, image/option/variant/modifier deletes, custom field delete)
-- **R3** — Destructive (delete operations)
+- **R2** — High-risk writes (e.g. category move, image/option/variant/modifier deletes, custom field delete, filter-based unassign, channel-listings update, global variant bulk update)
+- **R3** — Destructive (hard product/category deletes)
 - **R4** — Forbidden (blocked entirely)
 
-R4 is blocked in middleware `Check()`. R1–R3 use a shared **preview-then-confirm** pattern implemented per handler (calling `CheckConfirmation` and requiring a `confirmed` field in schemas), so behavior stays consistent without claiming all logic lives in one middleware function.
+R4 is blocked in middleware `Check()`. R1–R3 use a shared **preview-then-confirm** pattern implemented per handler (calling `middleware.IsConfirmed` — or the equivalent `TierEnforcer.CheckConfirmation` — and requiring a `confirmed` field in the tool's input schema, enforced at registration time). Behavior stays consistent without claiming all logic lives in one middleware function.
 
 ### 4. Batch-First Performance
 The client batches API calls wherever possible — fetching 100 categories in one request instead of 100 individual calls. Combined with automatic pagination and rate-limit awareness, this keeps operations fast without hitting BigCommerce quotas.
@@ -64,17 +64,25 @@ Built in Go with **no databases or queues** at runtime: the MCP SDK plus `testif
 
 ## Current Coverage & Roadmap
 
-### Implemented (Catalog)
-- Products: search, CRUD, images, variants, options, modifiers, custom fields
-- Categories: list, CRUD, reorder, move, SEO audit, metafields, product assignments
+### Implemented (Catalog only)
 
-### Planned (Registered, Not Yet Implemented)
+The live `discover_tools` tree contains **`catalog`** and nothing else — non-catalog placeholder categories were removed by the [discovery vs registration audit](./discovery-registration-audit.md) so agents never land on empty leaves.
+
+- **Products** — search (filters + MSF `channel_ids`), get, create, unified update, delete (R3); product↔category assignment (additive `assign_categories` + filter-based `unassign_categories`); MSF helpers `channel_summary`, `channel_assignments/list|assign|remove`; sub-resources for **images**, **options**, **variants**, **modifiers**, **custom fields**, **metafields** (single + bulk + cross-product variant bulk).
+- **Categories** — list (with `list_all` and optional `channel_id` → `tree_id`), get, create (with `parent_name` resolution and MSF), bulk_update, products, SEO audit, move, reorder, metafields (list/set/delete), delete and bulk_delete with child-cascade safety gates (R3).
+- **Brands** — list (filters + `list_all`), get, create, update; brand metafields (list/set/delete).
+- **Variants (global)** — `catalog/variants/list` (`GET /v3/catalog/variants`), `catalog/variants/bulk_update` (`PUT /v3/catalog/variants` ≤ 200 rows, chunked by `BC_VARIANT_BATCH_SIZE`).
+- **Channels (MSF)** — `catalog/channels/list`, `catalog/channels/category_trees`, `catalog/channels/listings/list|create|update`.
+
+### Planned — roadmapped only, **not registered** in `discover_tools`
 - Orders: management, fulfillment, refunds
 - Customers: management, groups, addresses
 - Carts: management, checkout
 - Inventory: levels and adjustments
 - Marketing: promotions, coupons
 - Store: settings, shipping
+
+These domains are documented in [`ARCHITECTURE.md` §7 — Expansion Roadmap](./ARCHITECTURE.md#7-expansion-roadmap). They will be added to the discovery tree (`RegisterCategory`) **in the same change** as the first tool in that domain, per the [discovery vs registration policy](./discovery-registration-audit.md).
 
 The architecture supports adding new domains by implementing tool handlers and registering them — no changes to the transport, discovery, or middleware layers required.
 
