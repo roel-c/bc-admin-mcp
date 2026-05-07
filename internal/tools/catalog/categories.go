@@ -5,22 +5,22 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
 	"github.com/roel-c/bc-admin-mcp/internal/session"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // CategorySearchFilters maps tool parameters to BigCommerce Category Tree
 // query parameters, using the same declarative pattern as ProductSearchFilters.
 var CategorySearchFilters = []SearchFilter{
-	{"name", "name", "string"},
-	{"name_like", "name:like", "string"},
-	{"parent_id", "parent_id:in", "number"},
-	{"tree_id", "tree_id:in", "number"},
-	{"is_visible", "is_visible", "bool"},
-	{"keyword", "keyword", "string"},
+	{ToolKey: "name", BCKey: "name", Kind: "string"},
+	{ToolKey: "name_like", BCKey: "name:like", Kind: "string"},
+	{ToolKey: "parent_id", BCKey: "parent_id:in", Kind: "number"},
+	{ToolKey: "tree_id", BCKey: "tree_id:in", Kind: "number"},
+	{ToolKey: "is_visible", BCKey: "is_visible", Kind: "bool"},
+	{ToolKey: "keyword", BCKey: "keyword", Kind: "string"},
 }
 
 // Categories provides MCP tool handlers for category operations.
@@ -450,7 +450,7 @@ func (c *Categories) handleList(ctx context.Context, request mcp.CallToolRequest
 
 	if !HasDataFilterBCParams(params, CategorySearchFilters, nil) && !listAll {
 		return toolError(
-			"provide at least one filter (e.g. name, name_like, parent_id, is_visible, tree_id, channel_id) "+
+			"provide at least one filter (e.g. name, name_like, parent_id, is_visible, tree_id, channel_id) " +
 				"or set list_all=true to return every category.",
 		), nil
 	}
@@ -692,11 +692,11 @@ func (c *Categories) previewBulkUpdate(ctx context.Context, params *bulkCategory
 	}
 
 	result := map[string]any{
-		"status":             "preview",
-		"categories_count":   len(cats),
-		"changes":            changes,
+		"status":              "preview",
+		"categories_count":    len(cats),
+		"changes":             changes,
 		"total_field_updates": len(changes),
-		"message":            "Review the changes above. Pass confirmed=true with the same parameters to execute.",
+		"message":             "Review the changes above. Pass confirmed=true with the same parameters to execute.",
 	}
 
 	return toolJSON(result)
@@ -1197,11 +1197,11 @@ func (c *Categories) processDelete(ctx context.Context, params *DeleteParams) (*
 	}
 
 	type categoryDetail struct {
-		ID          int      `json:"id"`
-		Name        string   `json:"name"`
-		ParentID    int      `json:"parent_id,omitempty"`
-		ChildCount  int      `json:"child_count"`
-		ChildNames  []string `json:"child_names,omitempty"`
+		ID         int      `json:"id"`
+		Name       string   `json:"name"`
+		ParentID   int      `json:"parent_id,omitempty"`
+		ChildCount int      `json:"child_count"`
+		ChildNames []string `json:"child_names,omitempty"`
 	}
 
 	details := make([]categoryDetail, 0, len(cats))
@@ -1231,7 +1231,7 @@ func (c *Categories) processDelete(ctx context.Context, params *DeleteParams) (*
 			"status": "blocked",
 			"message": "One or more categories have subcategories that will also be deleted. " +
 				"Set include_children=true to acknowledge this before proceeding.",
-			"categories":     details,
+			"categories":      details,
 			"total_children":  totalChildren,
 			"products_impact": "Products are NOT deleted. They remain in your store but lose the deleted category assignment. You can reassign them to other categories afterward.",
 		}
@@ -1240,8 +1240,8 @@ func (c *Categories) processDelete(ctx context.Context, params *DeleteParams) (*
 
 	if !params.Confirmed {
 		result := map[string]any{
-			"status":  "preview",
-			"message": "Review the categories below. Pass confirmed=true with the same parameters to delete.",
+			"status":           "preview",
+			"message":          "Review the categories below. Pass confirmed=true with the same parameters to delete.",
 			"categories":       details,
 			"categories_count": len(cats),
 			"products_impact":  "Products are NOT deleted. They remain in your store but lose the deleted category assignment. You can reassign them to other categories afterward.",

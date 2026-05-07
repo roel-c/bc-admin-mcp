@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // RegisterImageTools registers the image sub-resource tools.

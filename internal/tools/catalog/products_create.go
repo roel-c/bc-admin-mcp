@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // ProductCreateParams holds parsed arguments for the product create tool.

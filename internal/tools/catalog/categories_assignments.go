@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // Per-call caps for the additive product↔category assignment tool.
@@ -88,11 +88,11 @@ func (p *Products) handleAssignCategories(ctx context.Context, request mcp.CallT
 
 	if !confirmed {
 		preview := map[string]any{
-			"status":               "pending_confirmation",
-			"total_assignments":    len(assignments),
-			"product_count":        len(params.ProductIDs),
-			"category_count":       len(params.CategoryIDs),
-			"sample_assignments":   assignments[:min(5, len(assignments))],
+			"status":             "pending_confirmation",
+			"total_assignments":  len(assignments),
+			"product_count":      len(params.ProductIDs),
+			"category_count":     len(params.CategoryIDs),
+			"sample_assignments": assignments[:min(5, len(assignments))],
 			"message": fmt.Sprintf(
 				"%d assignment(s) will be created (%d products x %d categories). "+
 					"This is additive — existing category memberships are preserved. "+

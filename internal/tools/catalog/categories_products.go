@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 )
 
 // ParseCategoryProductsParams validates arguments for the category products listing tool.

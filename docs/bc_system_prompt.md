@@ -33,14 +33,14 @@ Place values in a **`.env`** file in the project root (see `.env.example`). The 
 
 The MCP server uses a **progressive disclosure** pattern. Instead of loading all tool schemas into context at once (~40k tokens), you navigate a category tree:
 
-1. **`discover_tools("")`** → returns **`catalog`** (the only registered root today; other domains ship when tools exist)
-2. **`discover_tools("catalog")`** → returns subcategories (`catalog/products`, `catalog/categories`, …)
+1. **`discover_tools("")`** → returns active roots (**`catalog`**, **`orders`**, **`customers`**, **`marketing`**, **`inventory`**)
+2. **`discover_tools("<root>")`** → returns subcategories under that root (for example `catalog/products` or `customers/groups`)
 3. **`discover_tools("catalog/products")`** → returns individual tools as **stubs** (path, type, summary, tier — not full JSON Schemas)
 4. **`execute_tool`** → pass **`tool_path`** (full tool path string) and **`arguments`** (object of parameters for that tool). Example: `execute_tool` with `tool_path: "catalog/products/search"` and `arguments: { "name_like": "Testing" }` — all tool parameters belong **inside** `arguments`, not at the top level beside `tool_path`.
 
 This keeps initial MCP surface small; each `discover_tools` response stays lightweight.
 
-### Universal `execute_tool` shape (all catalog tools)
+### Universal `execute_tool` shape (all tools)
 
 Every catalog tool uses the **same** MCP envelope:
 
@@ -134,6 +134,23 @@ All R1+ tools require a **preview-then-confirm** workflow: call the tool first w
 | `catalog/channels/listings/list` | R0 | `GET /v3/channels/{channel_id}/listings` — optional **`product_ids`**; up to 2000 rows; **`store_channel_listings`** read (or read-only) scope |
 | `catalog/channels/listings/create` | R1 | `POST` listings — **`listings_json`** (max 10); each object needs **product_id**, **state**, **variants**; preview → **`confirmed`** |
 | `catalog/channels/listings/update` | R2 | `PUT` listings — **`listings_json`** with **listing_id** per row; preview → **`confirmed`** |
+
+**Catalog — Price Lists (`/v3/pricelists`):**
+
+| Tool Path | Tier | Description |
+|-----------|------|-------------|
+| `catalog/pricelists/list` | R0 | `GET /v3/pricelists` with optional id/name/date filters and offset/cursor pagination |
+| `catalog/pricelists/get` | R0 | `GET /v3/pricelists/{price_list_id}` |
+| `catalog/pricelists/create` | R1 | `POST /v3/pricelists` (`name`, optional `active`); preview → confirm |
+| `catalog/pricelists/update` | R1 | Fetch-merge-`PUT /v3/pricelists/{price_list_id}`; preview diff → confirm |
+| `catalog/pricelists/delete` | R3 | Destructive `DELETE /v3/pricelists/{price_list_id}`; preview → confirm |
+| `catalog/pricelists/records/list` | R0 | `GET /v3/pricelists/{price_list_id}/records` with variant/product/SKU/currency filters and offset/cursor pagination |
+| `catalog/pricelists/records/upsert` | R2 | `PUT /v3/pricelists/{price_list_id}/records`; max **100** rows per tool call; preview → confirm; serial write policy |
+| `catalog/pricelists/records/delete` | R2 | Selector-based `DELETE /v3/pricelists/{price_list_id}/records` (requires `variant_ids` or `skus`); preview → confirm |
+| `catalog/pricelists/assignments/list` | R0 | `GET /v3/pricelists/assignments` with id/price_list/customer_group/channel filters and offset/cursor pagination |
+| `catalog/pricelists/assignments/create_batch` | R2 | `POST /v3/pricelists/assignments`; max **25** rows/tool call; preview → confirm |
+| `catalog/pricelists/assignments/upsert` | R2 | `PUT /v3/pricelists/{price_list_id}/assignments` for one customer-group + channel tuple; preview → confirm |
+| `catalog/pricelists/assignments/delete` | R2 | Filter-based `DELETE /v3/pricelists/assignments`; at least one filter required; preview → confirm |
 
 **Choosing between channel assignments and channel listings (MSF):**
 
@@ -695,7 +712,7 @@ Consult these project files for detailed reference (paths are relative to the re
 - `docs/BC-API-Reference.md` — BigCommerce REST Management API endpoint map, pagination, and batching patterns
 - `docs/BC-Tool-Boundaries.md` — Tool tiers (R0–R4), numeric caps, concurrency policy, and OAuth scope grouping
 - `docs/BC-API-SPECIFICITY.md` — Field-level API quirks and undocumented behaviors
-- `docs/discovery-registration-audit.md` — `discover_tools` ↔ `RegisterTool` policy (catalog-only root until other domains ship)
+- `docs/discovery-registration-audit.md` — `discover_tools` ↔ `RegisterTool` policy (active roots and non-empty category guarantees)
 - `docs/catalog-completion-checklist.md` — Catalog completeness gate before adding new tool domains
 - `docs/msf-research-outline.md` / `docs/channels-msf-implementation-roadmap.md` — Multi-storefront research and phased delivery
 - `README.md` — Setup instructions, build commands, and transport configuration

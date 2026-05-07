@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // maxBulkProductMetafieldTargets caps how many distinct products a single bulk
@@ -115,7 +115,7 @@ func (p *Products) RegisterProductMetafieldBulkTools(reg *discovery.Registry) {
 			"Maximum " + maxStr + " products per call. Preview then confirmed=true.",
 		Tool: mcp.NewTool("catalog_products_metafields_bulk_delete",
 			mcp.WithDescription(
-				"Bulk delete metafield by namespace+key across product_ids (max " + maxStr +
+				"Bulk delete metafield by namespace+key across product_ids (max "+maxStr+
 					"). Skips products where it does not exist.",
 			),
 			mcp.WithArray("product_ids",
@@ -146,12 +146,12 @@ func (p *Products) handleProductMetafieldsBulkSet(ctx context.Context, request m
 	confirmed := middleware.IsConfirmed(request)
 
 	type row struct {
-		ProductID       int    `json:"product_id"`
-		Action          string `json:"action"`
-		EffectivePerm   string `json:"effective_permission_set,omitempty"`
-		HasExisting     bool   `json:"has_existing"`
-		ExistingValue   string `json:"existing_value,omitempty"`
-		MetafieldID     int    `json:"metafield_id,omitempty"`
+		ProductID     int    `json:"product_id"`
+		Action        string `json:"action"`
+		EffectivePerm string `json:"effective_permission_set,omitempty"`
+		HasExisting   bool   `json:"has_existing"`
+		ExistingValue string `json:"existing_value,omitempty"`
+		MetafieldID   int    `json:"metafield_id,omitempty"`
 	}
 
 	rows := make([]row, 0, len(ids))
@@ -274,9 +274,9 @@ func (p *Products) handleProductMetafieldsBulkDelete(ctx context.Context, reques
 	confirmed := middleware.IsConfirmed(request)
 
 	type prevRow struct {
-		ProductID   int  `json:"product_id"`
+		ProductID    int  `json:"product_id"`
 		HasMetafield bool `json:"has_metafield"`
-		MetafieldID int  `json:"metafield_id,omitempty"`
+		MetafieldID  int  `json:"metafield_id,omitempty"`
 	}
 	prevRows := make([]prevRow, 0, len(ids))
 	for _, pid := range ids {
@@ -332,8 +332,8 @@ func (p *Products) handleProductMetafieldsBulkDelete(ctx context.Context, reques
 		}
 		succeeded++
 		results = append(results, map[string]any{
-			"product_id":    pid,
-			"status":        "deleted",
+			"product_id":   pid,
+			"status":       "deleted",
 			"metafield_id": mfID,
 		})
 	}

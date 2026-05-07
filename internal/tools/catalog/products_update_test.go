@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/session"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/catalog"
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -142,9 +142,9 @@ func (s *UpdateToolSuite) TestUpdateNoTargetError() {
 
 func (s *UpdateToolSuite) TestUpdateMultipleTargetModesError() {
 	result, err := s.callTool("catalog/products/update", map[string]any{
-		"product_ids":  []any{float64(1)},
-		"sku":          "ABC",
-		"price":        float64(10),
+		"product_ids": []any{float64(1)},
+		"sku":         "ABC",
+		"price":       float64(10),
 	})
 	s.NoError(err)
 	s.True(result.IsError)

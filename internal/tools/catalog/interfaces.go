@@ -105,6 +105,20 @@ type BigCommerceAPI interface {
 	UpsertProductChannelAssignments(ctx context.Context, assignments []bigcommerce.ProductChannelAssignment) error
 	DeleteProductChannelAssignments(ctx context.Context, productIDs, channelIDs []int) error
 
+	// Price lists
+	ListPriceLists(ctx context.Context, params bigcommerce.PriceListListParams) ([]bigcommerce.PriceList, error)
+	GetPriceList(ctx context.Context, priceListID int) (*bigcommerce.PriceList, error)
+	CreatePriceList(ctx context.Context, payload bigcommerce.PriceListCreate) (*bigcommerce.PriceList, error)
+	UpdatePriceList(ctx context.Context, priceListID int, payload bigcommerce.PriceListUpdate) (*bigcommerce.PriceList, error)
+	DeletePriceList(ctx context.Context, priceListID int) error
+	ListPriceListRecords(ctx context.Context, priceListID int, params bigcommerce.PriceListRecordListParams) ([]bigcommerce.PriceListRecord, error)
+	UpsertPriceListRecords(ctx context.Context, priceListID int, records []bigcommerce.PriceListRecordUpsert) error
+	DeletePriceListRecords(ctx context.Context, priceListID int, params bigcommerce.PriceListRecordDeleteParams) error
+	ListPriceListAssignments(ctx context.Context, params bigcommerce.PriceListAssignmentListParams) ([]bigcommerce.PriceListAssignment, error)
+	CreatePriceListAssignments(ctx context.Context, assignments []bigcommerce.PriceListAssignmentCreate) error
+	UpsertPriceListAssignment(ctx context.Context, priceListID int, payload bigcommerce.PriceListAssignmentUpsert) (*bigcommerce.PriceListAssignment, error)
+	DeletePriceListAssignments(ctx context.Context, params bigcommerce.PriceListAssignmentDeleteParams) error
+
 	// Brands
 	SearchBrands(ctx context.Context, params map[string]string) ([]bigcommerce.Brand, error)
 	GetBrand(ctx context.Context, brandID int) (*bigcommerce.Brand, error)

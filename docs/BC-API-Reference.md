@@ -643,22 +643,37 @@ Method
 	GET
 	/v3/pricelists/records
 	Get records across all price lists
-	
+	(available in API, currently not surfaced in MCP)
 
 	GET
 	/v3/pricelists/assignments
 	List price list assignments
 	
 
+	POST
+	/v3/pricelists/assignments
+	Create price list assignments (batch)
+	Batch limit 25
+
+	PUT
+	/v3/pricelists/{price_list_id}/assignments
+	Upsert one price list assignment
+	Single assignment per call
+
 	PUT
 	/v3/pricelists/assignments
-	Upsert price list assignments
-	
+	Legacy/older docs variant (prefer explicit POST batch + /{price_list_id}/assignments upsert forms above)
+
 
 	DELETE
 	/v3/pricelists/assignments
-	Delete price list assignments
-	
+	Delete price list assignments by filters
+
+	**Implementation notes (catalog/pricelists subtree)** — MCP now ships:
+	- `catalog/pricelists/*` (list/get/create/update/delete)
+	- `catalog/pricelists/records/*` (list/upsert/delete)
+	- `catalog/pricelists/assignments/*` (list/create_batch/upsert/delete)
+	All write operations are preview→confirm, and `catalog/pricelists/records/upsert` is R2 with a conservative **100-row** cap per tool call and serial execution policy.
 
 	________________
 
@@ -703,11 +718,32 @@ Method
 	/v2/orders/{id}/refunds
 	Get refund details
 	POST
-	/v3/orders/{id}/payment_actions/refund
+	/v3/orders/{id}/payment_actions/refund_quotes
+	Create refund quote (recommended pre-step before refund)
+	POST
+	/v3/orders/{id}/payment_actions/refunds
 	Issue a refund
 	POST
 	/v3/orders/{id}/payment_actions/capture
 	Capture payment
+	POST
+	/v3/orders/{id}/payment_actions/void
+	Void payment
+	GET
+	/v3/orders/{id}/transactions
+	List transaction ledger entries for one order
+	GET
+	/v3/orders/{id}/metafields
+	List order metafields
+	POST
+	/v3/orders/{id}/metafields
+	Create order metafield
+	PUT
+	/v3/orders/{id}/metafields/{metafield_id}
+	Update order metafield
+	DELETE
+	/v3/orders/{id}/metafields/{metafield_id}
+	Delete order metafield
 	GET
 	/v2/order_statuses
 	List all order statuses
@@ -715,6 +751,16 @@ Method
 	/v2/orders/count
 	Get order count
 	Key filterable fields: status_id, customer_id, email, min_date_created, max_date_created, is_deleted, payment_method, channel_id
+
+**Implementation notes (`orders/**` subtree)** — MCP now ships:
+- `orders/management/list`, `orders/management/get`, `orders/management/create`, `orders/management/update`, `orders/management/delete`, `orders/management/count`, `orders/management/statuses`, `orders/management/update_status`
+- `orders/management/products/get`, `orders/management/metafields/list`, `orders/management/metafields/set`, `orders/management/metafields/delete`
+- `orders/management/coupons/list`, `orders/management/shipping_addresses/list`, `orders/management/shipping_addresses/get`, `orders/management/shipping_addresses/update`, `orders/management/messages/list`, `orders/management/taxes/list`
+- `orders/fulfillment/shipments/list`, `orders/fulfillment/shipments/get`, `orders/fulfillment/shipments/create`, `orders/fulfillment/shipments/update`, `orders/fulfillment/shipments/delete`
+- `orders/payments/actions/list`, `orders/payments/transactions/list`, `orders/payments/capture`, `orders/payments/void`
+- `orders/refunds/list`, `orders/refunds/legacy_list`, `orders/refunds/quote`, `orders/refunds/create`
+
+All write operations in the orders subtree follow preview→confirm. Financially sensitive payment actions (`capture`, `void`, `refunds/create`) are R3 and require explicit per-order `confirmed=true`. Refund quotes are surfaced as a pre-step to reduce refund 422 failures.
 ________________
 
 
@@ -809,37 +855,142 @@ Method
 ________________
 
 
-6.10 Customer Segmentation
-Base path: /v3/segments
+6.9.1 Customer Groups (V2)
+Base path: /v2/customer_groups
  Scope required: store_v2_customers
-Generally Available (GA) as of late 2024.
+Customer Groups organize customers, control category access, and apply group-wide discount rules. The endpoint is V2-only; per-customer assignment is performed via V3 `PUT /v3/customers` using `customer_group_id` (see `customers/assign_group` and §6.9.2).
+Method
+	Endpoint
+	Description
+	Batch
+	GET
+	/v2/customer_groups
+	List all customer groups (offset paginated)
+	—
+	POST
+	/v2/customer_groups
+	Create a customer group
+	—
+	GET
+	/v2/customer_groups/{id}
+	Get a single customer group
+	—
+	PUT
+	/v2/customer_groups/{id}
+	Update a customer group (discount_rules treated in bulk — sending the field overwrites all rules)
+	—
+	DELETE
+	/v2/customer_groups/{id}
+	Delete a customer group (members are unassigned automatically)
+	—
+	GET
+	/v2/customer_groups/count
+	Get total customer group count
+	—
+List filters (passed as query params): name, name:like, is_default, is_group_for_guests, date_created, date_created:min, date_created:max, date_modified, date_modified:min, date_modified:max.
+Key fields:
+* `name` (required on POST)
+* `is_default` — auto-assigns new customers to this group
+* `is_group_for_guests` — only one group can hold this flag
+* `category_access`: `{type: "all"|"specific"|"none", categories: [int]}` (categories required only when type=specific)
+* `discount_rules[]` — polymorphic. Two mutually exclusive modes:
+  * Price-list mode: a single `{type: "price_list", price_list_id: int}` rule, no other rules allowed.
+  * Discount mode: any combination of `{type: "category", method, amount, category_id}`, `{type: "product", method, amount, product_id}`, and at most one `{type: "all", method, amount}`.
+* method ∈ {`percent`, `fixed`, `price`}; amount is a string-encoded float (e.g. `"5.0000"`).
+Notes / quirks:
+* The MCP server silently keeps the `price_list` rule and drops conflicting non-price_list rules with a warning surfaced in the tool response.
+* Category discounts default to "this category and its subcategories"; the API has no toggle for "this category only" (control panel only).
+* The MCP server's V2 client helpers (`GetV2`, `PostV2`, `PutV2`, `DeleteV2`) live in `internal/bigcommerce/client.go`; Customer Groups is the first V2 write surface.
+
+6.9.2 Customer records and addresses (V3)
+
+Base paths: `/v3/customers`, `/v3/customers/addresses`
+
+Scope: `store_v2_customers` (read/write) or `store_v2_customers_read_only` (reads only).
+
+Customers: GET list/search (filters such as id:in, email:in, name:like, customer_group_id:in, dates; include; sort; page/limit and cursors). POST and PUT accept arrays capped at **10** customers per call by BigCommerce. DELETE requires `id:in`. There is no GET-by-single-id; use `id:in` with one id.
+
+Addresses: GET with filters (`customer_id:in`, `id:in`, etc.). POST and PUT accept JSON arrays. DELETE uses `id:in`.
+
+Password writes use MCP tier **R2** with `set_password=true` and `confirmed=true` after preview.
+
+Code: `internal/bigcommerce/customers.go`, `internal/tools/customers/customer_records.go`, `internal/tools/customers/customer_addresses_tools.go`.
+
+6.9.3 Customer attributes, attribute values, and metafields (V3)
+
+Base paths: `/v3/customers/attributes`, `/v3/customers/attribute-values`, `/v3/customers/{customerId}/metafields`, `/v3/customers/metafields`
+
+Scope: `store_v2_customers` (read/write) or `store_v2_customers_read_only` (reads only).
+
+Attributes (definitions): GET, POST, PUT, DELETE on `/v3/customers/attributes`. Each attribute carries a `name` and a `type` (one of `string`, `number`, `date`). `type` is fixed at create time — to change it, delete and recreate the attribute. Deleting an attribute cascades to every value of that attribute on every customer. POST/PUT bodies are arrays capped at **10** rows per call.
+
+Attribute values (per customer): GET on `/v3/customers/attribute-values` (filters: `customer_id:in`, `attribute_id:in`, `attribute_value`, `attribute_value:in`). PUT upserts by `(customer_id, attribute_id)` (capped at 10 rows). DELETE uses `id:in`. BigCommerce coerces the supplied `value` to the attribute's declared type.
+
+Metafields (per customer + cross-customer):
+* `GET/POST/PUT/DELETE /v3/customers/{customerId}/metafields` — single-customer reads, upsert by namespace+key, delete by id.
+* `GET/POST/PUT/DELETE /v3/customers/metafields` — list across customers (filters: `customer_id:in`, `namespace`, `namespace:in`, `namespace:like`, `key`, `key:in`), batched create/update (each row carries `resource_id`), and batch delete by `id:in`.
+
+`permission_set` controls visibility (`app_only`, `read`, `write`, `read_and_sf_access`, `write_and_sf_access`); when omitted, BigCommerce defaults to `app_only` and the value is **not** exposed via the Storefront API.
+
+Code: `internal/bigcommerce/customer_attributes.go`, `internal/tools/customers/attributes_tools.go`, `internal/tools/customers/attribute_values_tools.go`, `internal/tools/customers/metafields_tools.go`.
+
+6.9.4 Customer settings, consent, stored instruments, and credential validation (V3)
+
+**Settings** — Base paths: `/v3/customers/settings` (global) and `/v3/customers/settings/channels/{channel_id}` (per-channel overrides). Scope: `store_v2_customers` (or read-only variant for GET). Global settings cover `privacy_settings` (e.g. `ask_shopper_for_tracking_consent`, `policy_url`, `ask_shopper_for_tracking_consent_on_checkout`) and `customer_group_settings` (`guest_customer_group_id`, `default_customer_group_id`). Channel settings add **`allow_global_logins`**: when enabled on a storefront channel, customers without explicit `channel_ids` may use the same credentials across channels that also allow global logins (see BigCommerce channel-specific customers documentation). Channel `null` values inherit from global.
+
+**Consent** — `GET` and `PUT /v3/customers/{customerId}/consent`. Request/response use `allow` and `deny` arrays whose entries are one of `essential`, `functional`, `analytics`, `targeting`.
+
+**Stored instruments** — `GET /v3/customers/{customerId}/stored-instruments`. Response is a polymorphic list (`stored_card`, `stored_paypal_account`, `stored_bank_account`) including a **`token`** field. OAuth scopes **`store_stored_payment_instruments`** or **`store_stored_payment_instruments_read_only`** apply.
+
+**Validate credentials** — `POST /v3/customers/validate-credentials` with JSON `{ "email", "password", "channel_id"? }`. Returns `{ "is_valid", "customer_id" }`. This endpoint has **stricter rate limiting** (HTTP 429 on abuse).
+
+Code: `internal/bigcommerce/customer_settings_consent.go`, `internal/tools/customers/customer_settings_tools.go`, `internal/tools/customers/customer_consent_tools.go`, `internal/tools/customers/customer_stored_instruments_tools.go`, `internal/tools/customers/customer_validate_credentials_tools.go`.
+________________
+
+
+6.10 Customer Segmentation
+Base paths: /v3/segments and /v3/shopper-profiles
+ Scope required: store_v2_customers (GET endpoints accept store_v2_customers_read_only **except** the segment-membership GET noted below).
+ Plan: **Enterprise-only** — non-enterprise stores receive 403 on every endpoint in this family.
+ Generally Available (GA) as of late 2024.
 Method
 	Endpoint
 	Description
 	GET
 	/v3/segments
-	List all customer segments
+	List all segments (paginated; supports id:in (UUIDs), page, limit)
 	POST
 	/v3/segments
-	Create a segment
-	GET
-	/v3/segments/{id}
-	Get a segment
+	Bulk create segments — body is `[{name, description?}]`. Limits: 10 concurrent requests; max **1000** total segments per store.
 	PUT
-	/v3/segments/{id}
-	Update a segment
+	/v3/segments
+	Bulk update segments — body is `[{id, name?, description?}]`; 10 concurrent requests.
 	DELETE
-	/v3/segments/{id}
-	Delete a segment
+	/v3/segments?id:in=…
+	Bulk delete segments. **Does not delete the associated shopper profiles** — only the segment metadata.
 	GET
-	/v3/segments/{id}/shopper-profiles
-	List shoppers in a segment
+	/v3/segments/{segmentId}/shopper-profiles
+	List shopper profiles in a segment. **Requires the modify Customers OAuth scope** (`store_v2_customers`) — the only GET in this family that does so.
 	POST
-	/v3/segments/{id}/shopper-profiles
-	Add shoppers to a segment
+	/v3/segments/{segmentId}/shopper-profiles
+	Add profiles to a segment. Body is an array of shopper-profile UUIDs; max **50** per request; 10 concurrent.
 	DELETE
-	/v3/segments/{id}/shopper-profiles
-	Remove shoppers from a segment
+	/v3/segments/{segmentId}/shopper-profiles?id:in=…
+	Disassociate profiles from a segment without deleting the profiles themselves.
+	GET
+	/v3/shopper-profiles
+	Paginated list of shopper profiles. **No id:in filter or single-profile GET** — to look up a profile by customer use `GET /v3/customers?id:in=…&include=shopper_profile_id`.
+	POST
+	/v3/shopper-profiles
+	Bulk-create profiles. Body is `[{customer_id}]`. Each registered customer is 1:1 with a profile; duplicates 409.
+	DELETE
+	/v3/shopper-profiles?id:in=…
+	Delete profiles and all of their segment memberships. Customer records themselves are unaffected.
+	GET
+	/v3/shopper-profiles/{shopperProfileId}/segments
+	List the segments containing a profile.
+	**Implementation notes** — Segment IDs are UUID strings; we expose an MCP `customers/segments/get` that wraps `id:in={uuid}` for parity with `customers/get`. The shopper-add tool accepts either `shopper_profile_ids` (UUIDs) or `customer_ids` (numeric, max 50/call) and resolves them via `customers?include=shopper_profile_id`; customers without an existing profile are surfaced under `missing_shopper_profiles` rather than silently dropped. Per-tool numeric caps: segments create/update **10**/call, segments delete **40**/call, shopper-add **50**/call, shopper-remove **40**/call, shopper-profile create **50**/call, shopper-profile delete **40**/call. The 403 scope hint additionally calls out the Enterprise plan requirement so non-enterprise stores get a clear failure mode.
+	Code: `internal/bigcommerce/segments.go`, `internal/tools/customers/segments_tools.go`, `internal/tools/customers/shopper_profiles_tools.go`.
 	________________
 
 
@@ -994,6 +1145,22 @@ Method
 	/v3/inventory/locations/{id}
 	Delete a location
 	—
+GET
+	/v3/inventory/locations/{id}/metafields
+	List location metafields
+	—
+POST
+	/v3/inventory/locations/{id}/metafields
+	Create location metafield
+	—
+PUT
+	/v3/inventory/locations/{id}/metafields/{metafield_id}
+	Update location metafield
+	—
+DELETE
+	/v3/inventory/locations/{id}/metafields/{metafield_id}
+	Delete location metafield
+	—
 	GET
 	/v3/inventory/items
 	List inventory items
@@ -1015,57 +1182,88 @@ Method
 	Get inventory for a variant
 	—
 	Key fields on inventory items: location_id, product_id, variant_id, quantity, safety_stock, is_in_stock, bin_picking_number
+
+**Implementation notes (`inventory/**` subtree)** — MCP now ships:
+- `inventory/locations/list`
+- `inventory/locations/create`
+- `inventory/locations/update`
+- `inventory/locations/delete`
+- `inventory/locations/metafields/list`
+- `inventory/locations/metafields/set`
+- `inventory/locations/metafields/delete`
+- `inventory/items/list`
+- `inventory/items/get`
+- `inventory/items/update_batch`
+- `inventory/adjustments/absolute`
+- `inventory/adjustments/relative`
+
+Inventory location create/update and inventory item/adjustment writes are surfaced as **R2** preview→confirm operations. Location metafield set/delete are **R1** preview→confirm operations. `inventory/locations/delete` remains **R3** destructive (preview→confirm). Batch row caps remain 10 for `inventory/items/update_batch` and adjustment tools.
 ________________
 
 
 6.14 Promotions & Coupons
-Base path: /v3/promotions and /v2/coupons
- Scope required: store_marketing
+Base path: /v3/promotions (and /v3/promotions/{id}/codes for coupon codes; /v2/coupons is the legacy V2 surface)
+ Scope required: store_v2_marketing (writes); store_v2_marketing_read_only is sufficient for GETs.
+ Default rate limit: 40 concurrent requests on most endpoints. Notable exceptions: `GET /v3/promotions/{id}/codes` and `POST /v3/promotions/{id}/codegen` default to 10 concurrent.
+ Default `redemption_type`s: AUTOMATIC and COUPON. The field is **read-only after create** — PUT cannot flip it.
 Method
 	Endpoint
 	Description
 	GET
 	/v3/promotions
-	List all promotions
+	List promotions. Filters: `id`, `name`, `code`, `query` (matches name or code), `currency_code`, `redemption_type` (`automatic`|`coupon`), `status` (`ENABLED`|`DISABLED`|`INVALID`), `channels` (CSV of channel IDs). Sort: `id|name|priority|start_date` × `asc|desc`. Page/limit pagination (default limit 50).
 	POST
 	/v3/promotions
-	Create a promotion
+	Create one promotion. Single-record (not bulk). Body must include `rules[]` (one or more) plus `redemption_type` and other top-level fields.
 	GET
 	/v3/promotions/{id}
-	Get a promotion
+	Get a single promotion.
 	PUT
 	/v3/promotions/{id}
-	Update a promotion
+	Replace a promotion. **`redemption_type` is read-only.** PUT replaces the entire document; partial updates require fetch + merge on the caller side.
 	DELETE
-	/v3/promotions/{id}
-	Delete a promotion
+	/v3/promotions?id:in=…
+	**Bulk delete** (max 50 ids/call). 422 if any promotion still has coupon codes attached — delete the codes first via `/v3/promotions/{id}/codes` before the promotion itself.
 	GET
 	/v3/promotions/{id}/codes
-	List coupon codes for promotion
+	List coupon codes attached to a promotion. **Cursor-paginated** via `before`/`after` (not page/limit); BigCommerce default rate limit is **10 concurrent** here (lower than other coupon endpoints).
 	POST
 	/v3/promotions/{id}/codes
-	Generate coupon codes
+	Create a single coupon code. Body: `code` (required, ≤50 chars; allowed: letters / numbers / spaces / underscores / hyphens), `max_uses` (0 = unlimited; **parent promotion's `max_uses` overrides**), `max_uses_per_customer` (0 = unlimited). **No PUT** — coupon codes are immutable; to change a code, delete and recreate.
+	POST
+	/v3/promotions/{id}/codegen
+	Generate a batch of coupon codes for a `coupon_type=BULK` promotion. Body: `batch_size` (≤250), `prefix`, `suffix`, `length` (6..16, excludes prefix/suffix), `format` (`NUMBERS`|`LETTERS`|`ALPHANUMERIC`), `separator`. SINGLE-type promotions are rejected with 422.
 	DELETE
-	/v3/promotions/{id}/codes
-	Delete coupon codes
+	/v3/promotions/{id}/codes?id:in=…
+	Bulk-delete coupon codes by id (max **50**/call per BC).
 	GET
 	/v2/coupons
-	List coupons (V2, cursor paginated as of Jan 2025)
+	Legacy V2 coupons surface. Cursor-paginated as of Jan 2025; superseded by `/v3/promotions` + `/codes` for new builds.
 	POST
 	/v2/coupons
-	Create a coupon
+	Create a V2 coupon.
 	PUT
 	/v2/coupons/{id}
-	Update a coupon
+	Update a V2 coupon.
 	DELETE
 	/v2/coupons/{id}
-	Delete a coupon
+	Delete a V2 coupon.
 	GET
 	/v3/promotions/settings
-	Get promotion settings
+	Get store-wide promotion settings. Current live shape includes:
+	`promotions_triggered_by_products_with_zero_product_price` (bool),
+	`promotions_apply_on_products_with_custom_product_price` (bool),
+	`number_of_coupons_allowed_at_checkout` (int 1..5; >1 is Enterprise-only),
+	`promotions_applied_on_original_product_price` (bool).
 	PUT
 	/v3/promotions/settings
-	Update promotion settings
+	Update store-wide promotion settings (full document replacement).
+	**Rule engine shape** — each `rules[]` entry has exactly one of five `action` shapes: `cart_items` (per-line discount + `strategy ∈ LEAST_EXPENSIVE|MOST_EXPENSIVE`, `as_total`, `items` matcher), `cart_value` (order-level discount), `shipping` (`free_shipping: true`, optional `zone_ids`/`shipping_methods`), `gift_item` (`product_id`, `quantity`), `fixed_price_set` (`price` + `items`). `discount` accepts exactly one of `percentage_amount` | `fixed_amount` (string-encoded). `condition` is recursively polymorphic — `cart` (with optional `items` matcher, `minimum_quantity`, `minimum_spend`) plus `and|or|not` operators. `items` matchers accept the leaves `products|categories|brands|variants` (non-empty integer arrays) plus the same `and|or|not` operators. `customer.group_ids` and `customer.excluded_group_ids` are mutually exclusive (BC 422). `notifications[].type ∈ PROMOTION|UPSELL|ELIGIBLE|APPLIED`; `locations ∈ HOME_PAGE|PRODUCT_PAGE|CART_PAGE|CHECKOUT_PAGE`. **BigCommerce recommends ≤ 10 rules per promotion and < 100 active promotions per store** (above that the checkout slows / risks OOM).
+	**Coupon-only outer fields** (only valid when `redemption_type=COUPON`): `coupon_type ∈ SINGLE | BULK` (default SINGLE), `coupon_overrides_other_promotions` (only valid when `can_be_used_with_other_promotions=false`; BC 422 otherwise), `multiple_codes` (BULK only), and the **deprecated** `coupon_overrides_automatic_when_offering_higher_discounts` (BC says use `coupon_overrides_other_promotions` instead).
+	**Implementation notes (automatic subtree)** — The `marketing/promotions/automatic/*` tools hard-pin `redemption_type=AUTOMATIC`. The MCP `create` tool always overrides `redemption_type` to `AUTOMATIC` so coupon promotions can't be created through it; the `get` and `update` tools refuse to operate on a promotion whose stored `redemption_type` is `COUPON` and point at the coupon subtree. Per-tool numeric caps: delete **40** ids/call (under BC's 50). Soft-warn surfaces in `create` previews when the store already has ≥ 100 ENABLED promotions. Update merges top-level scalars and supports positional rule edits via `rules_patch=[{index, replace_with}]`; sending the entire `rules` array via `patch.rules` replaces it in full and emits a warning. The 403 scope hint additionally calls out `store_v2_marketing` so misscoped tokens get a clear failure mode.
+	**Implementation notes (coupon subtree + coupon codes)** — The `marketing/promotions/coupon/*` tools hard-pin `redemption_type=COUPON`, with coupon-code lifecycle under `marketing/promotions/coupon/codes/*`. The validator extends the automatic subtree's deep-shape checks with redemption-type-aware cross-field rules: rejects the deprecated `coupon_overrides_automatic_when_offering_higher_discounts` outright (per design choice — REJECT mode), enforces the `coupon_overrides_other_promotions=true ⇒ can_be_used_with_other_promotions=false` constraint, validates `coupon_type ∈ SINGLE | BULK`, and rejects `multiple_codes` on SINGLE promotions. **Coupon codes are immutable** — there is no PUT on `/codes`; tools surface a "delete and recreate" message. `coupon/delete` accepts an optional `delete_codes_first=true` flag that walks each promotion's codes via cursor pagination and deletes them in chunks of **40** before deleting the promotion; the cascade is bounded at **1000 codes per promotion** to keep a single invocation reviewable. `codes/generate_bulk` pre-flights the parent's `coupon_type=BULK` and refuses on SINGLE; `batch_size` is hard-capped at **250** (BC's per-call limit). `codes/create_single` validates the `code` charset client-side (letters/numbers/spaces/underscores/hyphens, ≤50 chars) and surfaces a warning when the parent promotion's `max_uses` will override the code's. `codes/delete` caps at **40** ids/call (under BC's documented 50).
+	**Implementation notes (settings subtree)** — `marketing/promotions/settings/*` adds `get` (R0) and `update` (R2). Update uses fetch-merge-PUT over the four live fields listed above, validates `number_of_coupons_allowed_at_checkout` to 1..5, type-checks booleans, soft-warns (but does not block) when setting coupon count > 1 (Enterprise-only), and returns `noop` without issuing PUT when the requested patch matches current settings.
+	Code: `internal/bigcommerce/promotions.go`, `internal/bigcommerce/coupon_codes.go`, `internal/bigcommerce/types.go`, `internal/tools/promotions/automatic_tools.go`, `internal/tools/promotions/coupon_tools.go`, `internal/tools/promotions/coupon_codes_tools.go`, `internal/tools/promotions/settings_tools.go`, `internal/tools/promotions/validation.go`.
 	________________
 
 

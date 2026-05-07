@@ -24,17 +24,17 @@ type BigCommerceConfig struct {
 	StoreHash string
 	AuthToken string
 
-	RequestsPerSecond    float64
-	QuotaSafetyBuffer    int
-	MaxRetries           int
-	ProductBatchSize     int
-	VariantBatchSize     int
-	InventoryBatchSize   int
-	DefaultPageLimit     int
-	MaxTotalRecords      int
-	DelayBetweenChunks   time.Duration
-	MaxWriteConcurrency  int
-	CacheTTL             time.Duration
+	RequestsPerSecond   float64
+	QuotaSafetyBuffer   int
+	MaxRetries          int
+	ProductBatchSize    int
+	VariantBatchSize    int
+	InventoryBatchSize  int
+	DefaultPageLimit    int
+	MaxTotalRecords     int
+	DelayBetweenChunks  time.Duration
+	MaxWriteConcurrency int
+	CacheTTL            time.Duration
 }
 
 type ServerConfig struct {
@@ -43,7 +43,9 @@ type ServerConfig struct {
 	Transport Transport
 	Address   string
 	Port      int
-	AuthToken string // Bearer token required for HTTP/SSE transports; empty disables auth
+	// AuthToken is required for HTTP/SSE transports. Stdio mode is local-only and
+	// does not require MCP auth.
+	AuthToken string
 }
 
 func Load() (*Config, error) {

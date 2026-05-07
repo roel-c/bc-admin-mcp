@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/mark3labs/mcp-go/server"
 	"github.com/roel-c/bc-admin-mcp/internal/config"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
 	bcserver "github.com/roel-c/bc-admin-mcp/internal/server"
-	"github.com/mark3labs/mcp-go/server"
 )
 
 func main() {

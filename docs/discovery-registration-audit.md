@@ -1,6 +1,6 @@
 # Discovery vs `registerTools` audit
 
-**Date:** 2026-04-28 (aligned with current `main` / catalog build)
+**Date:** 2026-05-07 (catalog + orders + customers + customer segmentation + marketing/promotions + initial inventory read tools; catalog price-list subtrees and initial order subtrees are registered)
 
 ## Policy
 
@@ -12,10 +12,10 @@
 
 | Check | Result |
 |--------|--------|
-| Catalog-only discovery root | `discover_tools("")` returns **`catalog`** only. |
-| Non-catalog placeholder categories | **Removed** from `internal/server/server.go` `registerCategories` (previously registered `orders/*`, `customers/*`, `carts/*`, `inventory`, `marketing/*`, `store/*` with no tools). |
-| Catalog subtree | Every `catalog/**` category has **≥1** child in `Registry.Discover` after full `registerTools`. |
-| Tool → category linkage | Enforced by **`internal/server/registration_audit_test.go`** (`TestFullRegistrationEveryToolParentCategoryExists`, `TestFullRegistrationCatalogCategoriesAreNonEmptyLeaves`, `TestFullRegistrationRootIsCatalogOnly`, **`TestFullRegistrationDiscoveryBFSCoversAllCategoriesAndTools`**, **`TestFullRegistrationR1PlusToolsExposeConfirmedParameter`**). |
+| Discovery roots | `discover_tools("")` returns **`catalog`**, **`orders`**, **`customers`**, **`marketing`**, and **`inventory`**. Each root must have at least one tool reachable below it. |
+| Non-active placeholder categories | Remaining roots (`carts/*`, `store/*`) remain **omitted** from `internal/server/server.go` `registerCategories` until tools ship. |
+| Active subtrees | Every `catalog/**`, `orders/**`, `customers/**`, `marketing/**`, and `inventory/**` category has **≥1** child in `Registry.Discover` after full `registerTools`. |
+| Tool → category linkage | Enforced by **`internal/server/registration_audit_test.go`** (`TestFullRegistrationEveryToolParentCategoryExists`, `TestFullRegistrationActiveCategoriesAreNonEmptyLeaves`, `TestFullRegistrationActiveRoots`, **`TestFullRegistrationDiscoveryBFSCoversAllCategoriesAndTools`**, **`TestFullRegistrationR1PlusToolsExposeConfirmedParameter`**). |
 
 ## Registry helpers
 

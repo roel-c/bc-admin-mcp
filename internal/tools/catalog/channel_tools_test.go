@@ -146,9 +146,9 @@ func (s *ChannelToolsSuite) TestListingsList() {
 func (s *ChannelToolsSuite) TestListingsCreatePreview() {
 	validJSON := `[{"product_id":1,"state":"active","variants":[{"product_id":1,"variant_id":10,"state":"active"}]}]`
 	res, err := s.callListingTool("catalog/channels/listings/create", map[string]any{
-		"channel_id":     float64(3),
-		"listings_json":  validJSON,
-		"confirmed":      false,
+		"channel_id":    float64(3),
+		"listings_json": validJSON,
+		"confirmed":     false,
 	})
 	s.NoError(err)
 	s.False(res.IsError)

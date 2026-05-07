@@ -4,23 +4,23 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
 	"github.com/roel-c/bc-admin-mcp/internal/session"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // BrandSearchFilters maps tool parameters to BigCommerce brand list query keys.
 var BrandSearchFilters = []SearchFilter{
-	{"name", "name", "string"},
-	{"name_like", "name:like", "string"},
-	{"keyword", "keyword", "string"},
-	{"page_title", "page_title", "string"},
-	{"page_title_like", "page_title:like", "string"},
-	{"id", "id", "number"},
-	{"sort", "sort", "string"},
-	{"sort_direction", "direction", "string"},
+	{ToolKey: "name", BCKey: "name", Kind: "string"},
+	{ToolKey: "name_like", BCKey: "name:like", Kind: "string"},
+	{ToolKey: "keyword", BCKey: "keyword", Kind: "string"},
+	{ToolKey: "page_title", BCKey: "page_title", Kind: "string"},
+	{ToolKey: "page_title_like", BCKey: "page_title:like", Kind: "string"},
+	{ToolKey: "id", BCKey: "id", Kind: "number"},
+	{ToolKey: "sort", BCKey: "sort", Kind: "string"},
+	{ToolKey: "sort_direction", BCKey: "direction", Kind: "string"},
 }
 
 var brandNonFilterKeys = map[string]bool{
@@ -277,7 +277,7 @@ func (b *Brands) previewBrandCreate(params *BrandCreateParams) (*mcp.CallToolRes
 	return toolJSON(map[string]any{
 		"status":  "preview",
 		"message": "Review the brand below. Pass confirmed=true with the same parameters to create it.",
-		"brand":  m,
+		"brand":   m,
 	})
 }
 
@@ -335,8 +335,8 @@ func (b *Brands) previewBrandUpdate(params *BrandUpdateParams) (*mcp.CallToolRes
 	}
 
 	return toolJSON(map[string]any{
-		"status":   "preview",
-		"message":  fmt.Sprintf("Review changes for brand %d. Pass confirmed=true to apply.", params.BrandID),
+		"status":  "preview",
+		"message": fmt.Sprintf("Review changes for brand %d. Pass confirmed=true to apply.", params.BrandID),
 		"changes": changes,
 	})
 }

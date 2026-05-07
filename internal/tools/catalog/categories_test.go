@@ -187,13 +187,13 @@ func (s *CategoryCreateParamsSuite) TestEmptyNameReturnsError() {
 func (s *CategoryCreateParamsSuite) TestAllOptionalFields() {
 	args := map[string]any{
 		"name":                 "Electronics",
-		"parent_id":           float64(42),
-		"description":         "All electronics",
-		"is_visible":          true,
-		"page_title":          "Shop Electronics",
-		"meta_description":    "Buy electronics online",
-		"search_keywords":     "phones,tablets",
-		"sort_order":          float64(5),
+		"parent_id":            float64(42),
+		"description":          "All electronics",
+		"is_visible":           true,
+		"page_title":           "Shop Electronics",
+		"meta_description":     "Buy electronics online",
+		"search_keywords":      "phones,tablets",
+		"sort_order":           float64(5),
 		"default_product_sort": "price_asc",
 	}
 	p, err := catalog.ParseCategoryCreateParams(args)

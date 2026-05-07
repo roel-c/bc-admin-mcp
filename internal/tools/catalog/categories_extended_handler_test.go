@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/session"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/catalog"
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -138,7 +138,7 @@ func (s *CategoryExtendedSuite) TestMoveSameParentError() {
 	}, nil)
 
 	result, err := s.callTool("catalog/categories/move", map[string]any{
-		"category_id":  float64(10),
+		"category_id":   float64(10),
 		"new_parent_id": float64(20),
 	})
 	s.NoError(err)
@@ -151,7 +151,7 @@ func (s *CategoryExtendedSuite) TestMoveSelfCycleError() {
 	}, nil)
 
 	result, err := s.callTool("catalog/categories/move", map[string]any{
-		"category_id":  float64(10),
+		"category_id":   float64(10),
 		"new_parent_id": float64(10),
 	})
 	s.NoError(err)

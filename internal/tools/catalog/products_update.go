@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // UpdateParams holds parsed arguments for the unified product update tool.
@@ -465,7 +465,7 @@ func (p *Products) previewUpdate(ctx context.Context, params *UpdateParams) (*mc
 		}
 	}
 
-	sessionCache := p.cache.ForSession(sessionKeyDefault)
+	sessionCache := p.cache.ForSession(cacheSessionID(ctx))
 	sessionCache.Set(params.cacheKey(), products)
 
 	sampleSize := min(5, len(products))
@@ -517,7 +517,7 @@ func (p *Products) previewUpdate(ctx context.Context, params *UpdateParams) (*mc
 
 	if len(params.ChannelIDs) > 0 {
 		resp["channel_assignments_preview"] = map[string]any{
-			"channel_ids":         params.ChannelIDs,
+			"channel_ids":          params.ChannelIDs,
 			"target_product_count": len(products),
 			"total_pairs":          len(products) * len(params.ChannelIDs),
 			"effect": "After successful catalog update of every targeted product, " +
@@ -530,7 +530,7 @@ func (p *Products) previewUpdate(ctx context.Context, params *UpdateParams) (*mc
 }
 
 func (p *Products) executeUpdate(ctx context.Context, params *UpdateParams) (*mcp.CallToolResult, error) {
-	sessionCache := p.cache.ForSession(sessionKeyDefault)
+	sessionCache := p.cache.ForSession(cacheSessionID(ctx))
 	key := params.cacheKey()
 	cached, ok := sessionCache.Get(key)
 	var products []bigcommerce.Product

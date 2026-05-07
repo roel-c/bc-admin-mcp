@@ -117,18 +117,28 @@ func (c *Cache) evictOldestLocked() {
 
 const defaultMaxSessions = 100
 
+// sessionEntry pairs a cache with the time it was created, used to evict
+// the oldest session when the session cap is reached.
+type sessionEntry struct {
+	cache     *Cache
+	createdAt time.Time
+}
+
 // Store manages per-session caches, keyed by MCP session ID. The total
-// number of sessions is bounded to prevent resource exhaustion.
+// number of sessions is bounded to prevent resource exhaustion. When the
+// cap is reached the oldest session (by creation time) is evicted rather
+// than a random one, so active sessions are less likely to lose their
+// preview cache between the preview and confirm steps.
 type Store struct {
 	mu          sync.RWMutex
-	caches      map[string]*Cache
+	sessions    map[string]sessionEntry
 	ttl         time.Duration
 	maxSessions int
 }
 
 func NewStore(defaultTTL time.Duration) *Store {
 	return &Store{
-		caches:      make(map[string]*Cache),
+		sessions:    make(map[string]sessionEntry),
 		ttl:         defaultTTL,
 		maxSessions: defaultMaxSessions,
 	}
@@ -136,30 +146,45 @@ func NewStore(defaultTTL time.Duration) *Store {
 
 func (s *Store) ForSession(sessionID string) *Cache {
 	s.mu.RLock()
-	if c, ok := s.caches[sessionID]; ok {
+	if e, ok := s.sessions[sessionID]; ok {
 		s.mu.RUnlock()
-		return c
+		return e.cache
 	}
 	s.mu.RUnlock()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if c, ok := s.caches[sessionID]; ok {
-		return c
+	if e, ok := s.sessions[sessionID]; ok {
+		return e.cache
 	}
-	if len(s.caches) >= s.maxSessions {
-		for k := range s.caches {
-			delete(s.caches, k)
-			break
-		}
+	if len(s.sessions) >= s.maxSessions {
+		s.evictOldestSessionLocked()
 	}
 	c := NewCache(s.ttl)
-	s.caches[sessionID] = c
+	s.sessions[sessionID] = sessionEntry{cache: c, createdAt: time.Now()}
 	return c
+}
+
+// evictOldestSessionLocked removes the session with the earliest createdAt
+// timestamp. Must be called with s.mu held for writing.
+func (s *Store) evictOldestSessionLocked() {
+	var oldestKey string
+	var oldestTime time.Time
+	first := true
+	for k, e := range s.sessions {
+		if first || e.createdAt.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = e.createdAt
+			first = false
+		}
+	}
+	if !first {
+		delete(s.sessions, oldestKey)
+	}
 }
 
 func (s *Store) RemoveSession(sessionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.caches, sessionID)
+	delete(s.sessions, sessionID)
 }

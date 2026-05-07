@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 const (
@@ -117,10 +117,10 @@ func (c *Categories) handleReorder(ctx context.Context, request mcp.CallToolRequ
 	}
 
 	type reorderRow struct {
-		ID              int    `json:"id"`
-		Name            string `json:"name"`
-		CurrentSortOrder int   `json:"current_sort_order"`
-		NewSortOrder    int    `json:"new_sort_order"`
+		ID               int    `json:"id"`
+		Name             string `json:"name"`
+		CurrentSortOrder int    `json:"current_sort_order"`
+		NewSortOrder     int    `json:"new_sort_order"`
 	}
 
 	rows := make([]reorderRow, len(orderedIDs))
@@ -158,12 +158,12 @@ func (c *Categories) handleReorder(ctx context.Context, request mcp.CallToolRequ
 	confirmed := middleware.IsConfirmed(request)
 	if !confirmed {
 		preview := map[string]any{
-			"status":      "pending_confirmation",
-			"parent_id":   parentID,
-			"changes":     rows,
-			"start":       params.StartSortOrder,
-			"increment":   params.Increment,
-			"message":     fmt.Sprintf("%d categories will be reordered. Pass confirmed=true to execute.", len(rows)),
+			"status":    "pending_confirmation",
+			"parent_id": parentID,
+			"changes":   rows,
+			"start":     params.StartSortOrder,
+			"increment": params.Increment,
+			"message":   fmt.Sprintf("%d categories will be reordered. Pass confirmed=true to execute.", len(rows)),
 		}
 		if len(collisions) > 0 {
 			preview["sort_order_collisions"] = collisions

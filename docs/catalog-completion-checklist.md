@@ -1,13 +1,13 @@
-# Catalog completion checklist (before orders, customers, etc.)
+# Catalog completion checklist (before remaining domains)
 
-Work through this list **while the codebase is still catalog-focused**. Goal: close obvious gaps, align discovery with reality, and lock in **patterns** (preview/confirm, bulk caps, metafield semantics, progressive paths) so **orders**, **customers**, and other domains can reuse the same structures.
+Work through this list to keep the catalog surface honest, align discovery with reality, and lock in **patterns** (preview/confirm, bulk caps, metafield semantics, progressive paths) so remaining domains (orders, carts, inventory, store) can reuse the same structures.
 
 ---
 
 ## Preconditions (why this list exists)
 
 - **Catalog** is the most complex surface we have implemented so far (products, categories, variants, options, images, custom fields, modifiers, metafields + bulk).
-- **Other domains** (`orders/`, `customers/`, …) are **roadmapped** in `ARCHITECTURE.md` but **not** registered in `discover_tools` until tools exist (avoids empty discovery leaves).
+- **Active domains** now include `catalog/`, `orders/`, `customers/`, `marketing/`, and `inventory/` (initial read tools). Remaining domains (`carts/`, `store/`) stay roadmapped in `ARCHITECTURE.md` and are **not** registered in `discover_tools` until tools exist (avoids empty discovery leaves).
 - Shipping **orders / customers / …** with the **same** tiering, preview/confirm, naming, and bulk discipline will be easier if catalog is **honest and complete** for the scope we claim.
 
 ---
@@ -18,13 +18,13 @@ Work through this list **while the codebase is still catalog-focused**. Goal: cl
 
 - [x] **`catalog/variants` vs `catalog/products/variants`** — **Product-scoped** variant CRUD + metafields remain under **`catalog/products/variants`**. **Global** catalog variants: tools **`catalog/variants/list`** (R0, `GET /v3/catalog/variants`; filters, `product_ids` / `variant_ids` caps 100, `list_all`) and **`catalog/variants/bulk_update`** (R2, `PUT /v3/catalog/variants`; up to **200** rows per call, chunked by **`BC_VARIANT_BATCH_SIZE`** default 10; preview → `confirmed`). Client: `SearchVariants`, `ListVariantsByProductIDs` (wrapper), `BatchUpdateVariants` in `internal/bigcommerce/variants_catalog.go`.
 
-- [x] **Discovery ↔ `registerTools` audit** — Non-catalog placeholder categories removed so `discover_tools` never returns empty navigable leaves. **`internal/server/registration_audit_test.go`** locks: root = `catalog` only; every `catalog/**` category has children after full registration; every tool’s parent path exists. Write-up: **`docs/discovery-registration-audit.md`**.
+- [x] **Discovery ↔ `registerTools` audit** — Placeholder categories without tools are omitted so `discover_tools` never returns empty navigable leaves. **`internal/server/registration_audit_test.go`** locks active roots (`catalog`, `orders`, `customers`, `marketing`, `inventory`), non-empty active categories, and tool-parent category integrity. Write-up: **`docs/discovery-registration-audit.md`**.
 
 - [ ] **Multi-storefront / channels / routes (MSF)** — When catalog work must respect **channel-specific** listings, pricing, or metafield visibility, add API + tool design **before** claiming parity with Control Panel. Until then, keep **single-channel / default channel** assumptions explicit in README / `bc_system_prompt.md`. **Research & insertion map:** [`docs/msf-research-outline.md`](./msf-research-outline.md). **Delivery plan:** [`docs/channels-msf-implementation-roadmap.md`](./channels-msf-implementation-roadmap.md). **Shipped so far:** **`catalog/channels/list`**, **`catalog/channels/category_trees`**, **`catalog/channels/listings/*`** (list / create / update), **`catalog/products/channel_assignments/*`**, **`catalog/products/unassign_categories`** (filter-based DELETE), **`channel_ids`** filter on `catalog/products/search`, **`channel_id`** option on `catalog/categories/list` / `catalog/categories/create` (resolves `tree_id` server-side via `GetTreeIDForChannel`), additive **`channel_ids`** post-write side-effect on `catalog/products/create` / `catalog/products/update` (≤ 500 product×channel pairs per call; `partial_success` if any catalog write fails), and **`catalog/products/channel_summary`** aggregator. Listing `state` enums are validated at the tool boundary; client `APIError` now returns OAuth-scope hints for 401 / 403; assignments-vs-listings rubric is documented in `bc_system_prompt.md`. Open follow-up: optional listing-seeding alongside assignment for marketplace channels (currently a deliberate two-step).
 
 - [ ] **Bulk and batch beyond current caps** — Review whether **50 product IDs**, **50 variant IDs**, **500 cross-product variant ops**, and **substring SKU** targeting are sufficient for real migrations; document escalation path (chained calls, external jobs) or add **cursor/pagination** if productized.
 
-- [ ] **Pricing-adjacent catalog (scope decision)** — Clarify ownership: **price lists**, **customer group** / **segment** pricing, **catalog price** bulk jobs — in catalog MCP vs a later “pricing” or “B2B” slice. If out of scope, state that in docs; if in scope, add checklist rows when designed.
+- [x] **Pricing-adjacent catalog (scope decision)** — **Price lists are now in-scope under `catalog/pricelists/*`**, including records and assignments subtrees (`catalog/pricelists/records/*`, `catalog/pricelists/assignments/*`) with preview→confirm guardrails and serial policy for record upserts.
 
 - [ ] **Other V3 catalog resources (as needed)** — Examples merchants sometimes ask for: **product videos**, **complex rules**, **bulk pricing imports** — triage against your product promise; add one line each to this doc or spawn `docs/catalog-future.md` when deferred.
 

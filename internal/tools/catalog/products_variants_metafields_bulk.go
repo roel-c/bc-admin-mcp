@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // maxBulkVariantMetafieldTargets caps how many distinct variants a single bulk
@@ -23,9 +23,9 @@ const maxBulkCrossProductVariantOps = 500
 
 // variant_scope values for bulk tools that target many products.
 const (
-	variantScopeAllVariants        = "all_variants"
-	variantScopeFirstVariantOnly   = "first_variant_only"
-	variantScopeSKUContains        = "sku_contains"
+	variantScopeAllVariants      = "all_variants"
+	variantScopeFirstVariantOnly = "first_variant_only"
+	variantScopeSKUContains      = "sku_contains"
 )
 
 // ParseBulkVariantMetafieldVariantIDs extracts variant_ids for bulk variant
@@ -674,12 +674,12 @@ func (p *Products) handleVariantMetafieldsBulkSet(ctx context.Context, request m
 	confirmed := middleware.IsConfirmed(request)
 
 	type row struct {
-		VariantID       int    `json:"variant_id"`
-		Action          string `json:"action"`
-		EffectivePerm   string `json:"effective_permission_set,omitempty"`
-		HasExisting     bool   `json:"has_existing"`
-		ExistingValue   string `json:"existing_value,omitempty"`
-		MetafieldID     int    `json:"metafield_id,omitempty"`
+		VariantID     int    `json:"variant_id"`
+		Action        string `json:"action"`
+		EffectivePerm string `json:"effective_permission_set,omitempty"`
+		HasExisting   bool   `json:"has_existing"`
+		ExistingValue string `json:"existing_value,omitempty"`
+		MetafieldID   int    `json:"metafield_id,omitempty"`
 	}
 
 	rows := make([]row, 0, len(vids))

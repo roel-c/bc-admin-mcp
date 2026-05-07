@@ -1,4 +1,4 @@
-.PHONY: build run run-http smoke-msf test vet lint clean
+.PHONY: build run run-http smoke smoke-msf test vet lint clean
 
 BINARY := bc-mcp-server
 CMD    := ./cmd/server
@@ -6,7 +6,11 @@ CMD    := ./cmd/server
 build:
 	go build -buildvcs=false -o $(BINARY) $(CMD)
 
-# Live Management API checks (channels, assignments, trees, listings). Requires .env with BC_* credentials.
+# Full pre-session live smoke: one R0 read per domain. Requires .env with BC_* credentials.
+smoke:
+	./scripts/smoke_all_domains.sh
+
+# MSF-only live checks (channels, assignments, trees, listings). Requires .env with BC_* credentials.
 smoke-msf:
 	./scripts/smoke_msf_slice.sh
 

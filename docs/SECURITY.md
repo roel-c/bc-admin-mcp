@@ -17,6 +17,19 @@ each item, its root cause, risk, and the fix or disposition.
 
 ---
 
+## Current Release Posture
+
+This project is currently optimized for a **local-first** operating model:
+
+- Public source repository is expected and supported.
+- Each operator creates their own local `.env` file with store credentials.
+- Primary execution path is local `stdio` transport from an MCP-capable client.
+- HTTP/SSE transports are supported but expected to remain local-bound (`127.0.0.1`) unless explicitly hardened for broader deployment.
+
+Controls intended for hosted/multi-tenant or internet-exposed deployments are tracked as deferred follow-up recommendations below.
+
+---
+
 ## Findings
 
 ### CRITICAL Severity
@@ -178,10 +191,9 @@ responses while preventing unbounded allocation.
 | **Root Cause** | `APIError.Error()` includes the full response body; `toolError()` has no length limit |
 
 **Fix applied:**
-1. `APIError.Error()` now truncates the body at 500 characters
-2. Added `APIError.SafeError()` for external-facing messages (returns only the
-   status code, no body content)
-3. `toolError()` truncates messages at 1,000 characters
+1. Added `APIError.SafeError()` for external-facing messages (status + scoped hint, no raw body details)
+2. `APIError.Error()` now returns the same sanitized form for consistency across call sites
+3. `toolError()` truncates oversized messages at 1,000 characters
 
 ---
 
@@ -238,7 +250,7 @@ responses while preventing unbounded allocation.
 | `internal/middleware/tiers_test.go` | **New** — tier enforcement tests |
 | `internal/config/config_test.go` | **New** — config validation tests |
 | `internal/discovery/registry_test.go` | **New** — registry confirmed-param validation tests |
-| `internal/server/registration_audit_test.go` | **New (post-audit)** — locks `discover_tools` shape: root = `catalog` only; every category has children; every tool's parent path exists |
+| `internal/server/registration_audit_test.go` | **New (post-audit)** — locks `discover_tools` shape: roots = `catalog` + `customers` + `marketing`; every active category has children; every tool's parent path exists |
 
 ---
 
@@ -252,16 +264,18 @@ responses while preventing unbounded allocation.
    tests for full MCP tool-call flows via mcp-go's in-process transport.
 2. **Run `govulncheck`** against dependencies to check for known CVEs in
    mcp-go and transitive deps.
-3. **Add rate limiting on the MCP HTTP endpoints** — currently only BigCommerce
-   API calls are rate-limited; the MCP server itself accepts unlimited requests.
-4. **Consider CORS headers** for the HTTP transport if browsers will ever call it.
-5. **Add audit logging** for confirmed mutations (tier R1+) including the tool
+3. **Add audit logging** for confirmed mutations (tier R1+) including the tool
    path, category/product IDs, and the operator session ID.
-6. **Implement session authentication** — currently the session cache uses a
-   hardcoded `"default"` session ID. Wire actual MCP session IDs when the
-   transport supports them.
-7. **Review mcp-go's `WithRecovery()`** — while it catches panics in tool
+4. **Review mcp-go's `WithRecovery()`** — while it catches panics in tool
    handlers, verify it doesn't swallow security-relevant information.
+
+### Deferred for Wider Release Posture
+
+The following are intentionally deferred while the project remains local-first:
+
+1. **Inbound MCP endpoint rate limiting** (HTTP/SSE) to mitigate credentialed abuse/flooding.
+2. **CORS policy management** if browser-based clients are introduced.
+3. **Additional hosted-deployment controls** (reverse-proxy policy, IP allowlists, centralized authn/authz, etc.).
 
 ---
 
@@ -277,5 +291,5 @@ responses while preventing unbounded allocation.
 | Missing confirmation on write tools | Registration-time schema validation |
 | Invalid config → crash/undefined behavior | Comprehensive bounds checking at startup |
 | Cache growth → memory exhaustion | Entry and session count limits with eviction |
-| Credential leakage in errors | Truncated error bodies; `SafeError()` for external callers |
+| Credential leakage in errors | Sanitized API errors (`SafeError`) and truncated tool-level error text |
 | `.env` committed to VCS | `.gitignore` excludes `.env` files |

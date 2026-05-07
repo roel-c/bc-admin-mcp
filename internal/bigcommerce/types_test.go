@@ -65,6 +65,45 @@ func (s *APIErrorScopeHintSuite) TestForbiddenCatalogProductsWrite() {
 	s.False(strings.Contains(e.Error(), "read_only"))
 }
 
+func (s *APIErrorScopeHintSuite) TestForbiddenPriceListsScopeHint() {
+	e := &bigcommerce.APIError{
+		StatusCode: http.StatusForbidden,
+		Method:     http.MethodGet,
+		Path:       "pricelists",
+	}
+	s.Contains(e.Error(), "store_price_lists")
+	s.Contains(e.SafeError(), "store_price_lists")
+}
+
+func (s *APIErrorScopeHintSuite) TestForbiddenOrderPaymentActionsScopeHint() {
+	e := &bigcommerce.APIError{
+		StatusCode: http.StatusForbidden,
+		Method:     http.MethodPost,
+		Path:       "orders/44/payment_actions/refunds",
+	}
+	s.Contains(e.Error(), "store_v2_orders")
+	s.Contains(e.Error(), "store_v2_transactions")
+}
+
+func (s *APIErrorScopeHintSuite) TestForbiddenOrderTransactionsScopeHint() {
+	e := &bigcommerce.APIError{
+		StatusCode: http.StatusForbidden,
+		Method:     http.MethodGet,
+		Path:       "orders/44/transactions",
+	}
+	s.Contains(e.Error(), "store_v2_orders")
+	s.Contains(e.Error(), "store_v2_transactions")
+}
+
+func (s *APIErrorScopeHintSuite) TestForbiddenInventoryScopeHint() {
+	e := &bigcommerce.APIError{
+		StatusCode: http.StatusForbidden,
+		Method:     http.MethodGet,
+		Path:       "inventory/items",
+	}
+	s.Contains(e.Error(), "store_inventory")
+}
+
 func (s *APIErrorScopeHintSuite) TestUnauthorizedHasGenericHint() {
 	e := &bigcommerce.APIError{
 		StatusCode: http.StatusUnauthorized,
@@ -79,5 +118,5 @@ func (s *APIErrorScopeHintSuite) TestEmptyPathFallsBack() {
 		StatusCode: 422,
 		Body:       []byte("{}"),
 	}
-	s.Contains(e.Error(), "BigCommerce API error 422")
+	s.Contains(e.Error(), "BigCommerce API returned status 422")
 }

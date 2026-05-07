@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/session"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/catalog"
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -60,31 +60,31 @@ func (s *CreateExpandedSuite) parseJSON(result *mcp.CallToolResult) map[string]a
 
 func (s *CreateExpandedSuite) TestCreatePreviewWithAllFields() {
 	result, err := s.callTool("catalog/products/create", map[string]any{
-		"name":               "Test Product",
-		"type":               "physical",
-		"weight":             float64(2.5),
-		"price":              float64(29.99),
-		"sku":                "TP-001",
-		"description":        "A test product",
-		"cost_price":         float64(15.00),
-		"retail_price":       float64(34.99),
-		"sale_price":         float64(27.99),
-		"width":              float64(10),
-		"height":             float64(5),
-		"depth":              float64(3),
-		"category_ids":       []any{float64(1), float64(2)},
-		"brand_id":           float64(5),
-		"is_visible":         true,
-		"is_featured":        true,
-		"page_title":         "Test Product Page",
-		"meta_description":   "Meta desc",
-		"search_keywords":    "test, product",
-		"upc":                "123456789",
-		"gtin":               "GT-123",
-		"mpn":                "MP-001",
-		"warranty":           "1 year",
-		"condition":          "New",
-		"availability":       "available",
+		"name":             "Test Product",
+		"type":             "physical",
+		"weight":           float64(2.5),
+		"price":            float64(29.99),
+		"sku":              "TP-001",
+		"description":      "A test product",
+		"cost_price":       float64(15.00),
+		"retail_price":     float64(34.99),
+		"sale_price":       float64(27.99),
+		"width":            float64(10),
+		"height":           float64(5),
+		"depth":            float64(3),
+		"category_ids":     []any{float64(1), float64(2)},
+		"brand_id":         float64(5),
+		"is_visible":       true,
+		"is_featured":      true,
+		"page_title":       "Test Product Page",
+		"meta_description": "Meta desc",
+		"search_keywords":  "test, product",
+		"upc":              "123456789",
+		"gtin":             "GT-123",
+		"mpn":              "MP-001",
+		"warranty":         "1 year",
+		"condition":        "New",
+		"availability":     "available",
 	})
 	s.NoError(err)
 	s.False(result.IsError)

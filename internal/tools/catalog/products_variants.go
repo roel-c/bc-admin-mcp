@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // RegisterVariantTools registers the product variant CRUD tools.
@@ -98,9 +98,9 @@ func (p *Products) RegisterVariantTools(reg *discovery.Registry) {
 	})
 
 	reg.RegisterTool(&discovery.ToolDef{
-		Path:    "catalog/products/variants/delete",
-		Tier:    middleware.TierR2,
-		Summary: "Delete a product variant",
+		Path:        "catalog/products/variants/delete",
+		Tier:        middleware.TierR2,
+		Summary:     "Delete a product variant",
 		Description: "Removes a variant from a product. Cannot be undone.",
 		Tool: mcp.NewTool("catalog_products_variants_delete",
 			mcp.WithDescription("Delete a variant. Preview shows variant details; pass confirmed=true to execute."),
@@ -344,4 +344,3 @@ func extractBoolPtr(args map[string]any, key string, dst **bool) {
 		*dst = &v
 	}
 }
-

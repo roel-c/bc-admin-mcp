@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/roel-c/bc-admin-mcp/internal/middleware"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/roel-c/bc-admin-mcp/internal/middleware"
 )
 
 // MetafieldSetParams holds parsed arguments for the metafield set tool.

@@ -17,9 +17,9 @@ Use these tiers when defining MCP tools (or HTTP actions) so permissions and con
 | Tier | Intent | Examples | Operator confirmation |
 |------|--------|----------|------------------------|
 | **R0 — Read** | Fetch only; no mutation | Store profile, list/get products, orders, customers, categories, inventory levels | None |
-| **R1 — Write (standard)** | Idempotent-ish catalog/settings updates | Product SEO fields, category SEO, metafields (non-payment), redirects, `is_visible` toggles | **Preview + confirm** for bulk; single-record may be lighter-touch per policy |
-| **R2 — Write (high-risk)** | Financial / inventory / pricing | Price list record upserts, inventory adjustments, cart/checkout server calls | **Always confirm** scope (list name, record count, before/after) |
-| **R3 — Destructive** | Irreversible or legally sensitive | Product **DELETE**, order payment capture/refund/void, customer password/auth fields | **Explicit per-resource confirmation**; default deny |
+| **R1 — Write (standard)** | Idempotent-ish catalog/settings updates | Product SEO fields, category SEO, inventory location metafields, redirects, `is_visible` toggles | **Preview + confirm** for bulk; single-record may be lighter-touch per policy |
+| **R2 — Write (high-risk)** | Financial / inventory / pricing | Price list record upserts, inventory adjustments/location create-update, cart/checkout server calls | **Always confirm** scope (list name, record count, before/after) |
+| **R3 — Destructive** | Irreversible or legally sensitive | Product **DELETE**, inventory location delete, order payment capture/refund/void, customer password/auth fields | **Explicit per-resource confirmation**; default deny |
 | **R4 — Forbidden (default)** | Unless task explicitly says so | Hard-delete products, `description` HTML overwrite, payment status changes without order ID + approval | Block at tool layer |
 
 **Principle:** R0 tools can be exposed broadly. R1–R2 should accept a **`confirmed: bool`** or separate **`propose_*`** vs **`apply_*`** tools. R3 should require **`confirmation_token`** or human-approved step.
@@ -37,7 +37,7 @@ Use these tiers when defining MCP tools (or HTTP actions) so permissions and con
 | `BC_MAX_RETRIES` | `6` | 429 / 5xx backoff rounds |
 | `BC_PRODUCT_BATCH_SIZE` | `10` | Max items per batch **PUT** `/v3/catalog/products` (validated 1–10) |
 | `BC_VARIANT_BATCH_SIZE` | `10` | Max items per batch **PUT** `/v3/catalog/variants` (validated 1–10) |
-| `BC_INVENTORY_BATCH_SIZE` | `10` | Safe batch size for inventory adjustments (reserved — no inventory tools shipped yet) |
+| `BC_INVENTORY_BATCH_SIZE` | `10` | Safe batch size for inventory high-risk writes (`inventory/items/update_batch`, `inventory/adjustments/absolute`, `inventory/adjustments/relative`) |
 | `BC_DEFAULT_PAGE_LIMIT` | `250` | Page size for most V3 list endpoints (validated 1–250) |
 | `BC_MAX_TOTAL_RECORDS` | `10000` | Pagination ceiling for `GetAll` (set `0` for unlimited) |
 | `BC_DELAY_BETWEEN_CHUNKS_MS` | `500` | Inter-chunk pause inside `BatchPut` (on top of the throttle) |
@@ -60,10 +60,10 @@ Always honor response headers; **the MCP server does not raise plan-specific cei
 
 | Endpoint pattern | Concurrent calls | Batch inner size |
 |------------------|------------------|-------------------|
-| `/v3/pricelists/{id}/records` (upsert) | **1 — serial only** | Up to **1000** records per request (per reference) |
+| `/v3/pricelists/{id}/records` (upsert) | **1 — serial only** | Endpoint supports large batches; MCP tool currently caps at **100** rows/call for safety |
 | `/v3/catalog/products` batch PUT | Recommend **≤ 3** parallel batch requests | **10** products per request |
 | `/v3/catalog/variants` batch PUT | Recommend **≤ 3** parallel | **10** per request |
-| `/v3/inventory/adjustments` | Recommend **≤ 5** parallel | **10** per request |
+| `/v3/inventory/items` and `/v3/inventory/adjustments` | Recommend **≤ 5** parallel | **10** rows per request |
 | General Management | **10–20** possible | Monitor 429s |
 | Webhook registration | **Serial** | Single |
 
@@ -93,6 +93,81 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `catalog/variants/bulk_update` | ≤ 200 rows per call (server chunks by `BC_VARIANT_BATCH_SIZE`) | `variants_global.go` |
 | `catalog/channels/listings/list` | up to 2000 rows fetched per call; `product_ids` filter ≤ 50 | `channel_listings_tools.go` |
 | `catalog/channels/listings/create` / `update` | `listings_json` ≤ 10 objects, payload ≤ 256 KiB | `channel_listings_tools.go` |
+| `catalog/pricelists/list` / `catalog/pricelists/assignments/list` / `catalog/pricelists/records/list` | supports offset and cursor pagination; reject `page` + cursor combinations | `pricelists_tools.go` |
+| `catalog/pricelists/create` / `update` | preview-then-confirm; update is fetch-merge-PUT | `pricelists_tools.go` |
+| `catalog/pricelists/delete` | **R3 destructive** — preview then `confirmed=true` | `pricelists_tools.go` |
+| `catalog/pricelists/records/upsert` | `records ≤ 100` rows/call (serial write policy) | `pricelists_tools.go` |
+| `catalog/pricelists/records/delete` | **R2**; requires selectors (`variant_ids` or `skus`), optional currency | `pricelists_tools.go` |
+| `catalog/pricelists/assignments/create_batch` | `assignments ≤ 25` rows/call | `pricelists_tools.go` |
+| `catalog/pricelists/assignments/upsert` | **R2**; requires `price_list_id`, `customer_group_id`, `channel_id`; preview then confirm | `pricelists_tools.go` |
+| `catalog/pricelists/assignments/delete` | at least one selector required (`id`, `price_list_id`, `customer_group_id`, `channel_id`, or `channel_ids`) | `pricelists_tools.go` |
+| `inventory/locations/create` | **R2**; requires `location` object; preview then confirm | `internal/tools/inventory/tools.go` |
+| `inventory/locations/update` | **R2**; requires `location_id` + `patch` object; preview then confirm | `internal/tools/inventory/tools.go` |
+| `inventory/locations/delete` | **R3 destructive**; requires `location_id`; preview then confirm | `internal/tools/inventory/tools.go` |
+| `inventory/locations/metafields/list` | R0; requires `location_id`; optional `page`/`limit` | `internal/tools/inventory/tools.go` |
+| `inventory/locations/metafields/set` | **R1**; upsert by `namespace` + `key`; new metafields default `permission_set=app_only`; preview then confirm | `internal/tools/inventory/tools.go` |
+| `inventory/locations/metafields/delete` | **R1**; delete by `metafield_id` or `namespace` + `key`; preview then confirm | `internal/tools/inventory/tools.go` |
+| `inventory/items/update_batch` | **R2**; requires `update` object with either `items[]` or `data[]`; max **10** rows/call; preview then confirm | `internal/tools/inventory/tools.go` |
+| `customers/groups/list` | offset paginated; respects `BC_DEFAULT_PAGE_LIMIT` and `BC_MAX_TOTAL_RECORDS` (max 50 pages) | `internal/bigcommerce/customer_groups.go` |
+| `customers/groups/create` / `update` | `discount_rules` mixing `price_list` with other rule types is silently pruned (price_list wins) and surfaced as a `warnings` field; PUT overwrites discount_rules in bulk per BC | `internal/tools/customers/groups.go` |
+| `customers/groups/delete` | **R3 destructive** — preview then `confirmed=true`; BC unassigns all members automatically | `internal/tools/customers/groups.go` |
+| `customers/list` | R0; requires a real filter or `list_all=true`; GET `/v3/customers` | `internal/tools/customers/customer_records.go` |
+| `customers/get` | R0; single customer via `id:in` | `internal/tools/customers/customer_records.go` |
+| `customers/create` / `update` | **R2**; `new_password` needs `set_password=true` and `confirmed=true`; BC max **10** per POST/PUT | `internal/tools/customers/customer_records.go` |
+| `customers/delete` | **R3**; max **50** ids; preview then confirm | `internal/tools/customers/customer_records.go` |
+| `customers/assign_group` | **R2**; max **100** ids, chunked PUTs of **10**; `group_id` **0** clears assignment | `internal/tools/customers/customer_records.go` |
+| `customers/addresses/list` | R0; filter or `list_all=true` | `internal/tools/customers/customer_addresses_tools.go` |
+| `customers/addresses/create` / `update` | R1; max **25** rows per call | `internal/tools/customers/customer_addresses_tools.go` |
+| `customers/addresses/delete` | **R3**; max **50** ids | `internal/tools/customers/customer_addresses_tools.go` |
+| `customers/attributes/list` | R0; filter or `list_all=true`; GET `/v3/customers/attributes` | `internal/tools/customers/attributes_tools.go` |
+| `customers/attributes/create` | R1; max **10** per call; `type` immutable after create (validated to one of `string`, `number`, `date`) | `internal/tools/customers/attributes_tools.go` |
+| `customers/attributes/update` | R1; only `name` mutable — passing `type` is rejected; max **10** per call | `internal/tools/customers/attributes_tools.go` |
+| `customers/attributes/delete` | **R3 destructive** — cascades to every stored value of the attribute on every customer; max **50** ids; preview then confirm | `internal/tools/customers/attributes_tools.go` |
+| `customers/attribute_values/list` | R0; requires `customer_ids`, `attribute_ids`, `attribute_value`/`attribute_value_in`, or `list_all=true` | `internal/tools/customers/attribute_values_tools.go` |
+| `customers/attribute_values/upsert` | R1; max **10** rows; key is `(customer_id, attribute_id)`; BC coerces `value` to attribute type | `internal/tools/customers/attribute_values_tools.go` |
+| `customers/attribute_values/delete` | **R2**; max **50** ids; deletes individual values (definition unaffected) | `internal/tools/customers/attribute_values_tools.go` |
+| `customers/metafields/list` | R0; per-customer when `customer_id` is set; otherwise filter or `list_all=true` against `/v3/customers/metafields` | `internal/tools/customers/metafields_tools.go` |
+| `customers/metafields/set` | R1; namespace+key upsert on one customer; `permission_set` defaults to `app_only` (not Storefront-readable) | `internal/tools/customers/metafields_tools.go` |
+| `customers/metafields/delete` | R1; by `metafield_id` or `namespace`+`key`; preview then confirm | `internal/tools/customers/metafields_tools.go` |
+| `customers/metafields/bulk_set` / `bulk_delete` | R1; sequential per-customer API calls; max **50** customers per call; `bulk_delete` skips customers without that namespace+key | `internal/tools/customers/metafields_tools.go` |
+| `customers/settings/global/get` | R0; GET `/v3/customers/settings` | `internal/tools/customers/customer_settings_tools.go` |
+| `customers/settings/global/update` | **R2**; merges `settings` into current then PUT; preview shows merged_preview; `confirmed=true` | `internal/tools/customers/customer_settings_tools.go` |
+| `customers/settings/channel/get` | R0; GET `/v3/customers/settings/channels/{channel_id}` | `internal/tools/customers/customer_settings_tools.go` |
+| `customers/settings/channel/update` | **R2**; merges `settings` then PUT; if patch includes **`allow_global_logins`**, execute only when **`confirm_allow_global_logins=true`** and **`confirmed=true`** (names cross-channel shared logins) | `internal/tools/customers/customer_settings_tools.go` |
+| `customers/consent/get` | R0; GET `/v3/customers/{id}/consent` | `internal/tools/customers/customer_consent_tools.go` |
+| `customers/consent/update` | R1; PUT consent; preview with current vs `would_apply`; `confirmed=true` | `internal/tools/customers/customer_consent_tools.go` |
+| `customers/stored_instruments/list` | R0; requires **`acknowledge_stored_instruments=true`** (gate 1). Default response redacts **`token`**. Raw tokens only when **`include_sensitive_token_data=true`** and **`confirmed=true`** after redacted preview (gate 2). Needs stored-instruments OAuth scope | `internal/tools/customers/customer_stored_instruments_tools.go` |
+| `customers/credentials/validate` | **R2**; POST validate-credentials is rate limited (429); preview masks email; password never echoed | `internal/tools/customers/customer_validate_credentials_tools.go` |
+| `customers/segments/list` | R0; supports `id:in` filter (UUIDs, ≤ 40 ids/call); paginated GET `/v3/segments` | `internal/tools/customers/segments_tools.go` |
+| `customers/segments/get` | R0; wraps `id:in={uuid}` because BC has no single-segment GET | `internal/tools/customers/segments_tools.go` |
+| `customers/segments/create` | **R1**; max **10** rows per call (BC concurrency cap); store-wide cap **1000** segments; `name` required; preview then `confirmed=true` | `internal/tools/customers/segments_tools.go` |
+| `customers/segments/update` | **R1**; max **10** rows per call; row requires `id` plus at least one of `name`, `description`; preview shows current vs `would_apply` | `internal/tools/customers/segments_tools.go` |
+| `customers/segments/delete` | **R3 destructive**; max **40** ids per call; preview lists current names/descriptions; `confirmed=true` to apply; **does not delete the associated shopper profiles** | `internal/tools/customers/segments_tools.go` |
+| `customers/segments/shoppers/list` | R0; **note: BC requires the `store_v2_customers` (modify) scope on this GET** — only `read_only` is insufficient | `internal/tools/customers/segments_tools.go` |
+| `customers/segments/shoppers/add` | **R1**; accepts `shopper_profile_ids` (UUIDs) **or** `customer_ids` (numeric, ≤ 50/call) — numeric ids resolved via `customers?include=shopper_profile_id`; customers without a profile are surfaced under `missing_shopper_profiles`; max **50** profile ids per call after resolution; preview then `confirmed=true` | `internal/tools/customers/segments_tools.go` |
+| `customers/segments/shoppers/remove` | **R1**; max **40** profile ids per call; preview shows current membership; `confirmed=true` to apply; profile records themselves remain | `internal/tools/customers/segments_tools.go` |
+| `customers/shopper_profiles/list` | R0; paginated `/v3/shopper-profiles`. **No `id:in` or `customer_id` filter on this endpoint** — use `customers?include=shopper_profile_id` to map customers ↔ profiles | `internal/tools/customers/shopper_profiles_tools.go` |
+| `customers/shopper_profiles/create` | **R1**; accepts `customer_ids` or `profiles_batch=[{customer_id}]`; deduped before send; max **50** rows/call; preview then `confirmed=true`; duplicates 409 because each customer is 1:1 with a profile | `internal/tools/customers/shopper_profiles_tools.go` |
+| `customers/shopper_profiles/delete` | **R2 high-risk**; max **40** ids/call; deletes profile **and all of its segment memberships** (customer record itself is unaffected); preview then `confirmed=true` | `internal/tools/customers/shopper_profiles_tools.go` |
+| `customers/shopper_profiles/list_segments` | R0; GET `/v3/shopper-profiles/{shopperProfileId}/segments` | `internal/tools/customers/shopper_profiles_tools.go` |
+| `marketing/promotions/automatic/list` | R0; GET `/v3/promotions` with `redemption_type` hard-pinned to `automatic`; defensively filters out any COUPON entries returned by older stores; sort fields validated to `id`/`name`/`priority`/`start_date` | `internal/tools/promotions/automatic_tools.go` |
+| `marketing/promotions/automatic/get` | R0; GET `/v3/promotions/{id}` — refuses to return when stored `redemption_type=COUPON` (points operator at `marketing/promotions/coupon/get`) | `internal/tools/promotions/automatic_tools.go` |
+| `marketing/promotions/automatic/create` | **R2 high-risk**; POST single promotion (BC has no bulk POST). `redemption_type` overridden to `AUTOMATIC` regardless of input. Deep validation: rules required, action one-of (`cart_items`/`cart_value`/`shipping`/`gift_item`/`fixed_price_set`), discount one-of (`percentage_amount`/`fixed_amount`), condition tree (`cart`/`and`/`or`/`not`), item matcher (`products`/`categories`/`brands`/`variants`/`and`/`or`/`not`), notifications type+location enums, `customer.group_ids` vs `excluded_group_ids` mutual exclusion, status ∈ `ENABLED`/`DISABLED`, currency_code 3-letter or `*`. Soft-warn on previews when store already has ≥100 ENABLED promotions or rules count > 10. Preview required; `confirmed=true` to apply | `internal/tools/promotions/automatic_tools.go` |
+| `marketing/promotions/automatic/update` | **R2 high-risk**; fetch-merge-PUT. Top-level scalars in `patch` override current; `patch.rules` (when provided) **replaces** the rules array in full and emits a warning. Positional rule edits via `rules_patch=[{index, replace_with}]` keep the rest of the array intact. Read-only fields (`id`, `redemption_type`, `current_uses`, `created_from`) rejected in `patch`. Refuses on COUPON promotions. Same deep validation as create runs on the merged document. Preview shows current vs would_apply; `confirmed=true` to apply | `internal/tools/promotions/automatic_tools.go` |
+| `marketing/promotions/automatic/set_status` | **R2 high-risk**; convenience wrapper over update — flips `status` to `ENABLED`/`DISABLED` without touching rules. Returns `noop` when already at the requested status. Preview required | `internal/tools/promotions/automatic_tools.go` |
+| `marketing/promotions/automatic/delete` | **R3 destructive**; DELETE `?id:in=…` (max **40** ids/call — BC documents 50; we leave headroom). Preview lists name/status/current_uses for each id. BC returns 422 when any promotion still has coupon codes attached; the tool surfaces a hint pointing at `marketing/promotions/coupon/codes/delete` and the cascade flag on `marketing/promotions/coupon/delete` | `internal/tools/promotions/automatic_tools.go` |
+| `marketing/promotions/coupon/list` | R0; GET `/v3/promotions` with `redemption_type` hard-pinned to `coupon`; defensively filters out AUTOMATIC entries; supports the `code` filter (full-string match, no partial) | `internal/tools/promotions/coupon_tools.go` |
+| `marketing/promotions/coupon/get` | R0; GET `/v3/promotions/{id}` — refuses on `redemption_type=AUTOMATIC` (points operator at `marketing/promotions/automatic/get`) | `internal/tools/promotions/coupon_tools.go` |
+| `marketing/promotions/coupon/create` | **R2 high-risk**; POST single coupon promotion. `redemption_type` overridden to `COUPON`. Reuses automatic-promotions deep-shape validation plus coupon-specific cross-field checks: `coupon_type ∈ SINGLE \| BULK`; `coupon_overrides_other_promotions=true` requires `can_be_used_with_other_promotions=false`; `multiple_codes` only on BULK. **Deprecated** `coupon_overrides_automatic_when_offering_higher_discounts` rejected outright (operators must use `coupon_overrides_other_promotions`). Codes are added afterwards via `marketing/promotions/coupon/codes/*`. Preview required | `internal/tools/promotions/coupon_tools.go` |
+| `marketing/promotions/coupon/update` | **R2 high-risk**; fetch-merge-PUT, same merge / `rules_patch` semantics as automatic/update. Refuses on AUTOMATIC promotions. Coupon cross-field validation runs on the merged document | `internal/tools/promotions/coupon_tools.go` |
+| `marketing/promotions/coupon/set_status` | **R2 high-risk**; ENABLED/DISABLED toggle; `noop` when already at requested status; refuses on AUTOMATIC | `internal/tools/promotions/coupon_tools.go` |
+| `marketing/promotions/coupon/delete` | **R3 destructive**; DELETE `?id:in=…` (max **40** ids/call). Preview surfaces attached-codes count + sample (best-effort, first page). Optional `delete_codes_first=true` cascade walks each promotion's codes via cursor pagination, deletes them in chunks of **40**, then deletes the promotion. Cascade hard-bounded at **1000 codes per promotion**; above that, the tool refuses and points at `coupon/codes/delete` for manual cleanup. 422-with-coupon-attached errors surface a hint about both paths (manual delete or cascade flag) | `internal/tools/promotions/coupon_tools.go` |
+| `marketing/promotions/coupon/codes/list` | R0; GET `/v3/promotions/{id}/codes` — **cursor-paginated** via `before`/`after`. BigCommerce default rate limit on this endpoint is 10 concurrent (lower than other coupon-codes endpoints). Surfaces `has_more` and the cursor in the response | `internal/tools/promotions/coupon_codes_tools.go` |
+| `marketing/promotions/coupon/codes/create_single` | **R1**; POST single `code`. Charset validated client-side: letters / numbers / spaces / underscores / hyphens, ≤50 chars. Pre-flights parent promotion (refuses on AUTOMATIC). Surfaces a warning when parent's `max_uses` overrides the code's. **Coupon codes are immutable** — message tells operators to delete-and-recreate to "edit" a code. Preview required | `internal/tools/promotions/coupon_codes_tools.go` |
+| `marketing/promotions/coupon/codes/generate_bulk` | **R2 high-risk**; POST `/v3/promotions/{id}/codegen`. Pre-flights parent promotion's `coupon_type=BULK`; refuses on SINGLE. `batch_size` hard-capped at **250** (BC's per-call limit); `length` validated to 6..16 when set; `format` enum validated (`NUMBERS` / `LETTERS` / `ALPHANUMERIC`). Response sample is truncated to 5 codes plus `generated_count` to keep responses small. Preview required | `internal/tools/promotions/coupon_codes_tools.go` |
+| `marketing/promotions/coupon/codes/delete` | **R3 destructive**; DELETE `?id:in=…`, max **40** ids/call (BC documents 50; we leave headroom). Use this to clear codes before `coupon/delete` on a promotion, or as cleanup after a `generate_bulk` run. Preview required | `internal/tools/promotions/coupon_codes_tools.go` |
+| `marketing/promotions/settings/get` | R0; GET `/v3/promotions/settings`. Returns store-wide policy flags controlling zero-price triggers, custom-priced-product eligibility, max coupons at checkout, and original-price-vs-cumulative application mode. Includes notes that settings are global and coupon count >1 is Enterprise-only | `internal/tools/promotions/settings_tools.go` |
+| `marketing/promotions/settings/update` | **R2 high-risk**; fetch-merge-PUT over `/v3/promotions/settings` so only supplied fields change. Type-checks booleans, validates `number_of_coupons_allowed_at_checkout ∈ 1..5`, soft-warns (warn-only) when setting coupon count >1 (Enterprise-only), and short-circuits to `noop` when patch equals current. Preview shows current vs would_apply; `confirmed=true` to apply | `internal/tools/promotions/settings_tools.go` |
 
 ---
 
@@ -122,7 +197,10 @@ From `BC-API-Reference.md`: grant **minimum scopes** per tool group.
 | Catalog write | `store_v2_products` write |
 | Categories | `store_catalog_categories` |
 | Orders | `store_v2_orders` (read vs write split as needed) |
-| Customers | `store_v2_customers` |
+| Customers | `store_v2_customers` (covers `/v3/customers` **and** `/v2/customer_groups`) |
+| Customer Segmentation | `store_v2_customers` (writes); `store_v2_customers_read_only` is sufficient for `/v3/segments` and `/v3/shopper-profiles` GETs **except** `GET /v3/segments/{id}/shopper-profiles`, which requires the modify scope. **Enterprise plan only** — non-Enterprise stores 403 across the entire family. |
+| Promotions | `store_v2_marketing` (writes); `store_v2_marketing_read_only` is sufficient for `/v3/promotions`, `/v3/promotions/{id}/codes`, and `/v3/promotions/settings` GETs. Default rate limit: 40 concurrent requests on most endpoints; **`/v3/promotions/{id}/codes` GET and `/codegen` POST are limited to 10 concurrent**. Shipped MCP subtrees: `marketing/promotions/automatic/*` (`redemption_type=AUTOMATIC`), `marketing/promotions/coupon/*` + `marketing/promotions/coupon/codes/*` (`redemption_type=COUPON` and code lifecycle), and `marketing/promotions/settings/*` (store-wide policy settings). Coupon codes are **immutable** (no PUT) — to change a code, delete and recreate. |
+| Customer stored instruments | `store_stored_payment_instruments` or `store_stored_payment_instruments_read_only` (Management API stored-instruments list) |
 | Inventory | `store_inventory` |
 | Price lists | `store_price_lists` |
 | Store / SEO / content | `store_v2_information`, `store_content`, etc. |
@@ -151,7 +229,7 @@ Follow **`{action}_{resource}`** in snake_case (BC-API-Reference §9).
 
 **Write (R1):** `bulk_update_products` (max 10 items + chunking in implementation), `update_category`, …
 
-**High-risk (R2):** `upsert_price_list_records` (**serial only**), `apply_inventory_adjustments` (batch ≤ 10), …
+**High-risk (R2):** `catalog/pricelists/records/upsert` (**serial only**), `catalog/pricelists/assignments/create_batch`, `catalog/pricelists/assignments/upsert`, `catalog/pricelists/assignments/delete`, `inventory/locations/create`, `inventory/locations/update`, `inventory/items/update_batch` (batch ≤ 10), `inventory/adjustments/absolute` (batch ≤ 10), `inventory/adjustments/relative` (batch ≤ 10), …
 
 **Parameters:** mirror BC limits — e.g. `maxItems: 10` on bulk product arrays; optional `dry_run: bool` for proposals.
 

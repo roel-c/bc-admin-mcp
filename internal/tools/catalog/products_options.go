@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // RegisterOptionTools registers the product option CRUD tools.
@@ -65,9 +65,9 @@ func (p *Products) RegisterOptionTools(reg *discovery.Registry) {
 	})
 
 	reg.RegisterTool(&discovery.ToolDef{
-		Path:    "catalog/products/options/delete",
-		Tier:    middleware.TierR2,
-		Summary: "Delete a product option (removes associated variants)",
+		Path:        "catalog/products/options/delete",
+		Tier:        middleware.TierR2,
+		Summary:     "Delete a product option (removes associated variants)",
 		Description: "Deletes an option and all variants that depend on it. Cannot be undone.",
 		Tool: mcp.NewTool("catalog_products_options_delete",
 			mcp.WithDescription("Delete a product option. WARNING: This removes all variants that use this option."),

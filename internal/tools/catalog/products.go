@@ -2,81 +2,31 @@ package catalog
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"strconv"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
 	"github.com/roel-c/bc-admin-mcp/internal/session"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/roel-c/bc-admin-mcp/internal/tools/shared"
 )
-
-// SearchFilter declares how a single tool parameter maps to a BigCommerce
-// query parameter. The Kind field controls type-checking at extraction time.
-type SearchFilter struct {
-	ToolKey string // parameter name exposed to the LLM
-	BCKey   string // BigCommerce query parameter key (e.g. "name:like")
-	Kind    string // "string", "number", or "bool"
-}
 
 // ProductSearchFilters is the declarative mapping table for the product search
 // tool. Adding a new filter is a single line here plus one mcp.With* call in
 // the tool schema. The same pattern can be reused for orders, customers, etc.
-var ProductSearchFilters = []SearchFilter{
-	{"keyword", "keyword", "string"},
-	{"name", "name", "string"},
-	{"name_like", "name:like", "string"},
-	{"sku", "sku", "string"},
-	{"sku_like", "sku:like", "string"},
-	{"category_id", "categories:in", "number"},
-	{"brand_id", "brand_id", "number"},
-	{"price_min", "price:min", "number"},
-	{"price_max", "price:max", "number"},
-	{"is_visible", "is_visible", "bool"},
-	{"sort", "sort", "string"},
-	{"sort_direction", "direction", "string"},
-	{"include_fields", "include_fields", "string"},
-}
-
-// ExtractFilters reads tool arguments through a SearchFilter table, returning
-// the corresponding BigCommerce query parameters. It returns an error if a
-// provided argument has the wrong type.
-func ExtractFilters(args map[string]any, filters []SearchFilter) (map[string]string, error) {
-	params := make(map[string]string)
-	for _, f := range filters {
-		v, ok := args[f.ToolKey]
-		if !ok {
-			continue
-		}
-		switch f.Kind {
-		case "string":
-			s, sOk := v.(string)
-			if !sOk {
-				return nil, fmt.Errorf("%s must be a string", f.ToolKey)
-			}
-			if s != "" {
-				params[f.BCKey] = s
-			}
-		case "number":
-			n, nOk := v.(float64)
-			if !nOk {
-				return nil, fmt.Errorf("%s must be a number", f.ToolKey)
-			}
-			if n == float64(int(n)) {
-				params[f.BCKey] = fmt.Sprintf("%.0f", n)
-			} else {
-				params[f.BCKey] = strconv.FormatFloat(n, 'f', -1, 64)
-			}
-		case "bool":
-			b, bOk := v.(bool)
-			if !bOk {
-				return nil, fmt.Errorf("%s must be a boolean", f.ToolKey)
-			}
-			params[f.BCKey] = strconv.FormatBool(b)
-		}
-	}
-	return params, nil
+var ProductSearchFilters = []shared.SearchFilter{
+	{ToolKey: "keyword", BCKey: "keyword", Kind: "string"},
+	{ToolKey: "name", BCKey: "name", Kind: "string"},
+	{ToolKey: "name_like", BCKey: "name:like", Kind: "string"},
+	{ToolKey: "sku", BCKey: "sku", Kind: "string"},
+	{ToolKey: "sku_like", BCKey: "sku:like", Kind: "string"},
+	{ToolKey: "category_id", BCKey: "categories:in", Kind: "number"},
+	{ToolKey: "brand_id", BCKey: "brand_id", Kind: "number"},
+	{ToolKey: "price_min", BCKey: "price:min", Kind: "number"},
+	{ToolKey: "price_max", BCKey: "price:max", Kind: "number"},
+	{ToolKey: "is_visible", BCKey: "is_visible", Kind: "bool"},
+	{ToolKey: "sort", BCKey: "sort", Kind: "string"},
+	{ToolKey: "sort_direction", BCKey: "direction", Kind: "string"},
+	{ToolKey: "include_fields", BCKey: "include_fields", Kind: "string"},
 }
 
 // nonFilterKeys are tool parameters that control sorting/output, not data
@@ -460,7 +410,7 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 func (p *Products) handleSearch(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
 
-	params, err := ExtractFilters(args, ProductSearchFilters)
+	params, err := shared.ExtractFilters(args, ProductSearchFilters)
 	if err != nil {
 		return toolError("%s", err.Error()), nil
 	}
@@ -478,7 +428,7 @@ func (p *Products) handleSearch(ctx context.Context, request mcp.CallToolRequest
 		}
 	}
 
-	hasFilter := HasDataFilterBCParams(params, ProductSearchFilters, nonFilterKeys) || params["channel_id:in"] != ""
+	hasFilter := shared.HasDataFilterBCParams(params, ProductSearchFilters, nonFilterKeys) || params["channel_id:in"] != ""
 	if !hasFilter {
 		return toolError(
 			"at least one filter parameter is required (e.g. name_like, keyword, " +
@@ -572,36 +522,11 @@ func (p *Products) handleGet(ctx context.Context, request mcp.CallToolRequest) (
 	}
 
 	result := map[string]any{
-		"product":              product,
-		"variants":             variants,
-		"has_variant_pricing":  hasVariantPricing,
-		"variant_count":        len(variants),
+		"product":             product,
+		"variants":            variants,
+		"has_variant_pricing": hasVariantPricing,
+		"variant_count":       len(variants),
 	}
 
 	return toolJSON(result)
-}
-
-func toolError(format string, args ...any) *mcp.CallToolResult {
-	msg := fmt.Sprintf(format, args...)
-	if len(msg) > 1000 {
-		msg = msg[:1000] + "... (truncated)"
-	}
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{
-			mcp.TextContent{Type: "text", Text: msg},
-		},
-	}
-}
-
-func toolJSON(data any) (*mcp.CallToolResult, error) {
-	raw, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return toolError("failed to marshal response: %v", err), nil
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.TextContent{Type: "text", Text: string(raw)},
-		},
-	}, nil
 }

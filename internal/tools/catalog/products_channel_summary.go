@@ -167,11 +167,11 @@ func (p *Products) handleChannelSummary(ctx context.Context, request mcp.CallToo
 	}
 
 	type productSummary struct {
-		ProductID                 int                              `json:"product_id"`
-		AssignedChannels          []channelMeta                    `json:"assigned_channels"`
+		ProductID                 int                                 `json:"product_id"`
+		AssignedChannels          []channelMeta                       `json:"assigned_channels"`
 		ListingsByChannel         map[string]channelListingProjection `json:"listings_by_channel"`
-		ChannelsWithoutListing    []int                            `json:"channels_assigned_without_listing,omitempty"`
-		ListingsWithoutAssignment []int                            `json:"channels_with_listing_but_no_assignment,omitempty"`
+		ChannelsWithoutListing    []int                               `json:"channels_assigned_without_listing,omitempty"`
+		ListingsWithoutAssignment []int                               `json:"channels_with_listing_but_no_assignment,omitempty"`
 	}
 
 	productSummaries := make([]productSummary, 0, len(productIDs))
@@ -229,11 +229,11 @@ func (p *Products) handleChannelSummary(ctx context.Context, request mcp.CallToo
 	}
 
 	return toolJSON(map[string]any{
-		"product_count":         len(productIDs),
-		"channels_queried":      len(channelsToQuery),
-		"include_unassigned":    includeUnassigned,
-		"channels_directory":    channelDirectory,
-		"products":              productSummaries,
+		"product_count":      len(productIDs),
+		"channels_queried":   len(channelsToQuery),
+		"include_unassigned": includeUnassigned,
+		"channels_directory": channelDirectory,
+		"products":           productSummaries,
 		"apis": []string{
 			"GET /v3/channels",
 			"GET /v3/catalog/products/channel-assignments",

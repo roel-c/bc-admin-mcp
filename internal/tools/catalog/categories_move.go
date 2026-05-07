@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // MoveParams holds parsed arguments for the category move tool.
@@ -197,13 +197,13 @@ func (c *Categories) handleMove(ctx context.Context, request mcp.CallToolRequest
 		}
 
 		preview := map[string]any{
-			"status":                  "pending_confirmation",
-			"category":               map[string]any{"id": sourceID, "name": sourceCat.Name},
-			"current_parent":         currentParent,
-			"new_parent":             newParent,
-			"descendants_that_move":  childCount,
-			"warning":                "This changes storefront navigation. All descendant categories move with the parent.",
-			"message":                fmt.Sprintf("Category %q will be moved. Pass confirmed=true to execute.", sourceCat.Name),
+			"status":                "pending_confirmation",
+			"category":              map[string]any{"id": sourceID, "name": sourceCat.Name},
+			"current_parent":        currentParent,
+			"new_parent":            newParent,
+			"descendants_that_move": childCount,
+			"warning":               "This changes storefront navigation. All descendant categories move with the parent.",
+			"message":               fmt.Sprintf("Category %q will be moved. Pass confirmed=true to execute.", sourceCat.Name),
 		}
 		if countErr != nil {
 			preview["descendant_count_warning"] = "Could not determine exact descendant count; the actual number may be higher."

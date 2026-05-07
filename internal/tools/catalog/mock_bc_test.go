@@ -161,6 +161,35 @@ func (mr *MockBigCommerceAPIMockRecorder) CreateChannelListings(ctx, channelID, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateChannelListings", reflect.TypeOf((*MockBigCommerceAPI)(nil).CreateChannelListings), ctx, channelID, body)
 }
 
+// CreatePriceList mocks base method.
+func (m *MockBigCommerceAPI) CreatePriceList(ctx context.Context, payload bigcommerce.PriceListCreate) (*bigcommerce.PriceList, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePriceList", ctx, payload)
+	ret0, _ := ret[0].(*bigcommerce.PriceList)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreatePriceList indicates an expected call of CreatePriceList.
+func (mr *MockBigCommerceAPIMockRecorder) CreatePriceList(ctx, payload any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePriceList", reflect.TypeOf((*MockBigCommerceAPI)(nil).CreatePriceList), ctx, payload)
+}
+
+// CreatePriceListAssignments mocks base method.
+func (m *MockBigCommerceAPI) CreatePriceListAssignments(ctx context.Context, assignments []bigcommerce.PriceListAssignmentCreate) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePriceListAssignments", ctx, assignments)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreatePriceListAssignments indicates an expected call of CreatePriceListAssignments.
+func (mr *MockBigCommerceAPIMockRecorder) CreatePriceListAssignments(ctx, assignments any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePriceListAssignments", reflect.TypeOf((*MockBigCommerceAPI)(nil).CreatePriceListAssignments), ctx, assignments)
+}
+
 // CreateProduct mocks base method.
 func (m *MockBigCommerceAPI) CreateProduct(ctx context.Context, payload bigcommerce.ProductCreate) (*bigcommerce.Product, error) {
 	m.ctrl.T.Helper()
@@ -349,6 +378,48 @@ func (m *MockBigCommerceAPI) DeleteCategoryMetafield(ctx context.Context, catego
 func (mr *MockBigCommerceAPIMockRecorder) DeleteCategoryMetafield(ctx, categoryID, metafieldID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCategoryMetafield", reflect.TypeOf((*MockBigCommerceAPI)(nil).DeleteCategoryMetafield), ctx, categoryID, metafieldID)
+}
+
+// DeletePriceList mocks base method.
+func (m *MockBigCommerceAPI) DeletePriceList(ctx context.Context, priceListID int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePriceList", ctx, priceListID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePriceList indicates an expected call of DeletePriceList.
+func (mr *MockBigCommerceAPIMockRecorder) DeletePriceList(ctx, priceListID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePriceList", reflect.TypeOf((*MockBigCommerceAPI)(nil).DeletePriceList), ctx, priceListID)
+}
+
+// DeletePriceListAssignments mocks base method.
+func (m *MockBigCommerceAPI) DeletePriceListAssignments(ctx context.Context, params bigcommerce.PriceListAssignmentDeleteParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePriceListAssignments", ctx, params)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePriceListAssignments indicates an expected call of DeletePriceListAssignments.
+func (mr *MockBigCommerceAPIMockRecorder) DeletePriceListAssignments(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePriceListAssignments", reflect.TypeOf((*MockBigCommerceAPI)(nil).DeletePriceListAssignments), ctx, params)
+}
+
+// DeletePriceListRecords mocks base method.
+func (m *MockBigCommerceAPI) DeletePriceListRecords(ctx context.Context, priceListID int, params bigcommerce.PriceListRecordDeleteParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePriceListRecords", ctx, priceListID, params)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePriceListRecords indicates an expected call of DeletePriceListRecords.
+func (mr *MockBigCommerceAPIMockRecorder) DeletePriceListRecords(ctx, priceListID, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePriceListRecords", reflect.TypeOf((*MockBigCommerceAPI)(nil).DeletePriceListRecords), ctx, priceListID, params)
 }
 
 // DeleteProduct mocks base method.
@@ -552,6 +623,21 @@ func (mr *MockBigCommerceAPIMockRecorder) GetDefaultTreeID(ctx any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDefaultTreeID", reflect.TypeOf((*MockBigCommerceAPI)(nil).GetDefaultTreeID), ctx)
 }
 
+// GetPriceList mocks base method.
+func (m *MockBigCommerceAPI) GetPriceList(ctx context.Context, priceListID int) (*bigcommerce.PriceList, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPriceList", ctx, priceListID)
+	ret0, _ := ret[0].(*bigcommerce.PriceList)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPriceList indicates an expected call of GetPriceList.
+func (mr *MockBigCommerceAPIMockRecorder) GetPriceList(ctx, priceListID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPriceList", reflect.TypeOf((*MockBigCommerceAPI)(nil).GetPriceList), ctx, priceListID)
+}
+
 // GetProduct mocks base method.
 func (m *MockBigCommerceAPI) GetProduct(ctx context.Context, productID int) (*bigcommerce.Product, error) {
 	m.ctrl.T.Helper()
@@ -670,6 +756,51 @@ func (m *MockBigCommerceAPI) ListChannelListings(ctx context.Context, channelID 
 func (mr *MockBigCommerceAPIMockRecorder) ListChannelListings(ctx, channelID, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListChannelListings", reflect.TypeOf((*MockBigCommerceAPI)(nil).ListChannelListings), ctx, channelID, query)
+}
+
+// ListPriceListAssignments mocks base method.
+func (m *MockBigCommerceAPI) ListPriceListAssignments(ctx context.Context, params bigcommerce.PriceListAssignmentListParams) ([]bigcommerce.PriceListAssignment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPriceListAssignments", ctx, params)
+	ret0, _ := ret[0].([]bigcommerce.PriceListAssignment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPriceListAssignments indicates an expected call of ListPriceListAssignments.
+func (mr *MockBigCommerceAPIMockRecorder) ListPriceListAssignments(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPriceListAssignments", reflect.TypeOf((*MockBigCommerceAPI)(nil).ListPriceListAssignments), ctx, params)
+}
+
+// ListPriceListRecords mocks base method.
+func (m *MockBigCommerceAPI) ListPriceListRecords(ctx context.Context, priceListID int, params bigcommerce.PriceListRecordListParams) ([]bigcommerce.PriceListRecord, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPriceListRecords", ctx, priceListID, params)
+	ret0, _ := ret[0].([]bigcommerce.PriceListRecord)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPriceListRecords indicates an expected call of ListPriceListRecords.
+func (mr *MockBigCommerceAPIMockRecorder) ListPriceListRecords(ctx, priceListID, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPriceListRecords", reflect.TypeOf((*MockBigCommerceAPI)(nil).ListPriceListRecords), ctx, priceListID, params)
+}
+
+// ListPriceLists mocks base method.
+func (m *MockBigCommerceAPI) ListPriceLists(ctx context.Context, params bigcommerce.PriceListListParams) ([]bigcommerce.PriceList, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPriceLists", ctx, params)
+	ret0, _ := ret[0].([]bigcommerce.PriceList)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPriceLists indicates an expected call of ListPriceLists.
+func (mr *MockBigCommerceAPIMockRecorder) ListPriceLists(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPriceLists", reflect.TypeOf((*MockBigCommerceAPI)(nil).ListPriceLists), ctx, params)
 }
 
 // ListProductChannelAssignments mocks base method.
@@ -957,6 +1088,21 @@ func (mr *MockBigCommerceAPIMockRecorder) UpdateChannelListings(ctx, channelID, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateChannelListings", reflect.TypeOf((*MockBigCommerceAPI)(nil).UpdateChannelListings), ctx, channelID, body)
 }
 
+// UpdatePriceList mocks base method.
+func (m *MockBigCommerceAPI) UpdatePriceList(ctx context.Context, priceListID int, payload bigcommerce.PriceListUpdate) (*bigcommerce.PriceList, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePriceList", ctx, priceListID, payload)
+	ret0, _ := ret[0].(*bigcommerce.PriceList)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdatePriceList indicates an expected call of UpdatePriceList.
+func (mr *MockBigCommerceAPIMockRecorder) UpdatePriceList(ctx, priceListID, payload any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePriceList", reflect.TypeOf((*MockBigCommerceAPI)(nil).UpdatePriceList), ctx, priceListID, payload)
+}
+
 // UpdateProductCustomField mocks base method.
 func (m *MockBigCommerceAPI) UpdateProductCustomField(ctx context.Context, productID, fieldID int, payload bigcommerce.ProductCustomFieldCreate) (*bigcommerce.ProductCustomField, error) {
 	m.ctrl.T.Helper()
@@ -1044,6 +1190,35 @@ func (m *MockBigCommerceAPI) UpsertCategoryAssignments(ctx context.Context, assi
 func (mr *MockBigCommerceAPIMockRecorder) UpsertCategoryAssignments(ctx, assignments any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertCategoryAssignments", reflect.TypeOf((*MockBigCommerceAPI)(nil).UpsertCategoryAssignments), ctx, assignments)
+}
+
+// UpsertPriceListAssignment mocks base method.
+func (m *MockBigCommerceAPI) UpsertPriceListAssignment(ctx context.Context, priceListID int, payload bigcommerce.PriceListAssignmentUpsert) (*bigcommerce.PriceListAssignment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertPriceListAssignment", ctx, priceListID, payload)
+	ret0, _ := ret[0].(*bigcommerce.PriceListAssignment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpsertPriceListAssignment indicates an expected call of UpsertPriceListAssignment.
+func (mr *MockBigCommerceAPIMockRecorder) UpsertPriceListAssignment(ctx, priceListID, payload any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertPriceListAssignment", reflect.TypeOf((*MockBigCommerceAPI)(nil).UpsertPriceListAssignment), ctx, priceListID, payload)
+}
+
+// UpsertPriceListRecords mocks base method.
+func (m *MockBigCommerceAPI) UpsertPriceListRecords(ctx context.Context, priceListID int, records []bigcommerce.PriceListRecordUpsert) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertPriceListRecords", ctx, priceListID, records)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertPriceListRecords indicates an expected call of UpsertPriceListRecords.
+func (mr *MockBigCommerceAPIMockRecorder) UpsertPriceListRecords(ctx, priceListID, records any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertPriceListRecords", reflect.TypeOf((*MockBigCommerceAPI)(nil).UpsertPriceListRecords), ctx, priceListID, records)
 }
 
 // UpsertProductChannelAssignments mocks base method.

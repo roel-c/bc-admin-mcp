@@ -65,15 +65,16 @@ This server solves all three through progressive disclosure, use-case-driven too
 │  │                  │  │  (R0-R4)     │  │   (slog/JSON)         │  │
 │  │  Categories:     │  │              │  │                       │  │
 │  │  catalog/        │  │  R0: pass    │  │  Every tool call:     │  │
-│  │  (only root      │  │  R1: preview │  │  • tool name          │  │
-│  │   registered;    │  │  R2: confirm │  │  • duration_ms        │  │
-│  │   see roadmap)   │  │  R3: per-ID  │  │  • success/error      │  │
+│  │  customers/      │  │  R1: preview │  │  • tool name          │  │
+│  │  marketing/      │  │  R2: confirm │  │  • duration_ms        │  │
+│  │  (+ roadmap      │  │  R3: per-ID  │  │  • success/error      │  │
+│  │   roots omitted) │  │  R4: block   │  │                       │  │
 │  │                  │  │  R4: block   │  │                       │  │
 │  │                  │  └──────────────┘  └───────────────────────┘  │
 │  │                  │                                               │
 │  │                  │  ┌──────────────────────────────────────────┐  │
 │  │  Tools:          │  │   Session Cache (TTL-based)              │  │
-│  │  67 catalog      │  │                                          │  │
+│  │  Domain tool     │  │                                          │  │
 │  │  leaves (reg.)   │  │  Per-session, keyed by operation:        │  │
 │  └─────────────────┘  │  • product_update → [Product...]         │  │
 │                        │  • 60s default TTL, evictable             │  │
@@ -183,7 +184,7 @@ This server solves all three through progressive disclosure, use-case-driven too
 
 **How it works:**
 
-The `discover_tools(path)` meta-tool navigates a hierarchical category tree. Calling it with an empty path returns the **`catalog`** root only (~50 tokens); other domains (orders, customers, …) are documented in the expansion roadmap and are **not** registered until tools exist (avoids empty `discover_tools` leaves). Drilling into `"catalog"` returns subcategories; drilling into e.g. `"catalog/products"` reveals tools and deeper categories.
+The `discover_tools(path)` meta-tool navigates a hierarchical category tree. Calling it with an empty path returns the active roots (**`catalog`**, **`orders`**, **`customers`**, **`marketing`**, **`inventory`**); planned domains (carts, store) remain in the expansion roadmap and are **not** registered until tools exist (avoids empty `discover_tools` leaves). Drilling into a root (for example `"catalog"`) returns subcategories; drilling into e.g. `"catalog/products"` reveals tools and deeper categories.
 
 The `execute_tool(tool_path, arguments)` meta-tool invokes any tool by its full path. The full tool schema (parameters, types, descriptions) is never sent to the LLM — it lives server-side and is resolved when the tool is executed.
 
@@ -406,6 +407,7 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/tools/catalog/variants_global.go` | ~285 | Global variant list + batch update MCP handlers (`catalog/variants/list`, `bulk_update`) |
 | `internal/tools/catalog/channel_tools.go` | ~165 | `catalog/channels/list`, `catalog/channels/category_trees`; delegates listing tools |
 | `internal/tools/catalog/channel_listings_tools.go` | ~370 | `catalog/channels/listings/list`, `create`, `update` (GET/POST/PUT listings) |
+| `internal/tools/catalog/pricelists_tools.go` | ~1,080 | `catalog/pricelists/*`, `catalog/pricelists/records/*`, `catalog/pricelists/assignments/*` handlers (preview→confirm for R1+) |
 | `internal/tools/catalog/metafield_shared.go` | ~370 | Shared catalog metafields: `MetafieldResourceOps`, list/upsert/delete MCP helpers, `metafieldUpsertExecute` (single execution path for confirmed tool + bulk upserts), `metafieldResolveIDByNamespaceKey`, product/variant/category/brand op factories |
 | `internal/tools/catalog/metafield_shared.go`/`metafield_permissions.go` | ~40 | Shared metafield permission-set defaults and validation |
 | `internal/tools/catalog/list_filter_helpers.go` | ~45 | Shared list/search helpers: `list_all`, BC filter vs data-param detection |
@@ -420,7 +422,7 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/config/config_test.go` | ~170 | Config validation |
 | `internal/discovery/registry_test.go` | ~185 | Registry confirmed-param validation, tool discovery |
 | `internal/discovery/metatool_test.go` | ~235 | `discover_tools` / `execute_tool` meta-tool flows |
-| `internal/server/registration_audit_test.go` | ~115 | Locks: root = `catalog` only; every `catalog/**` category has children; every tool's parent path exists |
+| `internal/server/registration_audit_test.go` | ~115 | Locks: roots = `catalog` + `customers` + `marketing`; every active category has children; every tool's parent path exists |
 | `docs/SECURITY.md` | — | Security review findings, threat model, and remediation details |
 | `.gitignore` | — | Prevents `.env` and binaries from being committed |
 
@@ -501,13 +503,25 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `catalog/channels/listings/list` | R0 | `GET .../channels/{id}/listings` — cursor pagination; optional `product_ids`; cap 2000 rows |
 | `catalog/channels/listings/create` | R1 | `POST` — `listings_json` array (max 10); preview→confirm; **store_channel_listings** |
 | `catalog/channels/listings/update` | R2 | `PUT` — same JSON limits; requires **listing_id** per row; preview→confirm |
+| `catalog/pricelists/list` | R0 | `GET /v3/pricelists` with id/name/date filters plus offset/cursor pagination |
+| `catalog/pricelists/get` | R0 | `GET /v3/pricelists/{price_list_id}` |
+| `catalog/pricelists/create` | R1 | `POST /v3/pricelists` (`name`, optional `active`); preview→confirm |
+| `catalog/pricelists/update` | R1 | Fetch current then merge/`PUT /v3/pricelists/{price_list_id}`; preview→confirm |
+| `catalog/pricelists/delete` | R3 | Destructive `DELETE /v3/pricelists/{price_list_id}`; preview→confirm |
+| `catalog/pricelists/records/list` | R0 | `GET /v3/pricelists/{price_list_id}/records` with variant/product/SKU/currency filters and offset/cursor pagination |
+| `catalog/pricelists/records/upsert` | R2 | `PUT /v3/pricelists/{price_list_id}/records`; tool cap **100** rows/call; preview→confirm; serial policy |
+| `catalog/pricelists/records/delete` | R2 | Selector-based `DELETE /v3/pricelists/{price_list_id}/records`; requires `variant_ids` or `skus`; preview→confirm |
+| `catalog/pricelists/assignments/list` | R0 | `GET /v3/pricelists/assignments` with id/price_list/customer_group/channel filters + offset/cursor pagination |
+| `catalog/pricelists/assignments/create_batch` | R2 | `POST /v3/pricelists/assignments`; tool cap **25** rows/call; preview→confirm |
+| `catalog/pricelists/assignments/upsert` | R2 | `PUT /v3/pricelists/{price_list_id}/assignments` for one customer-group + channel tuple; preview→confirm |
+| `catalog/pricelists/assignments/delete` | R2 | Filter-based `DELETE /v3/pricelists/assignments`; at least one filter required; preview→confirm |
 
 ### Registered Category Hierarchy
 
-**Discovery (`discover_tools`)** only registers **`catalog/**` today.** Domains such as `orders/`, `customers/`, … appear in the [Expansion Roadmap](#7-expansion-roadmap) but are **not** category nodes until tools ship (see [`discovery-registration-audit.md`](./discovery-registration-audit.md)).
+**Discovery (`discover_tools`)** currently registers five active roots: **`catalog/**`, `orders/**`, `customers/**`, `marketing/**`, and `inventory/**`. Domains such as `carts/` and `store/` remain in the [Expansion Roadmap](#7-expansion-roadmap) and are **not** category nodes until tools ship (see [`discovery-registration-audit.md`](./discovery-registration-audit.md)).
 
 ```
-catalog/                    — Product catalog: products, categories, brands, variants
+catalog/                    — Product catalog: products, categories, brands, variants, price lists
   catalog/products/         — Product operations: search, get, create, update, delete, sub-resources
     catalog/products/channel_assignments/ — MSF catalog: list, assign, remove product↔channel
     catalog/products/images/         — Product image management: list, add by URL, delete
@@ -524,6 +538,28 @@ catalog/                    — Product catalog: products, categories, brands, v
   catalog/variants/         — Global variant list (GET) and batch update (PUT); product CRUD under catalog/products/variants
   catalog/channels/         — Management GET /v3/channels (storefront IDs, MSF awareness)
     catalog/channels/listings/ — Channel product listings: list, create (POST), update (PUT)
+  catalog/pricelists/       — Price list CRUD
+    catalog/pricelists/records/ — Price record list/upsert/delete for one price list
+    catalog/pricelists/assignments/ — Assignment list/create_batch/upsert/delete
+customers/                  — Customer-domain operations: records, groups, attributes, settings, consent, segmentation
+  customers/groups/         — V2 customer groups CRUD
+  customers/addresses/      — Customer addresses CRUD
+  customers/attributes/     — Customer attribute definitions CRUD
+  customers/attribute_values/ — Customer attribute value list/upsert/delete
+  customers/metafields/     — Customer metafields single + bulk
+  customers/settings/       — Global/channel customer settings
+  customers/consent/        — Per-customer consent
+  customers/stored_instruments/ — Stored payment instruments listing
+  customers/credentials/    — Credential validation
+  customers/segments/       — Segments CRUD + segment shopper membership
+    customers/segments/shoppers/ — Shopper-profile membership actions
+  customers/shopper_profiles/ — Shopper profiles CRUD + segment lookup
+marketing/                  — Marketing-domain operations
+  marketing/promotions/     — Promotions engine
+    marketing/promotions/automatic/ — Automatic promotions
+    marketing/promotions/coupon/    — Coupon promotions
+      marketing/promotions/coupon/codes/ — Coupon code lifecycle
+    marketing/promotions/settings/  — Store-wide promotion settings
 ```
 
 ---
@@ -596,7 +632,7 @@ catalog/                    — Product catalog: products, categories, brands, v
 
 ### Catalog completion gate (before other domains)
 
-Work through **[`catalog-completion-checklist.md`](./catalog-completion-checklist.md)** so catalog discovery matches implemented tools, intentional stubs (e.g. reserved `catalog/variants` for global variant API) are documented, and patterns (tiers, preview/confirm, bulk caps, metafields) are stable before layering **orders**, **customers**, and the rest of the roadmap below.
+Work through **[`catalog-completion-checklist.md`](./catalog-completion-checklist.md)** so catalog discovery matches implemented tools, intentional stubs (e.g. reserved `catalog/variants` for global variant API) are documented, and patterns (tiers, preview/confirm, bulk caps, metafields) remain stable as we layer **orders**, **carts**, **inventory**, and the rest of the roadmap below.
 
 Multi-storefront / channel work: see **[`msf-research-outline.md`](./msf-research-outline.md)** for API inventory, MSF detection heuristics, and code insertion points.
 
@@ -606,23 +642,35 @@ These cover the most common merchant requests based on BC ecosystem data:
 
 | Domain | Tools to Add | BC API | Tier | Notes |
 |--------|-------------|--------|------|-------|
-| `orders/management/list` | Search orders by status, date, customer | GET /v2/orders | R0 | V2 endpoint — use `GetV2()` |
-| `orders/management/get` | Full order details with line items | GET /v2/orders/{id} + /products | R0 | |
-| `orders/management/update_status` | Change order status | PUT /v2/orders/{id} | R1 | |
-| `orders/fulfillment/create_shipment` | Create shipment with tracking | POST /v2/orders/{id}/shipments | R1 | |
+| `orders/management/list` | Search orders by status, date, customer | GET /v2/orders | R0 | **Implemented** |
+| `orders/management/get` | Full order details with line items | GET /v2/orders/{id} + /products | R0 | **Implemented** |
+| `orders/management/create` | Create one manual order | POST /v2/orders | R2 | **Implemented** — preview→confirm |
+| `orders/management/update` | Targeted partial order update | PUT /v2/orders/{id} | R2 | **Implemented** — preview→confirm, patch payload with side-effect warning |
+| `orders/management/delete` | Delete one order | DELETE /v2/orders/{id} | R3 | **Implemented** — destructive preview→confirm |
+| `orders/management/update_status` | Change order status | PUT /v2/orders/{id} | R1 | **Implemented** |
+| `orders/management/products/get` | Get one order-product row | GET /v2/orders/{id}/products/{product_id} | R0 | **Implemented** |
+| `orders/management/metafields/list` | List order metafields | GET /v3/orders/{id}/metafields | R0 | **Implemented** |
+| `orders/management/metafields/set` | Upsert one order metafield | POST/PUT /v3/orders/{id}/metafields | R1 | **Implemented** — preview→confirm |
+| `orders/management/metafields/delete` | Delete one order metafield | DELETE /v3/orders/{id}/metafields/{metafield_id} | R1 | **Implemented** — preview→confirm |
+| `orders/fulfillment/shipments/create` | Create shipment with tracking | POST /v2/orders/{id}/shipments | R1 | **Implemented** |
+| `orders/fulfillment/shipments/get` | Get one shipment row | GET /v2/orders/{id}/shipments/{shipment_id} | R0 | **Implemented** |
+| `orders/fulfillment/shipments/update` | Update shipment details | PUT /v2/orders/{id}/shipments/{shipment_id} | R1 | **Implemented** — preview→confirm |
+| `orders/fulfillment/shipments/delete` | Delete shipment | DELETE /v2/orders/{id}/shipments/{shipment_id} | R3 | **Implemented** — destructive preview→confirm |
+| `orders/management/messages/list` | List order messages | GET /v2/orders/{id}/messages | R0 | **Implemented** |
+| `orders/management/shipping_addresses/list` | List order shipping addresses | GET /v2/orders/{id}/shipping_addresses | R0 | **Implemented** |
+| `orders/management/shipping_addresses/get` | Get one shipping address row | GET /v2/orders/{id}/shipping_addresses/{shipping_address_id} | R0 | **Implemented** |
+| `orders/management/shipping_addresses/update` | Update one shipping address row | PUT /v2/orders/{id}/shipping_addresses/{shipping_address_id} | R1 | **Implemented** — preview→confirm |
+| `orders/management/coupons/list` | List order coupons | GET /v2/orders/{id}/coupons | R0 | **Implemented** |
+| `orders/management/taxes/list` | List order taxes | GET /v2/orders/{id}/taxes | R0 | **Implemented** |
 | `inventory/adjust` | Absolute or relative stock adjustments | POST /v3/inventory/adjustments | R2 | Batch ≤10, ≤5 concurrent |
 
-### Priority 2 — Customer & Marketing
+### Priority 2 — Customer / Marketing Follow-ons
 
-| Domain | Tools to Add | BC API | Tier |
-|--------|-------------|--------|------|
-| `customers/management/list` | Search customers | GET /v3/customers | R0 |
-| `customers/management/get` | Full customer detail | GET /v3/customers/{id} | R0 |
-| `customers/management/update` | Update customer fields | PUT /v3/customers | R1 |
-| `marketing/coupons/list` | List coupons | GET /v2/coupons | R0 |
-| `marketing/coupons/create` | Create a coupon | POST /v2/coupons | R1 |
-| `marketing/promotions/list` | List promotions | GET /v3/promotions | R0 |
-| `marketing/promotions/create` | Create a promotion | POST /v3/promotions | R1 |
+Core customer and promotions surfaces are now shipped under `customers/**` and `marketing/promotions/**`. Remaining follow-on work in this area should focus on:
+
+- Additional order-to-customer orchestration tools as `orders/**` coverage expands
+- Any legacy coupon endpoints still needed beyond the current V3 promotions + coupon-codes tooling
+- Cross-domain workflows that join customers/promotions with inventory or order operations
 
 ### Priority 3 — Store Operations
 
@@ -638,11 +686,29 @@ These cover the most common merchant requests based on BC ecosystem data:
 
 | Domain | Tools to Add | BC API | Tier | Notes |
 |--------|-------------|--------|------|-------|
-| `catalog/pricelists/upsert` | Bulk price list records | PUT /v3/pricelists/{id}/records | R2 | **Serial only** — no parallelism |
+| `catalog/pricelists/*` | Price list CRUD + records/assignments | `/v3/pricelists`, `/v3/pricelists/{id}/records`, `/v3/pricelists/assignments` | R0/R1/R2/R3 | **Implemented** — keep record upserts serial; see tool table in section 4 |
 | `store/webhooks/create` | Register webhooks | POST /v3/hooks | R1 | Serial only |
 | `catalog/products/delete` | Hard delete products | DELETE /v3/catalog/products | R3 | **Implemented** — prefer `is_visible: false` via update (R1) |
-| `orders/refunds/create` | Issue refund | POST /v3/orders/{id}/payment_actions/refund | R3 | Per-order confirmation required |
-| `orders/payments/capture` | Capture payment | POST /v3/orders/{id}/payment_actions/capture | R3 | Per-order confirmation required |
+| `orders/payments/actions/list` | List payment actions | GET /v3/orders/{id}/payment_actions | R0 | **Implemented** |
+| `orders/payments/transactions/list` | List transactions for one order | GET /v3/orders/{id}/transactions | R0 | **Implemented** |
+| `orders/refunds/list` | List refunds for one order | GET /v3/orders/{id}/payment_actions/refunds | R0 | **Implemented** |
+| `orders/refunds/legacy_list` | List legacy refunds for one order | GET /v2/orders/{id}/refunds | R0 | **Implemented** |
+| `orders/refunds/quote` | Create refund quote | POST /v3/orders/{id}/payment_actions/refund_quotes | R2 | **Implemented** — preview→confirm |
+| `orders/refunds/create` | Issue refund | POST /v3/orders/{id}/payment_actions/refunds | R3 | **Implemented** — per-order confirmation required |
+| `orders/payments/capture` | Capture payment | POST /v3/orders/{id}/payment_actions/capture | R3 | **Implemented** — per-order confirmation required |
+| `orders/payments/void` | Void payment | POST /v3/orders/{id}/payment_actions/void | R3 | **Implemented** — per-order confirmation required |
+| `inventory/locations/list` | List inventory locations | GET /v3/inventory/locations | R0 | **Implemented** |
+| `inventory/locations/create` | Create inventory location | POST /v3/inventory/locations | R2 | **Implemented** — preview→confirm |
+| `inventory/locations/update` | Update inventory location | PUT /v3/inventory/locations/{id} | R2 | **Implemented** — preview→confirm |
+| `inventory/locations/delete` | Delete inventory location | DELETE /v3/inventory/locations/{id} | R3 | **Implemented** — destructive preview→confirm |
+| `inventory/locations/metafields/list` | List one location's metafields | GET /v3/inventory/locations/{id}/metafields | R0 | **Implemented** |
+| `inventory/locations/metafields/set` | Upsert one location metafield | POST/PUT /v3/inventory/locations/{id}/metafields | R1 | **Implemented** — preview→confirm |
+| `inventory/locations/metafields/delete` | Delete one location metafield | DELETE /v3/inventory/locations/{id}/metafields/{metafield_id} | R1 | **Implemented** — preview→confirm |
+| `inventory/items/list` | List inventory items | GET /v3/inventory/items | R0 | **Implemented** |
+| `inventory/items/get` | Get one variant inventory row | GET /v3/inventory/items/{variant_id} | R0 | **Implemented** |
+| `inventory/items/update_batch` | Batch update item settings | PUT /v3/inventory/items | R2 | **Implemented** — preview→confirm; max 10 rows/call |
+| `inventory/adjustments/absolute` | Submit absolute adjustment batch | PUT /v3/inventory/adjustments/absolute | R2 | **Implemented** — preview→confirm; max 10 rows/call |
+| `inventory/adjustments/relative` | Submit relative adjustment batch | POST /v3/inventory/adjustments/relative | R2 | **Implemented** — preview→confirm; max 10 rows/call |
 
 ---
 

@@ -95,9 +95,9 @@ func (s *ProductChannelAssignmentsSuite) TestAssignPreview() {
 		Params: mcp.CallToolParams{
 			Name: def.Path,
 			Arguments: map[string]any{
-				"product_ids":  []any{float64(5)},
-				"channel_ids":  []any{float64(1), float64(2)},
-				"confirmed":    false,
+				"product_ids": []any{float64(5)},
+				"channel_ids": []any{float64(1), float64(2)},
+				"confirmed":   false,
 			},
 		},
 	}

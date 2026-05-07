@@ -100,13 +100,22 @@ func (c *Client) v2URL(path string) string {
 
 // Do executes an HTTP request with throttling, rate-limit awareness, and retry.
 func (c *Client) Do(ctx context.Context, method, url string, body any) (*http.Response, []byte, error) {
-	var reqBody io.Reader
+	// Marshal once upfront; rewind a single reader on each retry instead of
+	// re-marshaling (and silently discarding errors) inside the retry loop.
+	var bodyBytes []byte
 	if body != nil {
-		data, err := json.Marshal(body)
+		var err error
+		bodyBytes, err = json.Marshal(body)
 		if err != nil {
 			return nil, nil, fmt.Errorf("marshal request body: %w", err)
 		}
-		reqBody = bytes.NewReader(data)
+	}
+
+	newReqBody := func() io.Reader {
+		if bodyBytes == nil {
+			return nil
+		}
+		return bytes.NewReader(bodyBytes)
 	}
 
 	var lastErr error
@@ -115,7 +124,7 @@ func (c *Client) Do(ctx context.Context, method, url string, body any) (*http.Re
 			return nil, nil, err
 		}
 
-		req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
+		req, err := http.NewRequestWithContext(ctx, method, url, newReqBody())
 		if err != nil {
 			return nil, nil, fmt.Errorf("create request: %w", err)
 		}
@@ -127,10 +136,6 @@ func (c *Client) Do(ctx context.Context, method, url string, body any) (*http.Re
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
 			c.backoff(ctx, attempt)
-			if body != nil {
-				data, _ := json.Marshal(body)
-				reqBody = bytes.NewReader(data)
-			}
 			continue
 		}
 
@@ -152,10 +157,6 @@ func (c *Client) Do(ctx context.Context, method, url string, body any) (*http.Re
 				"reset_ms", c.lastRateLimit.TimeResetMs,
 			)
 			c.waitForReset(ctx)
-			if body != nil {
-				data, _ := json.Marshal(body)
-				reqBody = bytes.NewReader(data)
-			}
 			lastErr = fmt.Errorf("rate limited (429)")
 		case resp.StatusCode >= 500:
 			lastErr = fmt.Errorf("server error %d: %s", resp.StatusCode, string(respBody))
@@ -164,10 +165,6 @@ func (c *Client) Do(ctx context.Context, method, url string, body any) (*http.Re
 				"attempt", attempt+1,
 			)
 			c.backoff(ctx, attempt)
-			if body != nil {
-				data, _ := json.Marshal(body)
-				reqBody = bytes.NewReader(data)
-			}
 		default:
 			return resp, respBody, &APIError{
 				StatusCode: resp.StatusCode,
@@ -190,6 +187,24 @@ func (c *Client) Get(ctx context.Context, path string) ([]byte, error) {
 // GetV2 performs a GET request to a V2 endpoint.
 func (c *Client) GetV2(ctx context.Context, path string) ([]byte, error) {
 	_, body, err := c.Do(ctx, http.MethodGet, c.v2URL(path), nil)
+	return body, err
+}
+
+// PostV2 performs a POST request to a V2 endpoint.
+func (c *Client) PostV2(ctx context.Context, path string, body any) ([]byte, error) {
+	_, respBody, err := c.Do(ctx, http.MethodPost, c.v2URL(path), body)
+	return respBody, err
+}
+
+// PutV2 performs a PUT request to a V2 endpoint.
+func (c *Client) PutV2(ctx context.Context, path string, body any) ([]byte, error) {
+	_, respBody, err := c.Do(ctx, http.MethodPut, c.v2URL(path), body)
+	return respBody, err
+}
+
+// DeleteV2 performs a DELETE request to a V2 endpoint.
+func (c *Client) DeleteV2(ctx context.Context, path string) ([]byte, error) {
+	_, body, err := c.Do(ctx, http.MethodDelete, c.v2URL(path), nil)
 	return body, err
 }
 

@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // RegisterModifierTools registers the product modifier tools.
@@ -49,9 +49,9 @@ func (p *Products) RegisterModifierTools(reg *discovery.Registry) {
 	})
 
 	reg.RegisterTool(&discovery.ToolDef{
-		Path:    "catalog/products/modifiers/delete",
-		Tier:    middleware.TierR2,
-		Summary: "Delete a modifier from a product",
+		Path:        "catalog/products/modifiers/delete",
+		Tier:        middleware.TierR2,
+		Summary:     "Delete a modifier from a product",
 		Description: "Removes a modifier. Cannot be undone.",
 		Tool: mcp.NewTool("catalog_products_modifiers_delete",
 			mcp.WithDescription("Delete a product modifier. Preview first; pass confirmed=true to execute."),

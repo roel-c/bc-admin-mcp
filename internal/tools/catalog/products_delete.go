@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 type deleteParams struct {
@@ -77,7 +77,7 @@ func (p *Products) previewDelete(ctx context.Context, params *deleteParams) (*mc
 		return toolError("no products found for the given criteria"), nil
 	}
 
-	sessionCache := p.cache.ForSession(sessionKeyDefault)
+	sessionCache := p.cache.ForSession(cacheSessionID(ctx))
 	sessionCache.Set(cacheKeyProductDelete, products)
 
 	type deleteSummary struct {
@@ -103,7 +103,7 @@ func (p *Products) previewDelete(ctx context.Context, params *deleteParams) (*mc
 }
 
 func (p *Products) executeDelete(ctx context.Context, params *deleteParams) (*mcp.CallToolResult, error) {
-	sessionCache := p.cache.ForSession(sessionKeyDefault)
+	sessionCache := p.cache.ForSession(cacheSessionID(ctx))
 	cached, ok := sessionCache.Get(cacheKeyProductDelete)
 	if !ok {
 		return toolError("no preview found — call without confirmed=true first to generate a preview"), nil

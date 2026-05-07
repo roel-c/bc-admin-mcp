@@ -21,12 +21,12 @@ const (
 
 // VariantGlobalSearchFilters maps tool params to GET /v3/catalog/variants query keys.
 var VariantGlobalSearchFilters = []SearchFilter{
-	{"sku", "sku", "string"},
-	{"sku_like", "sku:like", "string"},
-	{"product_id", "product_id", "number"},
-	{"variant_id", "id", "number"},
-	{"sort", "sort", "string"},
-	{"sort_direction", "direction", "string"},
+	{ToolKey: "sku", BCKey: "sku", Kind: "string"},
+	{ToolKey: "sku_like", BCKey: "sku:like", Kind: "string"},
+	{ToolKey: "product_id", BCKey: "product_id", Kind: "number"},
+	{ToolKey: "variant_id", BCKey: "id", Kind: "number"},
+	{ToolKey: "sort", BCKey: "sort", Kind: "string"},
+	{ToolKey: "sort_direction", BCKey: "direction", Kind: "string"},
 }
 
 var variantGlobalNonSortKeys = map[string]bool{

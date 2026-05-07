@@ -5,18 +5,18 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/suite"
 )
 
 type MetaToolSuite struct {
 	suite.Suite
-	registry    *discovery.Registry
-	enforcer    *middleware.TierEnforcer
-	discoverFn  func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
-	executeFn   func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+	registry   *discovery.Registry
+	enforcer   *middleware.TierEnforcer
+	discoverFn func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+	executeFn  func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
 }
 
 func TestMetaToolSuite(t *testing.T) {
@@ -217,7 +217,7 @@ func (s *MetaToolSuite) TestExecuteR4ToolBlocked() {
 		Tier:        middleware.TierR4,
 		Summary:     "Forbidden op",
 		Description: "Blocked",
-		Tool: mcp.NewTool("forbidden", mcp.WithDescription("forbidden")),
+		Tool:        mcp.NewTool("forbidden", mcp.WithDescription("forbidden")),
 		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{mcp.TextContent{Type: "text", Text: "should not reach"}},

@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // RegisterCustomFieldTools registers the product custom field tools.
@@ -45,9 +45,9 @@ func (p *Products) RegisterCustomFieldTools(reg *discovery.Registry) {
 	})
 
 	reg.RegisterTool(&discovery.ToolDef{
-		Path:    "catalog/products/custom_fields/delete",
-		Tier:    middleware.TierR2,
-		Summary: "Delete a custom field from a product",
+		Path:        "catalog/products/custom_fields/delete",
+		Tier:        middleware.TierR2,
+		Summary:     "Delete a custom field from a product",
 		Description: "Removes a custom field by ID or by name. Cannot be undone.",
 		Tool: mcp.NewTool("catalog_products_custom_fields_delete",
 			mcp.WithDescription("Delete a custom field. Identify by custom_field_id or name. Preview first."),

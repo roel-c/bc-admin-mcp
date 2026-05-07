@@ -296,7 +296,30 @@ func (r *Registry) handleExecute(tierEnforcer *middleware.TierEnforcer) server.T
 		}
 
 		args := request.GetArguments()
-		innerArgs, _ := args["arguments"]
+		rawInner := args["arguments"]
+
+		// arguments must be a JSON object (map[string]any) or absent.
+		// If the LLM passes a non-object value (e.g. a string or array),
+		// reject early with a clear message rather than letting each tool
+		// handler emit a confusing "X is required" error from a nil args map.
+		var innerArgs map[string]any
+		if rawInner != nil {
+			var ok bool
+			innerArgs, ok = rawInner.(map[string]any)
+			if !ok {
+				return &mcp.CallToolResult{
+					IsError: true,
+					Content: []mcp.Content{mcp.TextContent{
+						Type: "text",
+						Text: fmt.Sprintf(
+							"execute_tool: 'arguments' must be a JSON object (got %T) — "+
+								"pass tool parameters as a nested object, e.g. {\"tool_path\": %q, \"arguments\": {\"param\": \"value\"}}",
+							rawInner, toolPath,
+						),
+					}},
+				}, nil
+			}
+		}
 
 		innerRequest := mcp.CallToolRequest{
 			Params: mcp.CallToolParams{

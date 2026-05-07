@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 )
 
 type seoIssue struct {
@@ -42,8 +42,8 @@ func (c *Categories) handleSEOAudit(ctx context.Context, request mcp.CallToolReq
 	issues := AuditSEOFields(cats)
 
 	result := map[string]any{
-		"total_audited": len(cats),
-		"issues_found":  len(issues),
+		"total_audited":          len(cats),
+		"issues_found":           len(issues),
 		"categories_with_issues": issues,
 	}
 	if len(issues) == 0 {

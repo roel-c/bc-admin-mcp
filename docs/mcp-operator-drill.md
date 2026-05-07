@@ -12,13 +12,13 @@ go test ./internal/server/... -count=1 -run 'TestFullRegistration'
 
 This suite (see `internal/server/registration_audit_test.go`) verifies that:
 
-1. **`discover_tools("")`** exposes only the implemented root (**`catalog`**).
+1. **`discover_tools("")`** exposes only implemented roots (**`catalog`**, **`customers`**, **`marketing`**).
 2. **Every registered category** has a non-empty child list (no dead-end category nodes).
 3. **Every tool’s parent category path** exists in the registry (no orphaned tools).
 4. **Breadth-first discovery from the root** reaches **every** category and **every** tool path (no hierarchy wiring mistakes).
 5. **Every R1–R3 tool** declares a **`confirmed`** boolean in its input schema (enforced at registration time; the test is a regression guard).
 
-Run the full test suite after catalog changes:
+Run the full test suite after tool-registration changes:
 
 ```bash
 go test ./... -count=1
@@ -32,8 +32,8 @@ Use your MCP host’s “call tool” UI or JSON-RPC. Meta-tools are named exact
 
 Suggested sequence:
 
-1. `discover_tools` with `path: ""` → expect **`catalog`**.
-2. `discover_tools` with `path: "catalog"` → expect subcategories (`catalog/products`, `catalog/categories`, …).
+1. `discover_tools` with `path: ""` → expect **`catalog`**, **`customers`**, **`marketing`**.
+2. `discover_tools` with `path: "catalog"` (or `"customers"` / `"marketing"`) → expect subcategories under that domain.
 3. Drill into one leaf area (e.g. `catalog/products/channel_assignments`) until you see **tool** stubs with **`tier`** fields.
 
 ## Manual drill — preview then confirm

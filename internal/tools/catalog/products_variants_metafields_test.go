@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/session"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/catalog"
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -25,11 +25,11 @@ func TestVariantMetafieldSetParamsSuite(t *testing.T) {
 
 func (s *VariantMetafieldSetParamsSuite) TestByProductIDAndVariantID() {
 	args := map[string]any{
-		"product_id":  float64(10),
-		"variant_id":  float64(200),
-		"namespace":   "app",
-		"key":         "k1",
-		"value":       "v1",
+		"product_id": float64(10),
+		"variant_id": float64(200),
+		"namespace":  "app",
+		"key":        "k1",
+		"value":      "v1",
 	}
 	p, err := catalog.ParseVariantMetafieldSetParams(args)
 	s.NoError(err)
