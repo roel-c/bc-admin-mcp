@@ -104,6 +104,12 @@ func forbiddenScopeHint(path string, read bool) string {
 			return "403 — token likely missing 'store_inventory'. Update the API account scope."
 		}
 		return "403 — write requires 'store_inventory'. Update the API account scope."
+	case strings.HasPrefix(path, "content/scripts"):
+		if read {
+			return "403 — token likely missing 'store_content_read_only' (or 'store_content'). Update the API account scope."
+		}
+		return "403 — write/delete requires 'store_content'. " +
+			"If injecting checkout scripts, also ensure the 'Modify Checkout Content' scope ('store_checkout_content') is enabled."
 	case strings.HasPrefix(path, "customers"):
 		if read {
 			return "403 — token likely missing 'store_v2_customers_read_only' (or 'store_v2_customers')."

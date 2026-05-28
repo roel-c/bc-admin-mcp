@@ -14,6 +14,7 @@ import (
 	"github.com/roel-c/bc-admin-mcp/internal/tools/inventory"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/orders"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/promotions"
+	"github.com/roel-c/bc-admin-mcp/internal/tools/storefront"
 )
 
 // New creates a fully wired MCPServer with all BigCommerce tools registered
@@ -109,6 +110,28 @@ func registerCategories(reg *discovery.Registry) {
 	reg.RegisterCategory("inventory/locations/metafields", "Inventory location metafield operations via /v3/inventory/locations/{id}/metafields: list/set/delete.")
 	reg.RegisterCategory("inventory/items", "Inventory item operations via /v3/inventory/items and /v3/inventory/items/{variant_id} (read + guarded batch update).")
 	reg.RegisterCategory("inventory/adjustments", "Inventory adjustment submissions via /v3/inventory/adjustments/absolute and /v3/inventory/adjustments/relative.")
+
+	reg.RegisterCategory("storefront", "Storefront operations: script injection and management via the BigCommerce Scripts API.")
+	reg.RegisterCategory("storefront/scripts",
+		"Script Manager API (/v3/content/scripts): list, get, create (R1), update (R1), toggle enable/disable (R1), delete (R3). "+
+			"Scripts run outside the theme bundle — no ES6 import/export, no Stencil context, no jQuery available. "+
+			"REQUIRED: every POST must include load_method ('default'|'async'|'defer'); BC returns 422 if omitted. "+
+			"The create tool auto-defaults load_method='default' when not supplied. "+
+			"Cart API calls require credentials:'same-origin'. "+
+			"GRAPHQL TOKEN: use the Handlebars variable {{settings.storefront_api.token}} rendered server-side by BC — "+
+			"embed it as: var TOKEN='{{settings.storefront_api.token}}'; then pass Authorization:'Bearer '+TOKEN in every GraphQL fetch. "+
+			"This is the ONLY reliable token method in Script Manager scripts; sessionStorage.getItem('bc_graphql_token') is "+
+			"Stencil-theme-only and must NOT be used as the primary approach. "+
+			"CHECKOUT SCRIPTS (visibility=checkout|all_pages): checkout is a React app that re-renders on every step change, "+
+			"destroying any injected DOM that is not re-applied. "+
+			"Required pattern: IIFE + MutationObserver on document.getElementById('checkout-app') "+
+			"with {childList:true,subtree:true,attributes:true,attributeFilter:['class']} + 300ms debounce + "+
+			"call applyCustomization() immediately on init. "+
+			"Reliable checkout selectors: sidebar injection=aside.layout-cart->[data-test='cart']->.cart-section; "+
+			"payment method label=[data-test='payment-method-name']; use attributeFilter:['class'] not ['checked'] "+
+			"(React sets .checked as a DOM property, not an HTML attribute). "+
+			"Recommended args for checkout scripts: kind=script_tag, location=footer, consent_category=essential. "+
+			"Always escape store-sourced data (product names, URLs, custom field values) before inserting into innerHTML.")
 
 	// Planned roots remain omitted until tools exist (for example carts/store)
 	// to avoid empty discover_tools leaves.
@@ -207,4 +230,7 @@ func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, cache *sessi
 
 	inventoryTools := inventory.New(bc)
 	inventoryTools.RegisterTools(reg)
+
+	scriptTools := storefront.NewScripts(bc)
+	scriptTools.RegisterTools(reg)
 }
