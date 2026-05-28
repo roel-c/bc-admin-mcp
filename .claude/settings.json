@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "bigcommerce": {
+      "command": "/Users/roel.cuellar/work_projects/BC-adminAPI-LLM/scripts/launch-mcp.sh"
+    }
+  }
+}

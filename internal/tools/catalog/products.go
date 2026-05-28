@@ -304,7 +304,7 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 			// --- Basic ---
 			mcp.WithString("name", mcp.Description("Product name")),
 			mcp.WithString("type", mcp.Description("Product type: physical or digital")),
-			mcp.WithString("sku_field", mcp.Description("SKU identifier (named sku_field to avoid conflict with targeting sku)")),
+			mcp.WithString("sku_field", mcp.Description("New SKU value to set on the product. Use this to UPDATE a product's SKU — named sku_field to avoid conflict with the sku targeting selector. Example: to change a product's SKU to \"ABC-123\", pass sku_field=\"ABC-123\".")),
 			mcp.WithString("description", mcp.Description("Product description (HTML)")),
 			// --- Pricing ---
 			mcp.WithNumber("price", mcp.Description("Base catalog price")),
@@ -381,6 +381,39 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 			mcp.WithBoolean("confirmed", mcp.Description("Set to true after reviewing preview to execute the update")),
 		),
 		Handler: p.handleUpdate,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path: "catalog/products/bulk_sku_update",
+		Tier: middleware.TierR1,
+		Summary: "Batch-update the SKU of multiple specific products in one call " +
+			"(one product_id → one new SKU per entry, up to 100 pairs)",
+		Description: "Updates the SKU field of up to 100 products in a single operation. " +
+			"Pass parallel arrays: product_ids (the products to change) and skus (the new SKU for each, " +
+			"positionally matched). Preview shows old → new SKU diff; pass confirmed=true to apply. " +
+			"Use this instead of catalog/products/update when you need a different SKU per product — " +
+			"the update tool applies the same sku_field value to ALL matched products.",
+		Tool: mcp.NewTool("catalog_products_bulk_sku_update",
+			mcp.WithDescription(
+				"Batch-update SKUs for multiple products in one call.\n\n"+
+					"Pass two same-length arrays:\n"+
+					"  • product_ids — IDs of the products to update\n"+
+					"  • skus — new SKU for each product (same order as product_ids)\n\n"+
+					"Example: product_ids=[101,102] skus=[\"PART-A\",\"PART-B\"] sets product 101's SKU "+
+					"to PART-A and product 102's SKU to PART-B.\n\n"+
+					"Preview shows old→new diff. Pass confirmed=true to execute. Max 100 pairs per call.",
+			),
+			mcp.WithArray("product_ids",
+				mcp.Description("Product IDs whose SKUs will be updated (positionally matched with skus)"),
+				mcp.WithNumberItems(),
+			),
+			mcp.WithArray("skus",
+				mcp.Description("New SKU values, one per product_id entry in the same order"),
+				mcp.WithStringItems(),
+			),
+			mcp.WithBoolean("confirmed", mcp.Description("Set to true after reviewing preview to execute the SKU updates")),
+		),
+		Handler: p.handleBulkSKUUpdate,
 	})
 
 	reg.RegisterTool(&discovery.ToolDef{
