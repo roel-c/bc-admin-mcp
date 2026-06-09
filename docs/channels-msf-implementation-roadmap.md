@@ -10,9 +10,11 @@ This document turns [multi-storefront research](./msf-research-outline.md) into 
 
 | Capability | API | MCP |
 |------------|-----|-----|
-| List channels for the connected store | `GET /v3/channels` | `catalog/channels/list` |
+| List channels for the connected store | `GET /v3/channels` | `catalog/channels/list` (R0) |
+| Get a single channel by ID | `GET /v3/channels/{id}` | `catalog/channels/get` (R0) |
+| Update a channel's name or status | `PUT /v3/channels/{id}` | `catalog/channels/update` (R2; preview → confirm; valid statuses: active, inactive, connected, disconnected, prelaunch) |
 
-Requires **`store_channel_settings`** (or equivalent) for channel reads.
+Requires **`store_channel_settings_read_only`** for reads; **`store_channel_settings`** for the update tool.
 
 ---
 

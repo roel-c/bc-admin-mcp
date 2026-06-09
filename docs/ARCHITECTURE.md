@@ -367,7 +367,8 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/bigcommerce/client.go` | ~370 | HTTP client: throttle, retry, rate-limit headers, GetAll (with ceiling), BatchPut |
 | `internal/bigcommerce/types.go` | ~725 | Domain types: Product, ProductUpdate, ProductCreate, Category/Tree types, Brand types, Variant types, Image/Option/Modifier types, Metafield, CategoryAssignment, ChannelAssignment, ChannelListing, CustomURL, API envelopes, `APIError` with `SafeError()` and OAuth-scope hints |
 | `internal/bigcommerce/products.go` | ~375 | Domain methods: product/category search, batch product updates, product CRUD, tree CRUD, tree ID resolution; `categoryBatchSize = 50` for `BatchUpdateCategories` |
-| `internal/bigcommerce/channels.go` | ~50 | `ListStoreChannels` — GET /v3/channels (Management API) for MSF / routing context |
+| `internal/bigcommerce/channels.go` | ~95 | `ListStoreChannels`, `GetStoreChannel`, `UpdateStoreChannel` — GET/PUT /v3/channels (Management API); `StoreChannelUpdate` type |
+| `internal/bigcommerce/webhooks.go` | ~130 | `ListWebhooks`, `GetWebhook`, `GetWebhookEvents`, `CreateWebhook`, `UpdateWebhook`, `DeleteWebhook` — full CRUD for GET/POST/PUT/DELETE /v3/hooks; `Webhook`, `WebhookEvent`, `WebhookCreate`, `WebhookUpdate` types |
 | `internal/bigcommerce/category_trees.go` | ~65 | `ListCategoryTrees`, `GetTreeIDForChannel` (`GET /v3/catalog/trees`) |
 | `internal/bigcommerce/channel_assignments.go` | ~100 | `ListProductChannelAssignments`, `UpsertProductChannelAssignments`, `DeleteProductChannelAssignments` |
 | `internal/bigcommerce/channel_listings.go` | ~120 | `ListChannelListings`, `CreateChannelListings`, `UpdateChannelListings` |
@@ -405,7 +406,9 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/tools/catalog/brands.go` | ~495 | Brand list/get/create/update (preview→confirm on writes) |
 | `internal/tools/catalog/brands_metafields.go` | ~325 | Brand metafield list, set (upsert), delete (shared `metafield_*` core) |
 | `internal/tools/catalog/variants_global.go` | ~285 | Global variant list + batch update MCP handlers (`catalog/variants/list`, `bulk_update`) |
-| `internal/tools/catalog/channel_tools.go` | ~165 | `catalog/channels/list`, `catalog/channels/category_trees`; delegates listing tools |
+| `internal/tools/catalog/channel_tools.go` | ~290 | `catalog/channels/list`, `catalog/channels/get`, `catalog/channels/update` (R2 preview→confirm), `catalog/channels/category_trees`; delegates listing tools; `validChannelStatuses` |
+| `internal/tools/webhooks/webhook_tools.go` | ~310 | `webhooks/list|get|events` (R0), `webhooks/create|update` (R1 preview→confirm), `webhooks/delete` (R3); `parseHeadersJSON` helper; HTTPS destination validation |
+| `internal/tools/webhooks/interfaces.go` | ~25 | `WebhooksAPI` consumer-side interface + compile-time check |
 | `internal/tools/catalog/channel_listings_tools.go` | ~370 | `catalog/channels/listings/list`, `create`, `update` (GET/POST/PUT listings) |
 | `internal/tools/catalog/pricelists_tools.go` | ~1,080 | `catalog/pricelists/*`, `catalog/pricelists/records/*`, `catalog/pricelists/assignments/*` handlers (preview→confirm for R1+) |
 | `internal/tools/catalog/metafield_shared.go` | ~370 | Shared catalog metafields: `MetafieldResourceOps`, list/upsert/delete MCP helpers, `metafieldUpsertExecute` (single execution path for confirmed tool + bulk upserts), `metafieldResolveIDByNamespaceKey`, product/variant/category/brand op factories |
@@ -499,6 +502,8 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `catalog/variants/list` | R0 | Global `GET /v3/catalog/variants` with filters or `list_all` |
 | `catalog/variants/bulk_update` | R2 | Global batch `PUT /v3/catalog/variants` (≤200 rows/call, chunk 10); preview→confirm |
 | `catalog/channels/list` | R0 | `GET /v3/channels` — channels for the connected store; optional `type` / `status`; includes `multi_storefront_likely` heuristic (requires `store_channel_settings` scope) |
+| `catalog/channels/get` | R0 | `GET /v3/channels/{id}` — single channel by ID; name, platform, type, status, timestamps; scope `store_channel_settings_read_only` |
+| `catalog/channels/update` | R2 | `PUT /v3/channels/{id}` — update `name` and/or `status`; statuses: active/inactive/connected/disconnected/prelaunch; preview→confirm; scope `store_channel_settings` |
 | `catalog/channels/category_trees` | R0 | `GET /v3/catalog/trees` — MSF: list trees, optional `channel_id` filter; Products OAuth scope |
 | `catalog/channels/listings/list` | R0 | `GET .../channels/{id}/listings` — cursor pagination; optional `product_ids`; cap 2000 rows |
 | `catalog/channels/listings/create` | R1 | `POST` — `listings_json` array (max 10); preview→confirm; **store_channel_listings** |
@@ -515,10 +520,16 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `catalog/pricelists/assignments/create_batch` | R2 | `POST /v3/pricelists/assignments`; tool cap **25** rows/call; preview→confirm |
 | `catalog/pricelists/assignments/upsert` | R2 | `PUT /v3/pricelists/{price_list_id}/assignments` for one customer-group + channel tuple; preview→confirm |
 | `catalog/pricelists/assignments/delete` | R2 | Filter-based `DELETE /v3/pricelists/assignments`; at least one filter required; preview→confirm |
+| `webhooks/list` | R0 | `GET /v3/hooks` — list all webhook registrations; optional `scope`, `is_active`, `channel_id` filters; scope `store_v2_information_read_only` |
+| `webhooks/get` | R0 | `GET /v3/hooks/{id}` — full webhook details (scope, destination, is_active, channel_id, headers) |
+| `webhooks/events` | R0 | `GET /v3/hooks/{id}/events` — recent delivery attempts |
+| `webhooks/create` | R1 | `POST /v3/hooks`; HTTPS destination required (validated client-side); optional `channel_id`; optional `headers_json`; preview→confirm; serial write policy |
+| `webhooks/update` | R1 | Fetch-merge-`PUT /v3/hooks/{id}`; at least one mutable field; `channel_id` immutable; preview→confirm |
+| `webhooks/delete` | R3 | `DELETE /v3/hooks/{id}`; preview shows scope + destination; permanently removes the registration |
 
 ### Registered Category Hierarchy
 
-**Discovery (`discover_tools`)** currently registers five active roots: **`catalog/**`, `orders/**`, `customers/**`, `marketing/**`, and `inventory/**`. Domains such as `carts/` and `store/` remain in the [Expansion Roadmap](#7-expansion-roadmap) and are **not** category nodes until tools ship (see [`discovery-registration-audit.md`](./discovery-registration-audit.md)).
+**Discovery (`discover_tools`)** currently registers seven active roots: **`catalog/**`**, **`orders/**`**, **`customers/**`**, **`marketing/**`**, **`inventory/**`**, **`storefront/**`**, and **`webhooks/**`**. Domains such as `carts/` and `store/` remain in the [Expansion Roadmap](#7-expansion-roadmap) and are **not** category nodes until tools ship (see [`discovery-registration-audit.md`](./discovery-registration-audit.md)).
 
 ```
 catalog/                    — Product catalog: products, categories, brands, variants, price lists
@@ -536,7 +547,7 @@ catalog/                    — Product catalog: products, categories, brands, v
   catalog/brands/           — Brand list, get, create, update (V3 catalog/brands)
     catalog/brands/metafields/ — Brand metafield list, set (upsert), delete
   catalog/variants/         — Global variant list (GET) and batch update (PUT); product CRUD under catalog/products/variants
-  catalog/channels/         — Management GET /v3/channels (storefront IDs, MSF awareness)
+  catalog/channels/         — Management GET/PUT /v3/channels (storefront IDs, MSF awareness, name/status updates)
     catalog/channels/listings/ — Channel product listings: list, create (POST), update (PUT)
   catalog/pricelists/       — Price list CRUD
     catalog/pricelists/records/ — Price record list/upsert/delete for one price list
@@ -560,6 +571,9 @@ marketing/                  — Marketing-domain operations
     marketing/promotions/coupon/    — Coupon promotions
       marketing/promotions/coupon/codes/ — Coupon code lifecycle
     marketing/promotions/settings/  — Store-wide promotion settings
+storefront/                 — Storefront operations
+  storefront/scripts/       — Script Manager script injection/management
+webhooks/                   — Webhook registration management (/v3/hooks)
 ```
 
 ---
@@ -687,7 +701,7 @@ Core customer and promotions surfaces are now shipped under `customers/**` and `
 | Domain | Tools to Add | BC API | Tier | Notes |
 |--------|-------------|--------|------|-------|
 | `catalog/pricelists/*` | Price list CRUD + records/assignments | `/v3/pricelists`, `/v3/pricelists/{id}/records`, `/v3/pricelists/assignments` | R0/R1/R2/R3 | **Implemented** — keep record upserts serial; see tool table in section 4 |
-| `store/webhooks/create` | Register webhooks | POST /v3/hooks | R1 | Serial only |
+| `webhooks/*` | list/get/events/create/update/delete webhook registrations | GET/POST/PUT/DELETE /v3/hooks | R0/R1/R3 | **Implemented** — root `webhooks/`; serial write policy; HTTPS destination required; optional `channel_id` scoping; see `internal/tools/webhooks/` |
 | `catalog/products/delete` | Hard delete products | DELETE /v3/catalog/products | R3 | **Implemented** — prefer `is_visible: false` via update (R1) |
 | `orders/payments/actions/list` | List payment actions | GET /v3/orders/{id}/payment_actions | R0 | **Implemented** |
 | `orders/payments/transactions/list` | List transactions for one order | GET /v3/orders/{id}/transactions | R0 | **Implemented** |

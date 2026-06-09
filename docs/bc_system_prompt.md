@@ -33,7 +33,7 @@ Place values in a **`.env`** file in the project root (see `.env.example`). The 
 
 The MCP server uses a **progressive disclosure** pattern. Instead of loading all tool schemas into context at once (~40k tokens), you navigate a category tree:
 
-1. **`discover_tools("")`** → returns active roots (**`catalog`**, **`orders`**, **`customers`**, **`marketing`**, **`inventory`**)
+1. **`discover_tools("")`** → returns active roots (**`catalog`**, **`orders`**, **`customers`**, **`marketing`**, **`inventory`**, **`webhooks`**)
 2. **`discover_tools("<root>")`** → returns subcategories under that root (for example `catalog/products` or `customers/groups`)
 3. **`discover_tools("catalog/products")`** → returns individual tools as **stubs** (path, type, summary, tier — not full JSON Schemas)
 4. **`execute_tool`** → pass **`tool_path`** (full tool path string) and **`arguments`** (object of parameters for that tool). Example: `execute_tool` with `tool_path: "catalog/products/search"` and `arguments: { "name_like": "Testing" }` — all tool parameters belong **inside** `arguments`, not at the top level beside `tool_path`.
@@ -130,6 +130,8 @@ All R1+ tools require a **preview-then-confirm** workflow: call the tool first w
 | Tool Path | Tier | Description |
 |-----------|------|-------------|
 | `catalog/channels/list` | R0 | Channels for the **connected store** via `GET /v3/channels`; optional `type` / `status`; response includes `active_storefront_channel_count` and `multi_storefront_likely`. Requires **`store_channel_settings`** on the token. |
+| `catalog/channels/get` | R0 | `GET /v3/channels/{channel_id}` — full details for one channel (name, platform, type, status, timestamps). Use `catalog/channels/list` to discover IDs. Requires **`store_channel_settings_read_only`** or **`store_channel_settings`**. |
+| `catalog/channels/update` | R2 | `PUT /v3/channels/{channel_id}` — update channel `name` and/or `status` (preview → **`confirmed`**). Valid statuses: `active`, `inactive`, `connected`, `disconnected`, `prelaunch`. Channels with status `deleted` or `terminated` cannot be updated. Requires **`store_channel_settings`**. |
 | `catalog/channels/category_trees` | R0 | `GET /v3/catalog/trees` — list category trees; optional **`channel_id`** for MSF (`channel_id:in`). Requires **Products** scope (`store_v2_products_read_only` or `store_v2_products`). |
 | `catalog/channels/listings/list` | R0 | `GET /v3/channels/{channel_id}/listings` — optional **`product_ids`**; up to 2000 rows; **`store_channel_listings`** read (or read-only) scope |
 | `catalog/channels/listings/create` | R1 | `POST` listings — **`listings_json`** (max 10); each object needs **product_id**, **state**, **variants**; preview → **`confirmed`** |
@@ -154,6 +156,8 @@ All R1+ tools require a **preview-then-confirm** workflow: call the tool first w
 
 **Choosing between channel assignments and channel listings (MSF):**
 
+- Use **`catalog/channels/get`** or **`catalog/channels/list`** to look up channel IDs, names, platform, or status before any channel-scoped operation.
+- Use **`catalog/channels/update`** to rename a channel or change its lifecycle status (active ↔ inactive, prelaunch, etc.). This acts on the channel record itself — it does not affect product availability or listing state.
 - Use **`catalog/products/channel_assignments/*`** when the user’s intent is **availability** — *“make this product available on / remove it from this channel”*. This is the **catalog-layer** GET/PUT/DELETE on `/v3/catalog/products/channel-assignments`. It does **not** carry per-channel name/description.
 - Use **`catalog/channels/listings/*`** when the user’s intent is **listing state** or **channel-specific copy** — *“mark the listing on channel X as `disabled`”*, *“override the product name shown on channel 2”*. Operates on `/v3/channels/{channel_id}/listings`. Recommended for **non-storefront** channels (marketplaces, POS, marketing); storefront channels also work where listings exist.
 - For *“is this product on channel 3?”* you can also pass **`channel_ids`** to **`catalog/products/search`** (sent as `channel_id:in`), which is usually the lightest first read.
@@ -629,6 +633,26 @@ Cartesian assign: each product ID is added to each category ID. Preview first.
   }
 }
 ```
+
+---
+
+**Webhooks (`/v3/hooks`, scope `store_v2_information`):**
+
+| Tool Path | Tier | Description |
+|-----------|------|-------------|
+| `webhooks/list` | R0 | `GET /v3/hooks` — list all webhook registrations; optional `scope` (exact event string), `is_active` (bool), `channel_id` filter |
+| `webhooks/get` | R0 | `GET /v3/hooks/{id}` — full details for one webhook (scope, destination, is_active, channel_id, headers) |
+| `webhooks/events` | R0 | `GET /v3/hooks/{id}/events` — recent delivery attempts; useful for diagnosing failures |
+| `webhooks/create` | R1 | `POST /v3/hooks` — register a new webhook; `destination` **must be HTTPS**; optional `channel_id` (scope to one channel vs store-wide); optional `headers_json` (JSON string of custom delivery headers); `is_active` defaults to `true`; preview → **`confirmed`** |
+| `webhooks/update` | R1 | Fetch-merge-`PUT /v3/hooks/{id}` — update scope, destination, is_active, or headers; `channel_id` is immutable; preview shows current vs would_apply → **`confirmed`** |
+| `webhooks/delete` | R3 | `DELETE /v3/hooks/{id}` — permanently remove a webhook; preview shows scope + destination → **`confirmed`** |
+
+**Webhook usage notes:**
+- `scope` is any BC event string (e.g. `store/order/created`, `store/product/updated`, `store/cart/itemAdded`). The full list is in `docs/BC-API-Reference.md` §6.21. Invalid scopes return a BC 422 — the tool does not maintain an allowlist.
+- Pass `channel_id` on create to scope delivery to a specific storefront channel; omit for store-wide delivery.
+- `headers_json` must be a JSON object of string→string pairs (e.g. `{"X-Auth": "secret"}`). Non-string header values are rejected before the API call.
+- Webhook registrations are **serial** — do not parallelize create/update calls on the same store.
+- BC requires webhook endpoints to respond **HTTP 200 within 10 seconds** or delivery is retried.
 
 ---
 

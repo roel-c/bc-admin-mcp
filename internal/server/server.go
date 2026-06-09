@@ -15,6 +15,7 @@ import (
 	"github.com/roel-c/bc-admin-mcp/internal/tools/orders"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/promotions"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/storefront"
+	"github.com/roel-c/bc-admin-mcp/internal/tools/webhooks"
 )
 
 // New creates a fully wired MCPServer with all BigCommerce tools registered
@@ -61,7 +62,7 @@ func registerCategories(reg *discovery.Registry) {
 	reg.RegisterCategory("catalog/brands", "Brand operations: list, get, create, update, metafields")
 	reg.RegisterCategory("catalog/brands/metafields", "Brand metafield CRUD: list, set, delete custom key-value data")
 	reg.RegisterCategory("catalog/variants", "Global catalog variants: list/search (GET /v3/catalog/variants) and batch update (PUT); product-scoped CRUD remains under catalog/products/variants")
-	reg.RegisterCategory("catalog/channels", "Sales channels and MSF catalog context: list channels (GET /v3/channels), category trees per channel (GET /v3/catalog/trees), channel listings (GET/POST/PUT .../listings); see docs/channels-msf-implementation-roadmap.md")
+	reg.RegisterCategory("catalog/channels", "Sales channels and MSF catalog context: list/get/update channels (GET/PUT /v3/channels), category trees per channel (GET /v3/catalog/trees), channel listings (GET/POST/PUT .../listings); see docs/channels-msf-implementation-roadmap.md")
 	reg.RegisterCategory("catalog/channels/listings", "Per-channel product listings: list, create (POST), update (PUT) for listing state and channel-specific copy")
 	reg.RegisterCategory("catalog/pricelists", "Price list management: list/get/create/update/delete via /v3/pricelists.")
 	reg.RegisterCategory("catalog/pricelists/records", "Price list records for variant/SKU pricing overrides: list/upsert/delete via /v3/pricelists/{id}/records.")
@@ -110,6 +111,8 @@ func registerCategories(reg *discovery.Registry) {
 	reg.RegisterCategory("inventory/locations/metafields", "Inventory location metafield operations via /v3/inventory/locations/{id}/metafields: list/set/delete.")
 	reg.RegisterCategory("inventory/items", "Inventory item operations via /v3/inventory/items and /v3/inventory/items/{variant_id} (read + guarded batch update).")
 	reg.RegisterCategory("inventory/adjustments", "Inventory adjustment submissions via /v3/inventory/adjustments/absolute and /v3/inventory/adjustments/relative.")
+
+	reg.RegisterCategory("webhooks", "Webhook registrations for the connected store: list, get, view delivery events, create, update, and delete via GET/POST/PUT/DELETE /v3/hooks. OAuth scope: store_v2_information.")
 
 	reg.RegisterCategory("storefront", "Storefront operations: script injection and management via the BigCommerce Scripts API.")
 	reg.RegisterCategory("storefront/scripts",
@@ -233,4 +236,7 @@ func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, cache *sessi
 
 	scriptTools := storefront.NewScripts(bc)
 	scriptTools.RegisterTools(reg)
+
+	webhookTools := webhooks.NewWebhooks(bc)
+	webhookTools.RegisterTools(reg)
 }

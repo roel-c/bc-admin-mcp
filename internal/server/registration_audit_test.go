@@ -41,7 +41,7 @@ func TestFullRegistrationActiveCategoriesAreNonEmptyLeaves(t *testing.T) {
 	cache := session.NewStore(cfg.CacheTTL)
 	registerTools(reg, bc, cache)
 
-	allowedRoots := []string{"catalog", "orders", "customers", "marketing", "inventory", "storefront"}
+	allowedRoots := []string{"catalog", "orders", "customers", "marketing", "inventory", "storefront", "webhooks"}
 	for _, cat := range reg.ListCategoryPaths() {
 		hasAllowedRoot := false
 		for _, root := range allowedRoots {

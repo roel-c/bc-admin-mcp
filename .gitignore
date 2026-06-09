@@ -23,6 +23,13 @@ Thumbs.db
 
 # Claude Code
 .claude/worktrees/
+.claude/settings.local.json
+
+# One-off migration/utility scripts (contain hardcoded store credentials)
+scripts/*.py
+
+# Storefront assets from one-off migration work
+assets/
 
 # Temporary MCP request/response files
 tmp*.json

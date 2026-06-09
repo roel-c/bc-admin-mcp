@@ -91,6 +91,8 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `catalog/products/variants/metafields/bulk_set_products` / `bulk_delete_products` | `product_ids ≤ 50`, total variant writes ≤ 500 | `products_variants_metafields_bulk.go` |
 | `catalog/variants/list` | `product_ids ≤ 100`, `variant_ids ≤ 100` | `variants_global.go` |
 | `catalog/variants/bulk_update` | ≤ 200 rows per call (server chunks by `BC_VARIANT_BATCH_SIZE`) | `variants_global.go` |
+| `catalog/channels/get` | R0; `channel_id` required; `GET /v3/channels/{id}` | `internal/tools/catalog/channel_tools.go` |
+| `catalog/channels/update` | **R2**; `channel_id` required; at least one of `name` / `status`; valid statuses: active, inactive, connected, disconnected, prelaunch; deleted/terminated channels cannot be updated (BC returns 422); preview then confirm | `internal/tools/catalog/channel_tools.go` |
 | `catalog/channels/listings/list` | up to 2000 rows fetched per call; `product_ids` filter ≤ 50 | `channel_listings_tools.go` |
 | `catalog/channels/listings/create` / `update` | `listings_json` ≤ 10 objects, payload ≤ 256 KiB | `channel_listings_tools.go` |
 | `catalog/pricelists/list` / `catalog/pricelists/assignments/list` / `catalog/pricelists/records/list` | supports offset and cursor pagination; reject `page` + cursor combinations | `pricelists_tools.go` |
@@ -168,6 +170,12 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `marketing/promotions/coupon/codes/delete` | **R3 destructive**; DELETE `?id:in=…`, max **40** ids/call (BC documents 50; we leave headroom). Use this to clear codes before `coupon/delete` on a promotion, or as cleanup after a `generate_bulk` run. Preview required | `internal/tools/promotions/coupon_codes_tools.go` |
 | `marketing/promotions/settings/get` | R0; GET `/v3/promotions/settings`. Returns store-wide policy flags controlling zero-price triggers, custom-priced-product eligibility, max coupons at checkout, and original-price-vs-cumulative application mode. Includes notes that settings are global and coupon count >1 is Enterprise-only | `internal/tools/promotions/settings_tools.go` |
 | `marketing/promotions/settings/update` | **R2 high-risk**; fetch-merge-PUT over `/v3/promotions/settings` so only supplied fields change. Type-checks booleans, validates `number_of_coupons_allowed_at_checkout ∈ 1..5`, soft-warns (warn-only) when setting coupon count >1 (Enterprise-only), and short-circuits to `noop` when patch equals current. Preview shows current vs would_apply; `confirmed=true` to apply | `internal/tools/promotions/settings_tools.go` |
+| `webhooks/list` | R0; optional filters: `scope` (exact event string), `is_active` (bool), `channel_id`; paginated via `GetAll` | `internal/tools/webhooks/webhook_tools.go` |
+| `webhooks/get` | R0; `id` required; `GET /v3/hooks/{id}` | `internal/tools/webhooks/webhook_tools.go` |
+| `webhooks/events` | R0; `id` required; `GET /v3/hooks/{id}/events` — recent delivery attempts | `internal/tools/webhooks/webhook_tools.go` |
+| `webhooks/create` | **R1**; `scope` + `destination` required; `destination` must be HTTPS (validated client-side before BC call); `is_active` defaults to `true`; optional `channel_id` (channel-scoped vs store-wide); optional `headers_json` (JSON string of string→string map; non-string values rejected); preview then confirm; **serial write policy** | `internal/tools/webhooks/webhook_tools.go` |
+| `webhooks/update` | **R1**; `id` required; at least one of `scope`, `destination`, `is_active`, `headers_json`; fetch-merge-PUT: fetches current state, merges provided fields; `channel_id` immutable after creation; HTTPS validated on `destination`; preview then confirm | `internal/tools/webhooks/webhook_tools.go` |
+| `webhooks/delete` | **R3 destructive**; `id` required; fetches current hook for preview (scope + destination shown); `confirmed=true` to permanently delete | `internal/tools/webhooks/webhook_tools.go` |
 
 ---
 
@@ -203,6 +211,8 @@ From `BC-API-Reference.md`: grant **minimum scopes** per tool group.
 | Customer stored instruments | `store_stored_payment_instruments` or `store_stored_payment_instruments_read_only` (Management API stored-instruments list) |
 | Inventory | `store_inventory` |
 | Price lists | `store_price_lists` |
+| Channels (MSF) | `store_channel_settings` (write, for `catalog/channels/update`); `store_channel_settings_read_only` (for `catalog/channels/list`, `catalog/channels/get`); channel listings need `store_channel_listings` (write) or `store_channel_listings_read_only` |
+| Webhooks | `store_v2_information_read_only` sufficient for `webhooks/list`, `webhooks/get`, `webhooks/events`; `store_v2_information` (modify) required for `webhooks/create`, `webhooks/update`, `webhooks/delete` |
 | Store / SEO / content | `store_v2_information`, `store_content`, etc. |
 
 **LLM note:** a single long-lived token with every scope maximizes damage from one bad tool call. Prefer **narrow tokens** or **separate environments** (sandbox vs production) when testing new tools.

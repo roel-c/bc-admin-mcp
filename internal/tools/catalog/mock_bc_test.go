@@ -908,6 +908,36 @@ func (mr *MockBigCommerceAPIMockRecorder) ListProductsByCategory(ctx, categoryID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProductsByCategory", reflect.TypeOf((*MockBigCommerceAPI)(nil).ListProductsByCategory), ctx, categoryID, opts)
 }
 
+// GetStoreChannel mocks base method.
+func (m *MockBigCommerceAPI) GetStoreChannel(ctx context.Context, channelID int) (*bigcommerce.StoreChannel, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetStoreChannel", ctx, channelID)
+	ret0, _ := ret[0].(*bigcommerce.StoreChannel)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetStoreChannel indicates an expected call of GetStoreChannel.
+func (mr *MockBigCommerceAPIMockRecorder) GetStoreChannel(ctx, channelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStoreChannel", reflect.TypeOf((*MockBigCommerceAPI)(nil).GetStoreChannel), ctx, channelID)
+}
+
+// UpdateStoreChannel mocks base method.
+func (m *MockBigCommerceAPI) UpdateStoreChannel(ctx context.Context, channelID int, payload bigcommerce.StoreChannelUpdate) (*bigcommerce.StoreChannel, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateStoreChannel", ctx, channelID, payload)
+	ret0, _ := ret[0].(*bigcommerce.StoreChannel)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateStoreChannel indicates an expected call of UpdateStoreChannel.
+func (mr *MockBigCommerceAPIMockRecorder) UpdateStoreChannel(ctx, channelID, payload any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateStoreChannel", reflect.TypeOf((*MockBigCommerceAPI)(nil).UpdateStoreChannel), ctx, channelID, payload)
+}
+
 // ListStoreChannels mocks base method.
 func (m *MockBigCommerceAPI) ListStoreChannels(ctx context.Context, params map[string]string) ([]bigcommerce.StoreChannel, error) {
 	m.ctrl.T.Helper()

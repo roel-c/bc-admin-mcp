@@ -92,6 +92,8 @@ type BigCommerceAPI interface {
 
 	// Channels (storefronts / MSF awareness)
 	ListStoreChannels(ctx context.Context, params map[string]string) ([]bigcommerce.StoreChannel, error)
+	GetStoreChannel(ctx context.Context, channelID int) (*bigcommerce.StoreChannel, error)
+	UpdateStoreChannel(ctx context.Context, channelID int, payload bigcommerce.StoreChannelUpdate) (*bigcommerce.StoreChannel, error)
 	ListCategoryTrees(ctx context.Context, params map[string]string) ([]bigcommerce.CategoryTree, error)
 	GetTreeIDForChannel(ctx context.Context, channelID int) (int, error)
 

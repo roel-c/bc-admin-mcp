@@ -13,6 +13,28 @@ import (
 // RegisterCustomFieldTools registers the product custom field tools.
 func (p *Products) RegisterCustomFieldTools(reg *discovery.Registry) {
 	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "catalog/products/custom_fields/create",
+		Tier:    middleware.TierR1,
+		Summary: "Always create a new custom field on a product (no upsert)",
+		Description: "Directly POSTs a new custom field to the product — always creates, " +
+			"never updates an existing field. Use this when you need multiple custom fields " +
+			"with the same name (e.g. two COMPOSER fields for co-composed works). " +
+			"For standard single-value fields use catalog/products/custom_fields/set instead.",
+		Tool: mcp.NewTool("catalog_products_custom_fields_create",
+			mcp.WithDescription(
+				"Create a new custom field on a product (always creates, never upserts). "+
+					"Use when you need duplicate field names such as multiple COMPOSER entries. "+
+					"Preview shows what will be created; pass confirmed=true to execute.",
+			),
+			mcp.WithNumber("product_id", mcp.Description("Product ID"), mcp.Required()),
+			mcp.WithString("name", mcp.Description("Custom field name"), mcp.Required()),
+			mcp.WithString("value", mcp.Description("Custom field value"), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Set to true after reviewing preview")),
+		),
+		Handler: p.handleCustomFieldCreate,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
 		Path:        "catalog/products/custom_fields/list",
 		Tier:        middleware.TierR0,
 		Summary:     "List all custom fields for a product",
@@ -57,6 +79,46 @@ func (p *Products) RegisterCustomFieldTools(reg *discovery.Registry) {
 			mcp.WithBoolean("confirmed", mcp.Description("Set to true after reviewing preview")),
 		),
 		Handler: p.handleCustomFieldDelete,
+	})
+}
+
+func (p *Products) handleCustomFieldCreate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	productID, err := requiredPositiveInt(args, "product_id")
+	if err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+
+	name, _ := args["name"].(string)
+	if name == "" {
+		return toolError("name is required"), nil
+	}
+	value, _ := args["value"].(string)
+	if value == "" {
+		return toolError("value is required"), nil
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return toolJSON(map[string]any{
+			"status":     "pending_confirmation",
+			"product_id": productID,
+			"action":     "create",
+			"name":       name,
+			"value":      value,
+			"message":    fmt.Sprintf("A new custom field '%s' = '%s' will be created (a second field with this name is allowed). Pass confirmed=true to execute.", name, value),
+		})
+	}
+
+	payload := bigcommerce.ProductCustomFieldCreate{Name: name, Value: value}
+	created, cErr := p.bc.CreateProductCustomField(ctx, productID, payload)
+	if cErr != nil {
+		return toolError("failed to create custom field: %v", cErr), nil
+	}
+	return toolJSON(map[string]any{
+		"status":       "completed",
+		"action":       "created",
+		"product_id":   productID,
+		"custom_field": created,
 	})
 }
 

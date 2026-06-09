@@ -168,6 +168,34 @@ func (s *VariantToolSuite) TestVariantDeleteExecute() {
 	s.Equal("completed", data["status"])
 }
 
+func (s *VariantToolSuite) TestVariantCreateOptionValueIDAlias() {
+	// option_value_id should be accepted as an alias for id in option_values.
+	price := float64(4.75)
+	s.mockBC.EXPECT().CreateVariant(gomock.Any(), 472, gomock.Any()).DoAndReturn(
+		func(_ any, _ int, payload bigcommerce.ProductVariantCreate) (*bigcommerce.ProductVariantFull, error) {
+			s.Require().Len(payload.OptionValues, 1)
+			s.Equal(818, payload.OptionValues[0].ID)
+			s.Equal(335, payload.OptionValues[0].OptionID)
+			s.Equal("Download", payload.OptionValues[0].Label)
+			return &bigcommerce.ProductVariantFull{ID: 1617, ProductID: 472, SKU: "30108448", Price: &price}, nil
+		},
+	)
+
+	result, err := s.callTool("catalog/products/variants/create", map[string]any{
+		"product_id": float64(472),
+		"sku":        "30108448",
+		"price":      float64(4.75),
+		"option_values": []any{
+			map[string]any{"option_id": float64(335), "option_value_id": float64(818), "label": "Download"},
+		},
+		"confirmed": true,
+	})
+	s.NoError(err)
+	s.False(result.IsError)
+	data := s.parseJSON(result)
+	s.Equal("completed", data["status"])
+}
+
 func (s *VariantToolSuite) TestVariantUpdateNoFieldsError() {
 	result, err := s.callTool("catalog/products/variants/update", map[string]any{
 		"product_id": float64(1),

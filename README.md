@@ -27,7 +27,7 @@ This reduces initial token usage to ~600 tokens (a 60-100x reduction) and keeps 
 
 ### Tool Hierarchy
 
-**`discover_tools("")`** returns **`catalog`**, **`orders`**, **`customers`**, **`marketing`**, and **`inventory`** — the live MCP tree matches implemented tools (no empty placeholder roots). Planned domains (carts, store, …) are described in **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** section 7, not in discovery, until tools register.
+**`discover_tools("")`** returns **`catalog`**, **`orders`**, **`customers`**, **`marketing`**, **`inventory`**, **`storefront`**, and **`webhooks`** — the live MCP tree matches implemented tools (no empty placeholder roots). Planned domains (carts, store, …) are described in **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** section 7, not in discovery, until tools register.
 
 ```
 catalog/          — Products, categories, brands, variants, and price lists (full tree under this root)
@@ -235,6 +235,8 @@ Use **`confirmed: true`** on the second call after reviewing the preview.
 | `catalog/variants/list` | R0 | Global variant search (`GET /v3/catalog/variants`): `product_id` / `product_ids` (max 100), `variant_id` / `variant_ids` (max 100), `sku`, `sku_like`, optional `sort`, or `list_all` |
 | `catalog/variants/bulk_update` | R2 | Batch `PUT /v3/catalog/variants`: `updates` array (max **200** rows, ≥1 field per row besides `variant_id`); server chunks by **10**; preview → confirm |
 | `catalog/channels/list` | R0 | `GET /v3/channels` — channels for the connected store; optional `type` / `status`; response includes `multi_storefront_likely` (needs **`store_channel_settings`** on the API account) |
+| `catalog/channels/get` | R0 | `GET /v3/channels/{id}` — full details for one channel (name, platform, type, status, timestamps); scope **`store_channel_settings_read_only`** |
+| `catalog/channels/update` | R2 | `PUT /v3/channels/{id}` — update channel `name` and/or `status` (preview → **`confirmed`**); valid statuses: active, inactive, connected, disconnected, prelaunch; scope **`store_channel_settings`** |
 | `catalog/channels/category_trees` | R0 | `GET /v3/catalog/trees` — category trees (optional **`channel_id`** → `channel_id:in` for MSF); needs **Products** scope (`store_v2_products_read_only` or `store_v2_products`) |
 | `catalog/channels/listings/list` | R0 | `GET .../channels/{id}/listings` — optional **`product_ids`** filter; cursor pagination (up to 2000 rows); **`store_channel_listings_read_only`** or modify scope |
 | `catalog/channels/listings/create` | R1 | `POST` — **`listings_json`** array (max 10 listings; BC requires **variants** per row); preview → **`confirmed`**; **`store_channel_listings`** |
@@ -360,6 +362,12 @@ Use **`confirmed: true`** on the second call after reviewing the preview.
 | `marketing/promotions/coupon/codes/delete` | R3 | DELETE `?id:in=…` (≤40 ids/call). Use this before `coupon/delete` on a promotion with attached codes, or to clean up after a `generate_bulk` run. Preview → confirm |
 | `marketing/promotions/settings/get` | R0 | GET `/v3/promotions/settings`; returns the four global policy flags (`zero_price` trigger, custom-price eligibility, coupon-count cap, original-price calculation mode) plus notes about Enterprise-only multi-coupon behavior |
 | `marketing/promotions/settings/update` | R2 | Fetch-merge-PUT on `/v3/promotions/settings`. Type-checks booleans; validates `number_of_coupons_allowed_at_checkout ∈ 1..5`; warns (warn-only) when setting coupon count >1 (Enterprise-only); returns `noop` when patch equals current; preview → confirm |
+| `webhooks/list` | R0 | `GET /v3/hooks` — list all webhook registrations; optional `scope`, `is_active`, `channel_id` filters; scope **`store_v2_information_read_only`** |
+| `webhooks/get` | R0 | `GET /v3/hooks/{id}` — full details for one webhook (scope, destination, is_active, channel_id, headers) |
+| `webhooks/events` | R0 | `GET /v3/hooks/{id}/events` — recent delivery attempts; useful for diagnosing failures |
+| `webhooks/create` | R1 | `POST /v3/hooks` — destination must be **HTTPS**; optional `channel_id` (channel-scoped vs store-wide); optional `headers_json` (custom delivery headers); preview → **`confirmed`**; scope **`store_v2_information`** |
+| `webhooks/update` | R1 | Fetch-merge-`PUT /v3/hooks/{id}` — scope, destination, is_active, or headers; `channel_id` immutable; preview → **`confirmed`** |
+| `webhooks/delete` | R3 | `DELETE /v3/hooks/{id}` — permanently remove; preview shows scope + destination → **`confirmed`** |
 
 ## Project Structure
 
@@ -374,7 +382,12 @@ internal/
   bigcommerce/           — BigCommerce REST API client (rate limiting, retries, batching)
   tools/
     catalog/             — Product, category, brand, global variant handlers; shared: metafield_shared.go, list_filter_helpers.go, variant_update_parse.go (see docs/ARCHITECTURE.md section 4)
-    (future domains: add internal/tools/<domain> + RegisterCategory in the same change — see docs/discovery-registration-audit.md)
+    orders/              — Order management, fulfillment, payments, refunds
+    customers/           — Customer records, addresses, attributes, segments, shopper profiles
+    inventory/           — Location lifecycle, item visibility, adjustments
+    promotions/          — Automatic and coupon promotions, coupon codes, settings
+    storefront/          — Script Manager scripts
+    webhooks/            — Webhook registrations (list/get/events/create/update/delete via /v3/hooks)
 ```
 
 ### Test Coverage

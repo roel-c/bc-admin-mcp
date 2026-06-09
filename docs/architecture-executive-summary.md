@@ -13,7 +13,7 @@ It implements the **Model Context Protocol (MCP)**, the emerging open standard f
 | Layer | What It Does | Why It Matters |
 |-------|-------------|----------------|
 | **Transport** | Supports stdio, **streamable HTTP**, and SSE with bearer-token auth on the HTTP transports | Deploy locally for dev (stdio) or as a remote service with no code changes |
-| **Progressive Disclosure** | Only 2 tools are exposed to the AI: `discover_tools` and `execute_tool` | Prevents context-window bloat — the AI navigates category and tool stubs on-demand (`catalog`, `orders`, `customers`, `marketing`) instead of loading full schemas upfront |
+| **Progressive Disclosure** | Only 2 tools are exposed to the AI: `discover_tools` and `execute_tool` | Prevents context-window bloat — the AI navigates category and tool stubs on-demand (`catalog`, `orders`, `customers`, `marketing`, `inventory`, `storefront`, `webhooks`) instead of loading full schemas upfront |
 | **Middleware** | R4 blocklist in `Check()`, confirmation helpers for handlers, bearer auth, structured JSON logging | R1–R3 preview / `confirmed` flows are enforced in **handlers** and schema registration, not solely in `Check()` |
 | **Tool Registry** | Hierarchical BigCommerce operations across catalog, orders, customers, and marketing | Organized for discoverability; extensible to carts, inventory, and store settings |
 | **BC HTTP Client** | Rate limiting, exponential backoff, auto-pagination, batch chunking | Respects BigCommerce API quotas automatically; no manual throttling or pagination logic needed |
@@ -64,20 +64,22 @@ Built in Go with **no databases or queues** at runtime: the MCP SDK plus `testif
 
 ## Current Coverage & Roadmap
 
-### Implemented (Catalog + Orders + Customers + Marketing + Inventory)
+### Implemented (Catalog + Orders + Customers + Marketing + Inventory + Storefront + Webhooks)
 
-The live `discover_tools` tree contains five active roots — **`catalog`**, **`orders`**, **`customers`**, **`marketing`**, and **`inventory`**. Placeholder categories without shipped tools are omitted so agents never land on empty leaves.
+The live `discover_tools` tree contains seven active roots — **`catalog`**, **`orders`**, **`customers`**, **`marketing`**, **`inventory`**, **`storefront`**, and **`webhooks`**. Placeholder categories without shipped tools are omitted so agents never land on empty leaves.
 
 - **Products** — search (filters + MSF `channel_ids`), get, create, unified update, delete (R3); product↔category assignment (additive `assign_categories` + filter-based `unassign_categories`); MSF helpers `channel_summary`, `channel_assignments/list|assign|remove`; sub-resources for **images**, **options**, **variants**, **modifiers**, **custom fields**, **metafields** (single + bulk + cross-product variant bulk).
 - **Categories** — list (with `list_all` and optional `channel_id` → `tree_id`), get, create (with `parent_name` resolution and MSF), bulk_update, products, SEO audit, move, reorder, metafields (list/set/delete), delete and bulk_delete with child-cascade safety gates (R3).
 - **Brands** — list (filters + `list_all`), get, create, update; brand metafields (list/set/delete).
 - **Variants (global)** — `catalog/variants/list` (`GET /v3/catalog/variants`), `catalog/variants/bulk_update` (`PUT /v3/catalog/variants` ≤ 200 rows, chunked by `BC_VARIANT_BATCH_SIZE`).
-- **Channels (MSF)** — `catalog/channels/list`, `catalog/channels/category_trees`, `catalog/channels/listings/list|create|update`.
+- **Channels (MSF)** — `catalog/channels/list`, `catalog/channels/get`, `catalog/channels/update` (R2, preview→confirm; name/status), `catalog/channels/category_trees`, `catalog/channels/listings/list|create|update`.
 - **Price Lists (catalog pricing overlays)** — `catalog/pricelists/list|get|create|update|delete`, `catalog/pricelists/records/list|upsert|delete`, and `catalog/pricelists/assignments/list|create_batch|upsert|delete` (preview→confirm on writes; record upserts stay serial with conservative row caps).
 - **Orders (V2 + V3 payment actions)** — `orders/management/list|get|create|update|delete|count|statuses|update_status|products/get` plus order sub-resources (`metafields/list|set|delete`, `coupons`, `shipping_addresses/list|get|update`, `messages`, `taxes`), `orders/fulfillment/shipments/list|get|create|update|delete`, and `orders/payments/actions/list|transactions/list|capture|void` with `orders/refunds/list|legacy_list|quote|create`; writes use preview→confirm, with per-order confirmation for financial actions.
 - **Inventory (V3)** — `inventory/locations/list|create|update|delete`, `inventory/locations/metafields/list|set|delete`, `inventory/items/list|get|update_batch`, and `inventory/adjustments/absolute|relative` for dedicated inventory-domain operations separate from catalog product/variant projections. Writes use preview→confirm; `locations/delete` and other destructive operations are R3, while high-risk writes are R2 (batch caps stay at 10 rows where applicable).
 - **Customers** — V3 customer records, addresses, attributes, attribute values, metafields, settings, consent, stored instruments, credential validation, segments/shopper profiles, plus V2 customer groups.
 - **Marketing (Promotions)** — automatic promotion tools, coupon promotion tools, coupon code lifecycle (`list`, `create_single`, `generate_bulk`, `delete`), and store-wide promotions settings.
+- **Storefront** — `storefront/scripts/list|get|create|update|toggle|delete` for Script Manager script injection via `GET/POST/PUT/DELETE /v3/content/scripts`.
+- **Webhooks** — `webhooks/list|get|events|create|update|delete` for registering and managing event subscriptions via `GET/POST/PUT/DELETE /v3/hooks`; scope `store_v2_information`; optional `channel_id` for channel-scoped delivery.
 
 ### Planned — roadmapped only, **not registered** in `discover_tools`
 - Orders: remaining lower-frequency endpoints (e.g., consignments, quotes, and deeper transaction/refund lifecycle details)

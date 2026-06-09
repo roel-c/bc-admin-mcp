@@ -163,7 +163,11 @@ func parseVariantOptionValues(raw any) ([]bigcommerce.VariantOptionVal, error) {
 			OptionDisplayName: optName,
 			Label:             label,
 		}
+		// Accept both "id" and "option_value_id" so callers can use either the
+		// BC API field name ("id") or the more descriptive alias.
 		if id, ok := m["id"].(float64); ok {
+			val.ID = int(id)
+		} else if id, ok := m["option_value_id"].(float64); ok {
 			val.ID = int(id)
 		}
 		if oid, ok := m["option_id"].(float64); ok {

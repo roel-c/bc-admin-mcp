@@ -47,6 +47,10 @@ func scopeHint(status int, method, path string) string {
 		return forbiddenScopeHint(p, read)
 	case status == http.StatusNotFound && strings.HasPrefix(p, "channels/") && strings.Contains(p, "/listings"):
 		return "404 — the channel_id may not exist, or the store has no listings on this channel. Verify with catalog/channels/list."
+	case status == http.StatusNotFound && strings.HasPrefix(p, "channels/"):
+		return "404 — channel not found. Verify the channel_id with catalog/channels/list."
+	case status == http.StatusNotFound && strings.HasPrefix(p, "hooks/"):
+		return "404 — webhook not found. Verify the webhook ID with webhooks/list."
 	case status == http.StatusNotFound && strings.HasPrefix(p, "catalog/trees"):
 		return "404 — tree not found. Verify with catalog/channels/category_trees (and the channel's tree_id)."
 	case status == http.StatusNotFound && strings.HasPrefix(p, "customer_groups/"):
@@ -104,6 +108,11 @@ func forbiddenScopeHint(path string, read bool) string {
 			return "403 — token likely missing 'store_inventory'. Update the API account scope."
 		}
 		return "403 — write requires 'store_inventory'. Update the API account scope."
+	case strings.HasPrefix(path, "hooks"):
+		if read {
+			return "403 — token likely missing 'store_v2_information_read_only' (or 'store_v2_information'). Update the API account scope."
+		}
+		return "403 — write/delete requires 'store_v2_information'. Update the API account scope."
 	case strings.HasPrefix(path, "content/scripts"):
 		if read {
 			return "403 — token likely missing 'store_content_read_only' (or 'store_content'). Update the API account scope."

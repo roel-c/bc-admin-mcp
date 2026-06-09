@@ -206,3 +206,146 @@ func (s *ChannelToolsSuite) TestListingsCreateRejectsInvalidVariantState() {
 	text := res.Content[0].(mcp.TextContent).Text
 	s.Contains(text, "is not a valid BigCommerce variant listing state")
 }
+
+// --- catalog/channels/get ---
+
+func (s *ChannelToolsSuite) callGetTool(args map[string]any) (*mcp.CallToolResult, error) {
+	def := s.reg.GetTool("catalog/channels/get")
+	s.Require().NotNil(def)
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Name: "catalog/channels/get", Arguments: args},
+	}
+	return def.Handler(context.Background(), req)
+}
+
+func (s *ChannelToolsSuite) TestGetChannelReturnsChannel() {
+	s.mockBC.EXPECT().GetStoreChannel(gomock.Any(), 1763061).Return(&bigcommerce.StoreChannel{
+		ID: 1763061, Name: "MSF-Demo-AU", Platform: "bigcommerce", Type: "storefront", Status: "active",
+	}, nil)
+
+	res, err := s.callGetTool(map[string]any{"channel_id": float64(1763061)})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	ch := data["channel"].(map[string]any)
+	s.Equal("MSF-Demo-AU", ch["name"])
+	s.Equal("active", ch["status"])
+}
+
+func (s *ChannelToolsSuite) TestGetChannelRejectsMissingID() {
+	res, err := s.callGetTool(map[string]any{})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+func (s *ChannelToolsSuite) TestGetChannelRejectsNonPositiveID() {
+	res, err := s.callGetTool(map[string]any{"channel_id": float64(-1)})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+// --- catalog/channels/update ---
+
+func (s *ChannelToolsSuite) callUpdateTool(args map[string]any) (*mcp.CallToolResult, error) {
+	def := s.reg.GetTool("catalog/channels/update")
+	s.Require().NotNil(def)
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Name: "catalog/channels/update", Arguments: args},
+	}
+	return def.Handler(context.Background(), req)
+}
+
+func (s *ChannelToolsSuite) TestUpdateChannelPreviewShowsCurrentVsWouldApply() {
+	s.mockBC.EXPECT().GetStoreChannel(gomock.Any(), 1763061).Return(&bigcommerce.StoreChannel{
+		ID: 1763061, Name: "MSF-Demo-AU", Status: "active",
+	}, nil)
+
+	res, err := s.callUpdateTool(map[string]any{
+		"channel_id": float64(1763061),
+		"name":       "AU Storefront",
+		"confirmed":  false,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("pending_confirmation", data["status"])
+	current := data["current"].(map[string]any)
+	s.Equal("MSF-Demo-AU", current["name"])
+	wouldApply := data["would_apply"].(map[string]any)
+	s.Equal("AU Storefront", wouldApply["name"])
+}
+
+func (s *ChannelToolsSuite) TestUpdateChannelConfirmedCallsAPI() {
+	s.mockBC.EXPECT().GetStoreChannel(gomock.Any(), 1763061).Return(&bigcommerce.StoreChannel{
+		ID: 1763061, Name: "MSF-Demo-AU", Status: "active",
+	}, nil)
+	s.mockBC.EXPECT().UpdateStoreChannel(gomock.Any(), 1763061, bigcommerce.StoreChannelUpdate{
+		Name: "AU Storefront",
+	}).Return(&bigcommerce.StoreChannel{
+		ID: 1763061, Name: "AU Storefront", Status: "active",
+	}, nil)
+
+	res, err := s.callUpdateTool(map[string]any{
+		"channel_id": float64(1763061),
+		"name":       "AU Storefront",
+		"confirmed":  true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("updated", data["status"])
+	ch := data["channel"].(map[string]any)
+	s.Equal("AU Storefront", ch["name"])
+}
+
+func (s *ChannelToolsSuite) TestUpdateChannelStatusOnly() {
+	s.mockBC.EXPECT().GetStoreChannel(gomock.Any(), 1741970).Return(&bigcommerce.StoreChannel{
+		ID: 1741970, Name: "MSF-B2BE", Status: "active",
+	}, nil)
+	s.mockBC.EXPECT().UpdateStoreChannel(gomock.Any(), 1741970, bigcommerce.StoreChannelUpdate{
+		Status: "inactive",
+	}).Return(&bigcommerce.StoreChannel{
+		ID: 1741970, Name: "MSF-B2BE", Status: "inactive",
+	}, nil)
+
+	res, err := s.callUpdateTool(map[string]any{
+		"channel_id": float64(1741970),
+		"status":     "inactive",
+		"confirmed":  true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("updated", data["status"])
+}
+
+func (s *ChannelToolsSuite) TestUpdateChannelRejectsInvalidStatus() {
+	res, err := s.callUpdateTool(map[string]any{
+		"channel_id": float64(1),
+		"status":     "deleted",
+		"confirmed":  false,
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+	text := res.Content[0].(mcp.TextContent).Text
+	s.Contains(text, "is not valid")
+}
+
+func (s *ChannelToolsSuite) TestUpdateChannelRejectsNoFields() {
+	res, err := s.callUpdateTool(map[string]any{
+		"channel_id": float64(1),
+		"confirmed":  false,
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+func (s *ChannelToolsSuite) TestUpdateChannelRejectsEmptyName() {
+	res, err := s.callUpdateTool(map[string]any{
+		"channel_id": float64(1),
+		"name":       "   ",
+		"confirmed":  false,
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}

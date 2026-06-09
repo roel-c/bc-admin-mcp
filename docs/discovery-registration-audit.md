@@ -1,6 +1,6 @@
 # Discovery vs `registerTools` audit
 
-**Date:** 2026-05-07 (catalog + orders + customers + customer segmentation + marketing/promotions + initial inventory read tools; catalog price-list subtrees and initial order subtrees are registered)
+**Date:** 2026-05-07 (catalog + orders + customers + customer segmentation + marketing/promotions + initial inventory read tools; catalog price-list subtrees and initial order subtrees are registered). Updated 2026-06-03 to add `storefront/scripts` and `webhooks/*` roots.
 
 ## Policy
 
@@ -12,9 +12,9 @@
 
 | Check | Result |
 |--------|--------|
-| Discovery roots | `discover_tools("")` returns **`catalog`**, **`orders`**, **`customers`**, **`marketing`**, and **`inventory`**. Each root must have at least one tool reachable below it. |
+| Discovery roots | `discover_tools("")` returns **`catalog`**, **`orders`**, **`customers`**, **`marketing`**, **`inventory`**, **`storefront`**, and **`webhooks`**. Each root must have at least one tool reachable below it. |
 | Non-active placeholder categories | Remaining roots (`carts/*`, `store/*`) remain **omitted** from `internal/server/server.go` `registerCategories` until tools ship. |
-| Active subtrees | Every `catalog/**`, `orders/**`, `customers/**`, `marketing/**`, and `inventory/**` category has **≥1** child in `Registry.Discover` after full `registerTools`. |
+| Active subtrees | Every `catalog/**`, `orders/**`, `customers/**`, `marketing/**`, `inventory/**`, `storefront/**`, and `webhooks/**` category has **≥1** child in `Registry.Discover` after full `registerTools`. |
 | Tool → category linkage | Enforced by **`internal/server/registration_audit_test.go`** (`TestFullRegistrationEveryToolParentCategoryExists`, `TestFullRegistrationActiveCategoriesAreNonEmptyLeaves`, `TestFullRegistrationActiveRoots`, **`TestFullRegistrationDiscoveryBFSCoversAllCategoriesAndTools`**, **`TestFullRegistrationR1PlusToolsExposeConfirmedParameter`**). |
 
 ## Registry helpers
