@@ -114,11 +114,12 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 	reg.RegisterTool(&discovery.ToolDef{
 		Path:        "catalog/products/get",
 		Tier:        middleware.TierR0,
-		Summary:     "Get detailed product info by ID, including variants",
-		Description: "Fetches a single product with full details and variant pricing info.",
+		Summary:     "Get product details by ID; pass include_variants=true for full variant list",
+		Description: "Fetches a single product with pricing details. By default returns variant_count and has_variant_pricing without the full variant array to keep responses compact. Pass include_variants=true when you need variant IDs, SKUs, or pricing.",
 		Tool: mcp.NewTool("catalog_products_get",
-			mcp.WithDescription("Get a product by ID with variant pricing details."),
+			mcp.WithDescription("Get a product by ID. Returns product details plus variant pricing summary. Pass include_variants=true for the full variant list."),
 			mcp.WithNumber("product_id", mcp.Description("Product ID"), mcp.Required()),
+			mcp.WithBoolean("include_variants", mcp.Description("Return the full variant array. Defaults to false — only variant_count and has_variant_pricing are returned.")),
 		),
 		Handler: p.handleGet,
 	})
@@ -536,6 +537,8 @@ func (p *Products) handleGet(ctx context.Context, request mcp.CallToolRequest) (
 	}
 	pid := int(pidFloat)
 
+	includeVariants, _ := args["include_variants"].(bool)
+
 	product, err := p.bc.GetProduct(ctx, pid)
 	if err != nil {
 		return toolError("failed to get product %d: %v", pid, err), nil
@@ -556,9 +559,11 @@ func (p *Products) handleGet(ctx context.Context, request mcp.CallToolRequest) (
 
 	result := map[string]any{
 		"product":             product,
-		"variants":            variants,
 		"has_variant_pricing": hasVariantPricing,
 		"variant_count":       len(variants),
+	}
+	if includeVariants {
+		result["variants"] = variants
 	}
 
 	return toolJSON(result)

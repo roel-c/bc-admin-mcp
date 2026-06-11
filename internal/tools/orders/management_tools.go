@@ -11,6 +11,7 @@ import (
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
+	"github.com/roel-c/bc-admin-mcp/internal/session"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/shared"
 )
 
@@ -34,12 +35,17 @@ var validOrderIncludes = map[string]struct{}{
 
 // Management holds tool handlers for orders/management/*.
 type Management struct {
-	bc BigCommerceOrdersAPI
+	bc    BigCommerceOrdersAPI
+	cache *session.Store
 }
 
 // NewManagement constructs orders management handlers.
-func NewManagement(bc BigCommerceOrdersAPI) *Management {
-	return &Management{bc: bc}
+func NewManagement(bc BigCommerceOrdersAPI, cache *session.Store) *Management {
+	return &Management{bc: bc, cache: cache}
+}
+
+func orderCacheKey(orderID int) string {
+	return fmt.Sprintf("order:%d", orderID)
 }
 
 // RegisterTools wires orders/management tools into the discovery registry.
@@ -304,7 +310,10 @@ func (m *Management) handleUpdate(ctx context.Context, request mcp.CallToolReque
 	if err != nil {
 		return shared.ToolError("%s", err.Error()), nil
 	}
-	current, err := m.bc.GetOrder(ctx, orderID, bigcommerce.OrderGetParams{})
+	cacheKey := orderCacheKey(orderID)
+	current, err := session.CacheOrFetch(m.cache.ForContext(ctx), cacheKey, func() (*bigcommerce.Order, error) {
+		return m.bc.GetOrder(ctx, orderID, bigcommerce.OrderGetParams{})
+	})
 	if err != nil {
 		return shared.ToolError("failed to fetch current order %d: %v", orderID, err), nil
 	}
@@ -329,6 +338,7 @@ func (m *Management) handleUpdate(ctx context.Context, request mcp.CallToolReque
 	if err != nil {
 		return shared.ToolError("failed to marshal patch payload: %v", err), nil
 	}
+	m.cache.ForContext(ctx).Delete(cacheKey)
 	updated, err := m.bc.UpdateOrder(ctx, orderID, raw)
 	if err != nil {
 		return shared.ToolError("failed to update order %d: %v", orderID, err), nil
@@ -345,19 +355,29 @@ func (m *Management) handleDelete(ctx context.Context, request mcp.CallToolReque
 	if err != nil {
 		return shared.ToolError("%s", err.Error()), nil
 	}
-	current, err := m.bc.GetOrder(ctx, orderID, bigcommerce.OrderGetParams{})
+	cacheKey := orderCacheKey(orderID)
+	current, err := session.CacheOrFetch(m.cache.ForContext(ctx), cacheKey, func() (*bigcommerce.Order, error) {
+		return m.bc.GetOrder(ctx, orderID, bigcommerce.OrderGetParams{})
+	})
 	if err != nil {
 		return shared.ToolError("failed to fetch current order %d: %v", orderID, err), nil
 	}
 	if !middleware.IsConfirmedFromArgs(args) {
 		return shared.ToolJSON(map[string]any{
-			"status":       "preview",
-			"action":       "delete_order",
-			"order_id":     orderID,
-			"would_delete": current,
-			"message":      "Destructive operation. Pass confirmed=true to permanently delete this order.",
+			"status":   "preview",
+			"action":   "delete_order",
+			"order_id": orderID,
+			"would_delete": map[string]any{
+				"id":            current.ID,
+				"status":        current.Status,
+				"total_inc_tax": current.TotalIncTax,
+				"date_created":  current.DateCreated,
+				"customer_id":   current.CustomerID,
+			},
+			"message": "Destructive operation. Pass confirmed=true to permanently delete this order.",
 		})
 	}
+	m.cache.ForContext(ctx).Delete(cacheKey)
 	if err := m.bc.DeleteOrder(ctx, orderID); err != nil {
 		return shared.ToolError("failed to delete order %d: %v", orderID, err), nil
 	}
@@ -410,7 +430,10 @@ func (m *Management) handleUpdateStatus(ctx context.Context, request mcp.CallToo
 		return shared.ToolError("%s", err.Error()), nil
 	}
 
-	current, err := m.bc.GetOrder(ctx, orderID, bigcommerce.OrderGetParams{})
+	cacheKey := orderCacheKey(orderID)
+	current, err := session.CacheOrFetch(m.cache.ForContext(ctx), cacheKey, func() (*bigcommerce.Order, error) {
+		return m.bc.GetOrder(ctx, orderID, bigcommerce.OrderGetParams{})
+	})
 	if err != nil {
 		return shared.ToolError("failed to fetch order %d: %v", orderID, err), nil
 	}
@@ -433,6 +456,7 @@ func (m *Management) handleUpdateStatus(ctx context.Context, request mcp.CallToo
 			"message":           "Pass confirmed=true to apply.",
 		})
 	}
+	m.cache.ForContext(ctx).Delete(cacheKey)
 	updated, err := m.bc.UpdateOrderStatus(ctx, orderID, statusID)
 	if err != nil {
 		return shared.ToolError("failed to update order %d status: %v", orderID, err), nil

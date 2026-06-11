@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	cacheKeyProductUpdate = "product_update"
-	cacheKeyProductDelete = "product_delete"
+	cacheKeyProductUpdate       = "product_update"
+	cacheKeyProductDelete       = "product_delete"
+	cacheKeyCategoryBulkUpdate  = "category_bulk_update"
 )
 
 func cacheSessionID(ctx context.Context) string {

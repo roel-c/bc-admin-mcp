@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
+	"github.com/roel-c/bc-admin-mcp/internal/session"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/webhooks"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
@@ -28,7 +30,7 @@ func TestWebhookToolsSuite(t *testing.T) {
 func (s *WebhookToolsSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.mockBC = NewMockWebhooksAPI(s.ctrl)
-	s.wt = webhooks.NewWebhooks(s.mockBC)
+	s.wt = webhooks.NewWebhooks(s.mockBC, session.NewStore(60*time.Second))
 	s.reg = discovery.NewRegistry()
 	s.reg.RegisterCategory("webhooks", "Webhooks")
 	s.wt.RegisterTools(s.reg)

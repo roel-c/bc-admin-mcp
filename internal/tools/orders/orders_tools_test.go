@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
+	"github.com/roel-c/bc-admin-mcp/internal/session"
 	orders "github.com/roel-c/bc-admin-mcp/internal/tools/orders"
 	"github.com/stretchr/testify/suite"
 )
@@ -306,7 +308,7 @@ func (s *OrdersToolsSuite) SetupTest() {
 	s.reg.RegisterCategory("orders/payments/actions", "Payment Actions")
 	s.reg.RegisterCategory("orders/payments/transactions", "Transactions")
 	s.reg.RegisterCategory("orders/refunds", "Refunds")
-	orders.NewManagement(s.mock).RegisterTools(s.reg)
+	orders.NewManagement(s.mock, session.NewStore(60*time.Second)).RegisterTools(s.reg)
 	orders.NewOrderMetafields(s.mock).RegisterTools(s.reg)
 	orders.NewSubresources(s.mock).RegisterTools(s.reg)
 	orders.NewFulfillment(s.mock).RegisterTools(s.reg)

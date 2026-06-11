@@ -641,7 +641,10 @@ func (c *Categories) handleBulkUpdate(ctx context.Context, request mcp.CallToolR
 }
 
 func (c *Categories) previewBulkUpdate(ctx context.Context, params *bulkCategoryParams) (*mcp.CallToolResult, error) {
-	cats, err := c.fetchCategoriesByIDs(ctx, params.categoryIDs)
+	cacheKey := fmt.Sprintf("%s:%v", cacheKeyCategoryBulkUpdate, params.categoryIDs)
+	cats, err := session.CacheOrFetch(c.cache.ForContext(ctx), cacheKey, func() ([]bigcommerce.Category, error) {
+		return c.fetchCategoriesByIDs(ctx, params.categoryIDs)
+	})
 	if err != nil {
 		return toolError("failed to fetch categories: %v", err), nil
 	}
@@ -656,7 +659,8 @@ func (c *Categories) previewBulkUpdate(ctx context.Context, params *bulkCategory
 
 	var changes []change
 
-	for _, cat := range cats {
+	sampleSize := min(5, len(cats))
+	for _, cat := range cats[:sampleSize] {
 		if params.setName != nil {
 			changes = append(changes, change{cat.ID, cat.Name, "name", cat.Name, *params.setName})
 		}
@@ -691,19 +695,24 @@ func (c *Categories) previewBulkUpdate(ctx context.Context, params *bulkCategory
 		}
 	}
 
+	fieldsPerCat := len(changes) // already capped to sampleSize categories
 	result := map[string]any{
 		"status":              "preview",
 		"categories_count":    len(cats),
+		"sample_size":         sampleSize,
 		"changes":             changes,
-		"total_field_updates": len(changes),
-		"message":             "Review the changes above. Pass confirmed=true with the same parameters to execute.",
+		"total_field_updates": fieldsPerCat / max(sampleSize, 1) * len(cats),
+		"message":             "Review the sample changes above. Pass confirmed=true with the same parameters to execute.",
 	}
 
 	return toolJSON(result)
 }
 
 func (c *Categories) executeBulkUpdate(ctx context.Context, params *bulkCategoryParams) (*mcp.CallToolResult, error) {
-	cats, err := c.fetchCategoriesByIDs(ctx, params.categoryIDs)
+	cacheKey := fmt.Sprintf("%s:%v", cacheKeyCategoryBulkUpdate, params.categoryIDs)
+	cats, err := session.CacheOrFetch(c.cache.ForContext(ctx), cacheKey, func() ([]bigcommerce.Category, error) {
+		return c.fetchCategoriesByIDs(ctx, params.categoryIDs)
+	})
 	if err != nil {
 		return toolError("failed to fetch categories: %v", err), nil
 	}
@@ -738,6 +747,7 @@ func (c *Categories) executeBulkUpdate(ctx context.Context, params *bulkCategory
 		updates[i] = u
 	}
 
+	c.cache.ForContext(ctx).Delete(cacheKey)
 	batchResult, err := c.bc.BatchUpdateCategories(ctx, updates)
 	if err != nil {
 		return toolError("batch update failed: %v", err), nil
@@ -778,7 +788,6 @@ func (c *Categories) executeBulkUpdate(ctx context.Context, params *bulkCategory
 		fields = append(fields, "default_product_sort")
 	}
 	result["fields_updated"] = fields
-
 	return toolJSON(result)
 }
 

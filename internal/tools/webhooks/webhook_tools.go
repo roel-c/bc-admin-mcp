@@ -10,18 +10,24 @@ import (
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
+	"github.com/roel-c/bc-admin-mcp/internal/session"
 )
 
 // Webhooks provides MCP tool handlers for the BigCommerce Webhooks API
 // (/v3/hooks): list, get, view events, create, update, and delete webhook
 // registrations for the connected store.
 type Webhooks struct {
-	bc WebhooksAPI
+	bc    WebhooksAPI
+	cache *session.Store
 }
 
 // NewWebhooks constructs a Webhooks handler wrapping the given BC client.
-func NewWebhooks(bc WebhooksAPI) *Webhooks {
-	return &Webhooks{bc: bc}
+func NewWebhooks(bc WebhooksAPI, cache *session.Store) *Webhooks {
+	return &Webhooks{bc: bc, cache: cache}
+}
+
+func webhookCacheKey(hookID int) string {
+	return fmt.Sprintf("webhook:%d", hookID)
 }
 
 // RegisterTools wires all webhook tools into the discovery registry.
@@ -423,8 +429,11 @@ func (w *Webhooks) handleUpdate(ctx context.Context, request mcp.CallToolRequest
 		return toolError("at least one of scope, destination, is_active, or headers_json must be provided"), nil
 	}
 
-	// Fetch current state for merge and preview.
-	current, err := w.bc.GetWebhook(ctx, hookID)
+	// Fetch current state for merge and preview (cached across preview→confirm).
+	cacheKey := webhookCacheKey(hookID)
+	current, err := session.CacheOrFetch(w.cache.ForContext(ctx), cacheKey, func() (*bigcommerce.Webhook, error) {
+		return w.bc.GetWebhook(ctx, hookID)
+	})
 	if err != nil {
 		return toolError("failed to fetch webhook %d for preview: %v", hookID, err), nil
 	}
@@ -477,6 +486,7 @@ func (w *Webhooks) handleUpdate(ctx context.Context, request mcp.CallToolRequest
 		})
 	}
 
+	w.cache.ForContext(ctx).Delete(cacheKey)
 	updated, err := w.bc.UpdateWebhook(ctx, hookID, merged)
 	if err != nil {
 		return toolError("failed to update webhook %d: %v", hookID, err), nil
@@ -496,8 +506,11 @@ func (w *Webhooks) handleDelete(ctx context.Context, request mcp.CallToolRequest
 		return toolError("%s", err.Error()), nil
 	}
 
-	// Always fetch first so the preview is informative and the ID is verified.
-	hook, err := w.bc.GetWebhook(ctx, hookID)
+	// Fetch first so the preview is informative and the ID is verified (cached across preview→confirm).
+	cacheKey := webhookCacheKey(hookID)
+	hook, err := session.CacheOrFetch(w.cache.ForContext(ctx), cacheKey, func() (*bigcommerce.Webhook, error) {
+		return w.bc.GetWebhook(ctx, hookID)
+	})
 	if err != nil {
 		return toolError("failed to fetch webhook %d: %v", hookID, err), nil
 	}
@@ -514,6 +527,7 @@ func (w *Webhooks) handleDelete(ctx context.Context, request mcp.CallToolRequest
 		})
 	}
 
+	w.cache.ForContext(ctx).Delete(cacheKey)
 	if err := w.bc.DeleteWebhook(ctx, hookID); err != nil {
 		return toolError("failed to delete webhook %d: %v", hookID, err), nil
 	}

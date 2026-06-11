@@ -141,6 +141,12 @@ func (s *Scripts) RegisterTools(reg *discovery.Registry) {
 			mcp.WithNumber("channel_id",
 				mcp.Description("Scope this script to a specific storefront channel. Omit for the default channel."),
 			),
+			mcp.WithBoolean("b2be_portal",
+				mcp.Description("Set true when this script targets the B2B Edition buyer portal. "+
+					"The scaffold will include iframe + hash-route detection (window.B3 check, "+
+					"active-frame contentDocument access, hashchange listener) instead of the "+
+					"standard MutationObserver pattern."),
+			),
 			mcp.WithBoolean("confirmed",
 				mcp.Description("Pass true to execute the injection. Omit to receive a preview."),
 			),
@@ -283,9 +289,13 @@ func (s *Scripts) handleList(ctx context.Context, request mcp.CallToolRequest) (
 		return toolError("failed to list scripts: %v", err), nil
 	}
 
+	views := make([]map[string]any, len(scripts))
+	for i, sc := range scripts {
+		views[i] = scriptView(sc)
+	}
 	return toolJSON(map[string]any{
 		"total":   len(scripts),
-		"scripts": scripts,
+		"scripts": views,
 	})
 }
 
@@ -300,7 +310,7 @@ func (s *Scripts) handleGet(ctx context.Context, request mcp.CallToolRequest) (*
 	if err != nil {
 		return toolError("failed to get script %s: %v", uuid, err), nil
 	}
-	return toolJSON(script)
+	return toolJSON(scriptView(*script))
 }
 
 func (s *Scripts) handleCreate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -366,11 +376,16 @@ func (s *Scripts) handleCreate(ctx context.Context, request mcp.CallToolRequest)
 			"script":  payload,
 		}
 		// Surface a ready-to-fill script skeleton when html has not yet been
-		// provided. This gives the LLM the correct structural pattern
-		// (IIFE+MutationObserver for checkout, DOMContentLoaded wrapper for
-		// storefront) before it writes the actual script content.
+		// provided. For B2B Edition portal scripts the scaffold includes iframe
+		// + hash-route detection; for checkout/all_pages it uses the standard
+		// IIFE+MutationObserver pattern; for storefront it uses DOMContentLoaded.
 		if payload.HTML == "" && payload.Kind != bigcommerce.ScriptKindSrc {
-			preview["script_scaffold"] = scriptScaffold(payload.Visibility)
+			b2bePortal, _ := args["b2be_portal"].(bool)
+			if b2bePortal {
+				preview["script_scaffold"] = b2bePortalScaffold()
+			} else {
+				preview["script_scaffold"] = scriptScaffold(payload.Visibility)
+			}
 		}
 		if len(warnings) > 0 {
 			preview["warnings"] = warnings
@@ -388,7 +403,7 @@ func (s *Scripts) handleCreate(ctx context.Context, request mcp.CallToolRequest)
 
 	resp := map[string]any{
 		"status": "created",
-		"script": script,
+		"script": scriptView(*script),
 	}
 	if len(warnings) > 0 {
 		resp["warnings"] = warnings
@@ -467,7 +482,7 @@ func (s *Scripts) handleUpdate(ctx context.Context, request mcp.CallToolRequest)
 
 	resp := map[string]any{
 		"status": "updated",
-		"script": script,
+		"script": scriptView(*script),
 	}
 	if len(warnings) > 0 {
 		resp["warnings"] = warnings
@@ -543,7 +558,7 @@ func (s *Scripts) handleToggle(ctx context.Context, request mcp.CallToolRequest)
 	}
 	return toolJSON(map[string]any{
 		"status": status,
-		"script": script,
+		"script": scriptView(*script),
 	})
 }
 
@@ -574,6 +589,145 @@ func validateScriptKind(kind, src, html string) error {
 		return fmt.Errorf("kind must be 'src' or 'script_tag', got %q", kind)
 	}
 	return nil
+}
+
+// scriptView returns a token-efficient summary of a Script for list/get
+// responses. The full html/src body is omitted; has_html and has_src flags
+// indicate whether those fields are populated so the LLM knows what to expect
+// before calling update/delete.
+func scriptView(s bigcommerce.Script) map[string]any {
+	v := map[string]any{
+		"uuid":              s.UUID,
+		"name":              s.Name,
+		"kind":              s.Kind,
+		"location":          s.Location,
+		"visibility":        s.Visibility,
+		"load_method":       s.LoadMethod,
+		"consent_category":  s.ConsentCategory,
+		"enabled":           s.Enabled,
+		"auto_uninstall":    s.AutoUninstall,
+		"has_html":          s.HTML != "",
+		"has_src":           s.Src != "",
+		"channel_id":        s.ChannelID,
+		"date_created":      s.DateCreated,
+		"date_modified":     s.DateModified,
+	}
+	if s.Description != "" {
+		v["description"] = s.Description
+	}
+	if s.Src != "" {
+		v["src"] = s.Src
+	}
+	return v
+}
+
+// b2bePortalScaffold returns a ready-to-fill script skeleton for targeting the
+// B2B Edition buyer portal (b2be_portal=true on create). It encapsulates the
+// detection patterns documented in docs/b2be-page-detection.md:
+//   - window.B3.setting check (synchronous, all B2BE channel pages)
+//   - iframe.active-frame contentDocument access for portal DOM injection
+//   - Outer-page hash (default BC-hosted scripts) + iframe hash fallback
+//     (custom/self-hosted scripts) for route detection
+//   - hashchange listener for SPA navigation + init polling for history.replaceState
+func b2bePortalScaffold() string {
+	return `(function() {
+  // ── B2BE Detection ───────────────────────────────────────────────────────
+  // Signal 1: window.B3.setting is set synchronously on all B2BE channel pages.
+  if (!(window.B3 && window.B3.setting)) return;
+
+  // Known portal routes — check most-specific first to avoid substring false-matches.
+  var ROUTES = [
+    ['quoteDraft',     'Quote Draft'],
+    ['quoteDetail',    'Quote Detail'],
+    ['company-orders', 'Company Orders'],
+    ['shoppingLists',  'Shopping Lists'],
+    ['quickOrder',     'Quick Order'],
+    ['accountSettings','Account Settings'],
+    ['dashboard',      'Dashboard'],
+    ['invoices',       'Invoices'],
+    ['invoice',        'Invoice'],
+    ['orders',         'My Orders'],
+    ['quotes',         'Quotes'],
+    ['addresses',      'Addresses'],
+    ['users',          'User Management'],
+  ];
+
+  function getPageLabel(hash) {
+    for (var i = 0; i < ROUTES.length; i++) {
+      if (hash.indexOf(ROUTES[i][0]) !== -1) return ROUTES[i][1];
+    }
+    return hash.replace('#/', '');
+  }
+
+  function isPortalHash(hash) {
+    return !!(hash && hash.indexOf('#/') === 0 && hash.length > 2);
+  }
+
+  // Returns the portal document (iframe.active-frame) or falls back to outer document.
+  function getPortalDoc() {
+    var host = window.location.hostname;
+    var iframes = document.querySelectorAll('iframe');
+    for (var f = 0; f < iframes.length; f++) {
+      var fr = iframes[f];
+      var isActive = fr.className && fr.className.indexOf('active-frame') !== -1;
+      try {
+        var iDoc = fr.contentDocument || fr.contentWindow.document;
+        var url = (iDoc.location && iDoc.location.href) || '';
+        var isSameOrigin = url.indexOf(host) !== -1 && url !== 'about:blank';
+        if (isActive || isSameOrigin) return iDoc;
+      } catch(e) {}
+    }
+    return document;
+  }
+
+  function detectCurrentPage() {
+    var host = window.location.hostname;
+    // Check iframe hash first (custom/self-hosted B2BE deployment).
+    var iframes = document.querySelectorAll('iframe');
+    for (var f = 0; f < iframes.length; f++) {
+      try {
+        var iDoc = iframes[f].contentDocument || iframes[f].contentWindow.document;
+        var url = (iDoc.location && iDoc.location.href) || '';
+        var iHash = (iDoc.location && iDoc.location.hash) || '';
+        var isSameOrigin = url.indexOf(host) !== -1 && url !== 'about:blank';
+        if ((isSameOrigin || (iframes[f].className || '').indexOf('active-frame') !== -1) && isPortalHash(iHash)) {
+          return { page: getPageLabel(iHash), hash: iHash, source: 'iframe' };
+        }
+      } catch(e) {}
+    }
+    // Fall back to outer page hash (default BC-hosted B2BE deployment).
+    var outer = window.location.hash || '';
+    if (isPortalHash(outer)) {
+      return { page: getPageLabel(outer), hash: outer, source: 'outer-page' };
+    }
+    return null;
+  }
+
+  // ── Page handlers — fill in your logic ───────────────────────────────────
+  function onPortalPage(info) {
+    console.log('[B2BE] Portal page:', info.page, '| hash:', info.hash);
+    var doc = getPortalDoc();
+    // TODO: inject custom DOM or run page-specific logic using doc.
+    //   e.g. doc.querySelector('h3') — find portal headings
+    //   Use MutationObserver on doc.body for React re-render resilience.
+  }
+
+  function onNonPortalPage() {
+    // B2BE channel, but not currently on a portal page.
+  }
+
+  // ── Init: poll for history.replaceState, then switch to hashchange ────────
+  var _init = setInterval(function() {
+    var info = detectCurrentPage();
+    if (info) { clearInterval(_init); onPortalPage(info); }
+  }, 500);
+  setTimeout(function() { clearInterval(_init); }, 15000);
+
+  window.addEventListener('hashchange', function() {
+    var info = detectCurrentPage();
+    if (info) onPortalPage(info); else onNonPortalPage();
+  });
+})();`
 }
 
 // scriptScaffold returns a ready-to-fill script skeleton for kind=script_tag
