@@ -543,7 +543,7 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 
 ### Registered Category Hierarchy
 
-**Discovery (`discover_tools`)** currently registers seven active roots: **`catalog/**`**, **`orders/**`**, **`customers/**`**, **`marketing/**`**, **`inventory/**`**, **`storefront/**`**, and **`webhooks/**`**. Domains such as `carts/` and `store/` remain in the [Expansion Roadmap](#7-expansion-roadmap) and are **not** category nodes until tools ship (registration policy in [§8](#8-adding-a-new-tool-domain)).
+**Discovery (`discover_tools`)** currently registers eight active roots: **`catalog/**`**, **`orders/**`**, **`customers/**`**, **`marketing/**`**, **`inventory/**`**, **`storefront/**`**, **`webhooks/**`**, and **`carts/**`**. Domains such as `store/` remain in the [Expansion Roadmap](#7-expansion-roadmap) and are **not** category nodes until tools ship (registration policy in [§8](#8-adding-a-new-tool-domain)).
 
 ```
 catalog/                    — Product catalog: products, categories, brands, variants, price lists
@@ -588,6 +588,9 @@ marketing/                  — Marketing-domain operations
 storefront/                 — Storefront operations
   storefront/scripts/       — Script Manager script injection/management
 webhooks/                   — Webhook registration management (/v3/hooks)
+carts/                      — Server-side cart lifecycle via /v3/carts
+  carts/cart/               — Cart CRUD: create, get, update, delete
+  carts/cart/items/         — Cart item management: add, update, remove
 ```
 
 ---

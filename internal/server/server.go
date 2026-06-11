@@ -9,6 +9,7 @@ import (
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
 	"github.com/roel-c/bc-admin-mcp/internal/session"
+	"github.com/roel-c/bc-admin-mcp/internal/tools/carts"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/catalog"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/customers"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/inventory"
@@ -117,8 +118,11 @@ func registerCategories(reg *discovery.Registry) {
 	reg.RegisterCategory("storefront", "Storefront operations: script injection and management via the BigCommerce Scripts API.")
 	reg.RegisterCategory("storefront/scripts", "Script Manager: list, get, create (R1), update (R1), toggle enabled (R1), delete (R3) via /v3/content/scripts.")
 
-	// Planned roots remain omitted until tools exist (for example carts/store)
-	// to avoid empty discover_tools leaves.
+	reg.RegisterCategory("carts", "Server-side cart lifecycle: create, get, update, delete, item management, and checkout URL generation via /v3/carts.")
+	reg.RegisterCategory("carts/cart", "Cart CRUD: create, get, update, delete a cart.")
+	reg.RegisterCategory("carts/cart/items", "Cart item management: add, update quantity, remove items.")
+
+	// store/* remains omitted until tools exist to avoid empty discover_tools leaves.
 }
 
 // registerTools wires up all tool implementations into the registry.
@@ -143,7 +147,7 @@ func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, cache *sessi
 	products.RegisterProductMetafieldTools(reg)
 	products.RegisterProductMetafieldBulkTools(reg)
 
-	orderMgmt := orders.NewManagement(bc)
+	orderMgmt := orders.NewManagement(bc, cache)
 	orderMgmt.RegisterTools(reg)
 
 	orderMetafields := orders.NewOrderMetafields(bc)
@@ -218,6 +222,9 @@ func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, cache *sessi
 	scriptTools := storefront.NewScripts(bc)
 	scriptTools.RegisterTools(reg)
 
-	webhookTools := webhooks.NewWebhooks(bc)
+	webhookTools := webhooks.NewWebhooks(bc, cache)
 	webhookTools.RegisterTools(reg)
+
+	cartTools := carts.NewCarts(bc, cache)
+	cartTools.RegisterTools(reg)
 }

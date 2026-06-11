@@ -210,6 +210,19 @@ Every tool uses the same envelope:
 | `inventory/adjustments/absolute\|relative` | R2 |
 | `storefront/scripts/list\|get\|create\|update\|toggle\|delete` | R0/R1/R3 |
 | `webhooks/list\|get\|events\|create\|update\|delete` | R0/R1/R3 |
+| `carts/cart/create\|get\|update\|delete` | R0/R1/R3 |
+| `carts/cart/items/add\|update\|remove` | R1/R2 |
+| `carts/cart/checkout_url` | R0 |
+
+**Carts — scope: `store_cart`:**
+- `carts/cart/create` — Create a server-side cart. Provide `line_items_json` and/or `custom_items_json` as JSON arrays. Optional `customer_id` to assign a customer; `channel_id` for MSF channels.
+- `carts/cart/get` — Get a cart by UUID. Pass `include_redirect_urls: true` to include checkout links in the response.
+- `carts/cart/update` — Update cart metadata (customer_id, channel_id, locale). Preview → confirm.
+- `carts/cart/delete` — Permanently delete a cart. Preview shows item count and total.
+- `carts/cart/items/add` — Add catalog or custom items to an existing cart. `line_items_json`: `[{"product_id":1,"quantity":2}]`; `custom_items_json`: `[{"name":"Custom","sku":"X","quantity":1,"list_price":9.99}]`.
+- `carts/cart/items/update` — Update a line item's quantity. Provide `item_id` (UUID from cart), `quantity`, and `product_id` (for catalog items) or `custom_item_name` (for custom items).
+- `carts/cart/items/remove` — Remove a line item by `item_id`.
+- `carts/cart/checkout_url` — Generate `cart_url`, `checkout_url`, and `embedded_checkout_url` for a cart. Use `checkout_url` to send a customer directly to checkout.
 
 **Channels — assignment vs listing choice:**
 
