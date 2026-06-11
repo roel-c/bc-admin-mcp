@@ -1,6 +1,8 @@
 # BigCommerce MCP Server — Architecture & Design Decisions
 
-This document captures the full architectural rationale, every design decision with alternatives considered, the current implementation state, known limitations, and a roadmap for extending the server's coverage across the BigCommerce platform.
+A lightweight Go binary (`bc-mcp-server`) that lets AI agents manage a BigCommerce store through natural language. It implements the **Model Context Protocol (MCP)**, exposing exactly **two meta-tools** — `discover_tools` and `execute_tool` — instead of registering 200+ flat tool schemas. The agent navigates a category hierarchy on demand, keeping initial token cost ~600 tokens versus ~40k for a flat approach. Seven domains are implemented: catalog, orders, customers, marketing, inventory, storefront/scripts, and webhooks. The binary is stateless except for an in-memory session cache; deployment is a single process with no database or queue.
+
+This document captures the full architectural rationale, every design decision with alternatives considered, the current implementation state, known limitations, and a roadmap for extending the server's coverage.
 
 ---
 
@@ -125,7 +127,7 @@ This server solves all three through progressive disclosure, use-case-driven too
                 └────────────────────┘
 ```
 
-**Diagram note (tiers):** `TierEnforcer.Check()` only **rejects R4** at the meta-tool boundary. **R1–R3 preview / `confirmed: true`** enforcement lives in **tool handlers** — most call `middleware.IsConfirmed(req)` (or the equivalent `TierEnforcer.CheckConfirmation`) directly and return a preview when the flag is missing — plus **registration-time** checks in `internal/discovery/registry.go` that every R1+ tool's input schema declares a `confirmed` boolean. The R0–R4 labels in the Tier column are shorthand for the policy model in [`BC-Tool-Boundaries.md`](./BC-Tool-Boundaries.md), not a literal per-request branch inside `Check()`.
+**Diagram note (tiers):** `TierEnforcer.Check()` only **rejects R4** at the meta-tool boundary. **R1–R3 preview / `confirmed: true`** enforcement lives in **tool handlers** — most call `middleware.IsConfirmed(req)` (or the equivalent `TierEnforcer.CheckConfirmation`) directly and return a preview when the flag is missing — plus **registration-time** checks in `internal/discovery/registry.go` that every R1+ tool's input schema declares a `confirmed` boolean. The R0–R4 labels in the Tier column are shorthand for the policy model in [`DEVELOPMENT.md`](./DEVELOPMENT.md), not a literal per-request branch inside `Check()`.
 
 ---
 
@@ -190,9 +192,9 @@ The `execute_tool(tool_path, arguments)` meta-tool invokes any tool by its full 
 
 **Token impact (verified estimates):**
 - System prompt: ~600 tokens (2 meta-tool schemas)
-- Per-discovery call: ~150-200 tokens per category explored
-- A typical 5-tool-call session: ~1,800-2,800 total tokens
-- Equivalent flat-tool session: ~95,000-110,000 tokens (35-40x reduction)
+- Per-discovery call: ~50–200 tokens per category explored (enforced ≤150 chars per summary stub by `TestFullRegistrationCategorySummaryLength`; compact JSON output further reduces whitespace overhead)
+- A typical 5-tool-call session: ~1,800–2,800 total tokens
+- Equivalent flat-tool session: ~95,000–110,000 tokens (35–40x reduction)
 
 **Accuracy impact**: Anthropic's benchmarks show Opus 4 accuracy improving from 49% to 74% with lazy loading; Opus 4.5 from 79.5% to 88.1%. Fewer tools in view means better tool selection.
 
@@ -271,7 +273,19 @@ The MCP spec includes a native `elicitation/create` mechanism for server-initiat
 - Cache keys are operation-scoped (e.g., `product_delete` for the delete tool). For `catalog/products/update` the key additionally embeds a **SHA-256 fingerprint of targeting + fields + channel_ids** (`UpdateParams.cacheKey`) so a confirm call whose arguments differ from any cached preview misses the cache and falls back to a fresh fetch — preventing a confirm shaped like preview A from applying its field changes to preview B's products
 - Entries are explicitly deleted after successful execution to prevent stale data reuse
 
-**Known limitation**: The current implementation uses a hardcoded `"default"` session ID because the `execute_tool` meta-tool doesn't propagate the MCP session context into the inner tool call. This is noted in the [Known Limitations](#6-known-limitations--technical-debt) section.
+**Standard pattern — `CacheOrFetch[T]`**: The canonical way to implement preview→confirm caching in any tool handler is the generic helper `session.CacheOrFetch`:
+
+```go
+// Preview and confirm handlers call the exact same code — CacheOrFetch
+// fetches-and-stores on first call, returns from cache on second call.
+data, err := session.CacheOrFetch(p.cache.ForContext(ctx), key, func() ([]MyType, error) {
+    return p.bc.FetchData(ctx, params)
+})
+```
+
+`session.ForContext(ctx)` extracts the MCP session ID via `session.SessionIDFromContext(ctx)` (which calls `mcpserver.ClientSessionFromContext`), falling back to `"default"` for stdio/single-session deployments. This keeps session-ID logic in one place rather than duplicated per domain.
+
+**Known limitation**: Whether `ClientSessionFromContext` returns a real per-session ID depends on whether the `execute_tool` meta-tool's context propagation carries the MCP session through. In multi-session HTTP/SSE deployments this should work; in stdio deployments, the `"default"` fallback keeps all operations in the same session bucket, which is correct for single-user use. See [Known Limitations §6](#6-known-limitations--technical-debt) for the remaining multi-session concern.
 
 ---
 
@@ -279,7 +293,7 @@ The MCP spec includes a native `elicitation/create` mechanism for server-initiat
 
 **Chosen: Header-driven adaptive throttling with conservative defaults**
 
-The BigCommerce API has per-store quotas that refresh every 30 seconds. Our client implements a layered approach from `BC-Tool-Boundaries.md`:
+The BigCommerce API has per-store quotas that refresh every 30 seconds. Our client implements a layered approach from `DEVELOPMENT.md`:
 
 | Layer | Mechanism | Default |
 |-------|-----------|---------|
@@ -290,7 +304,7 @@ The BigCommerce API has per-store quotas that refresh every 30 seconds. Our clie
 | Batch pacing | Inter-chunk delay | 0.5s between batches |
 | Write concurrency | Sequential by default | 1 concurrent write |
 
-**Conservative vs Throughput mode**: The BigCommerce docs permit 3-5 parallel write threads for catalog batches. Our default is **sequential writes** (1 thread) per the policy in `BC-Tool-Boundaries.md`, which prioritizes live-store safety. Throughput mode can be enabled by setting `BC_MAX_WRITE_CONCURRENCY` to a higher value, but the current `BatchPut` implementation does not yet use this setting — it always writes sequentially. This is intentional for v0.1 safety.
+**Conservative vs Throughput mode**: The BigCommerce docs permit 3-5 parallel write threads for catalog batches. Our default is **sequential writes** (1 thread) per the policy in `DEVELOPMENT.md`, which prioritizes live-store safety. Throughput mode can be enabled by setting `BC_MAX_WRITE_CONCURRENCY` to a higher value, but the current `BatchPut` implementation does not yet use this setting — it always writes sequentially. This is intentional for v0.1 safety.
 
 ---
 
@@ -363,7 +377,7 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/middleware/tiers.go` | ~80 | R0-R4 tier enforcement, `IsConfirmed` check, `CheckConfirmation` utility |
 | `internal/middleware/logging.go` | ~50 | Structured slog middleware wrapping all tool calls |
 | `internal/middleware/auth.go` | ~40 | Bearer token HTTP middleware with constant-time comparison |
-| `internal/session/cache.go` | ~165 | Per-session TTL cache with size limits and eviction |
+| `internal/session/cache.go` | ~230 | Per-session TTL cache with size limits and eviction. Exports `SessionIDFromContext` (MCP session ID from context, `"default"` fallback), `Store.ForContext` (session cache for the current request context), and `CacheOrFetch[T]` (canonical preview→confirm cache helper — checks cache, calls fetch on miss, stores result) |
 | `internal/bigcommerce/client.go` | ~370 | HTTP client: throttle, retry, rate-limit headers, GetAll (with ceiling), BatchPut |
 | `internal/bigcommerce/types.go` | ~725 | Domain types: Product, ProductUpdate, ProductCreate, Category/Tree types, Brand types, Variant types, Image/Option/Modifier types, Metafield, CategoryAssignment, ChannelAssignment, ChannelListing, CustomURL, API envelopes, `APIError` with `SafeError()` and OAuth-scope hints |
 | `internal/bigcommerce/products.go` | ~375 | Domain methods: product/category search, batch product updates, product CRUD, tree CRUD, tree ID resolution; `categoryBatchSize = 50` for `BatchUpdateCategories` |
@@ -415,17 +429,17 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/tools/catalog/metafield_shared.go`/`metafield_permissions.go` | ~40 | Shared metafield permission-set defaults and validation |
 | `internal/tools/catalog/list_filter_helpers.go` | ~45 | Shared list/search helpers: `list_all`, BC filter vs data-param detection |
 | `internal/tools/catalog/variant_update_parse.go` | ~85 | Shared variant field parsing from argument maps (single + bulk variant updates) |
-| `internal/tools/catalog/helpers.go` | ~75 | Shared parsing helpers (positive/non-negative int slice, string slice) and cache-key constants |
+| `internal/tools/catalog/helpers.go` | ~75 | Shared parsing helpers (positive/non-negative int slice, string slice) and cache-key constants. `cacheSessionID` now delegates to `session.SessionIDFromContext` — the canonical function lives in the session package so all domains use the same logic |
 | `internal/tools/catalog/interfaces.go` | ~120 | `BigCommerceAPI` interface (mocked via gomock for tests) |
 | `internal/tools/catalog/mock_bc_test.go` | ~1,060 | gomock-generated mock for `BigCommerceAPI` (test-only) |
 | Test suites (`internal/tools/catalog/*_test.go`) | ~7,300 total | Per-tool testify suites covering search filters, parameter parsing, preview/confirm flows, caps, metafield CRUD, MSF surfaces, type-rejection, etc. |
-| `internal/session/cache_test.go` | ~140 | Cache TTL, eviction, size limits |
+| `internal/session/cache_test.go` | ~200 | Cache TTL, eviction, size limits; `CacheOrFetch` hit/miss/error/no-cache-on-error; `ForContext` and `SessionIDFromContext` fallback |
 | `internal/middleware/auth_test.go` | ~70 | Bearer auth middleware |
 | `internal/middleware/tiers_test.go` | ~110 | Tier enforcement and IsConfirmed |
 | `internal/config/config_test.go` | ~170 | Config validation |
 | `internal/discovery/registry_test.go` | ~185 | Registry confirmed-param validation, tool discovery |
 | `internal/discovery/metatool_test.go` | ~235 | `discover_tools` / `execute_tool` meta-tool flows |
-| `internal/server/registration_audit_test.go` | ~115 | Locks: roots = `catalog` + `customers` + `marketing`; every active category has children; every tool's parent path exists |
+| `internal/server/registration_audit_test.go` | ~200 | Locks: roots = `catalog` + `customers` + `marketing`; every active category has children; every tool's parent path exists; R1+ tools expose `confirmed`; BFS reachability; pricelist and orders subtrees. **New:** `TestFullRegistrationCategorySummaryLength` and `TestFullRegistrationToolSummaryLength` enforce ≤150 chars on every registered summary — prevents discovery token bloat as new domains are added |
 | `docs/SECURITY.md` | — | Security review findings, threat model, and remediation details |
 | `.gitignore` | — | Prevents `.env` and binaries from being committed |
 
@@ -529,7 +543,7 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 
 ### Registered Category Hierarchy
 
-**Discovery (`discover_tools`)** currently registers seven active roots: **`catalog/**`**, **`orders/**`**, **`customers/**`**, **`marketing/**`**, **`inventory/**`**, **`storefront/**`**, and **`webhooks/**`**. Domains such as `carts/` and `store/` remain in the [Expansion Roadmap](#7-expansion-roadmap) and are **not** category nodes until tools ship (see [`discovery-registration-audit.md`](./discovery-registration-audit.md)).
+**Discovery (`discover_tools`)** currently registers seven active roots: **`catalog/**`**, **`orders/**`**, **`customers/**`**, **`marketing/**`**, **`inventory/**`**, **`storefront/**`**, and **`webhooks/**`**. Domains such as `carts/` and `store/` remain in the [Expansion Roadmap](#7-expansion-roadmap) and are **not** category nodes until tools ship (registration policy in [§8](#8-adding-a-new-tool-domain)).
 
 ```
 catalog/                    — Product catalog: products, categories, brands, variants, price lists
@@ -585,14 +599,16 @@ webhooks/                   — Webhook registration management (/v3/hooks)
 | Phase | Tokens | BC API Calls | Wall Time |
 |-------|--------|-------------|-----------|
 | System prompt (2 meta-tools) | ~600 | 0 | — |
-| discover_tools("") → root categories | ~150 | 0 | <100ms |
-| discover_tools("catalog") → subcategories | ~100 | 0 | <100ms |
-| discover_tools("catalog/categories") → tools | ~100 | 0 | <100ms |
-| execute_tool("catalog/categories/list", {name: "Men's Shoes"}) | ~150 | 1 | ~200ms |
-| execute_tool("catalog/products/update", {category_id: 42, price: 52.49, ...}) → preview | ~400 | 2-3 | ~400ms |
+| discover_tools("") → root categories | ~120 | 0 | <100ms |
+| discover_tools("catalog") → subcategories | ~80 | 0 | <100ms |
+| discover_tools("catalog/categories") → tools | ~80 | 0 | <100ms |
+| execute_tool("catalog/categories/list", {name: "Men's Shoes"}) | ~130 | 1 | ~200ms |
+| execute_tool("catalog/products/update", {category_id: 42, price: 52.49, ...}) → preview | ~350 | 2-3 | ~400ms |
 | LLM presents preview → user confirms | ~100 | 0 | (user time) |
-| execute_tool("catalog/products/update", {..., confirmed: true}) | ~350 | 10-12 | ~2-4s |
-| **Total** | **~1,950** | **~13-16** | **~3-5s** |
+| execute_tool("catalog/products/update", {..., confirmed: true}) | ~300 | 10-12 | ~2-4s |
+| **Total** | **~1,760** | **~13-16** | **~3-5s** |
+
+> Discovery and execute responses now use compact JSON (`json.Marshal` instead of `json.MarshalIndent`), reducing per-call whitespace overhead by ~15–25%. Category summaries are enforced ≤150 chars by the registration audit tests.
 
 ### Comparison: Naive Architecture (same scenario)
 
@@ -616,7 +632,7 @@ webhooks/                   — Webhook registration management (/v3/hooks)
 
 ### Must Fix Before Production
 
-1. **Session ID propagation**: The `execute_tool` meta-tool constructs an inner `CallToolRequest` that does not carry the MCP session context. Tool handlers currently use a hardcoded `"default"` session ID for cache operations. This means multi-session deployments will share cache state. Fix: extract session ID from the `context.Context` using `server.ClientSessionFromContext(ctx)` and pass it to cache operations.
+1. **Session ID propagation**: `session.SessionIDFromContext(ctx)` (via `session.Store.ForContext`) extracts the MCP session ID from the tool handler's `context.Context` using `mcpserver.ClientSessionFromContext`. In single-user stdio deployments this falls back to `"default"`, which is correct. In multi-session HTTP/SSE deployments the real session ID is returned — **provided** the `execute_tool` meta-tool's context carries the MCP session through to the inner handler call. Whether this propagation holds depends on the `mark3labs/mcp-go` version; verify with an integration test before relying on session isolation in shared HTTP deployments.
 
 2. **Concurrent batch writes**: The `BatchPut` method is sequential-only. The `MaxWriteConcurrency` config value is accepted but not used. For large catalogs (500+ products), this means batch updates take 25+ seconds when they could take 5-6s with controlled parallelism. This is intentionally conservative for v0.1 but should be configurable.
 
@@ -648,7 +664,7 @@ webhooks/                   — Webhook registration management (/v3/hooks)
 
 Work through **[`catalog-completion-checklist.md`](./catalog-completion-checklist.md)** so catalog discovery matches implemented tools, intentional stubs (e.g. reserved `catalog/variants` for global variant API) are documented, and patterns (tiers, preview/confirm, bulk caps, metafields) remain stable as we layer **orders**, **carts**, **inventory**, and the rest of the roadmap below.
 
-Multi-storefront / channel work: see **[`msf-research-outline.md`](./msf-research-outline.md)** for API inventory, MSF detection heuristics, and code insertion points.
+Multi-storefront / channel work: see **[`MSF.md`](./MSF.md)** for API inventory, MSF detection heuristics, shipped tools, and open follow-ups.
 
 ### Priority 1 — High-Value Merchant Operations
 
@@ -730,6 +746,26 @@ Core customer and promotions surfaces are now shipped under `customers/**` and `
 
 Follow this pattern to add tools for any new BigCommerce domain. Using "orders" as an example:
 
+### Registration Policy
+
+Every registered category must satisfy these invariants — enforced by `internal/server/registration_audit_test.go`:
+
+| Rule | Detail |
+|------|--------|
+| **No empty nodes** | Every category must return ≥1 child. Register `RegisterCategory` in the same commit as the first tool under it. |
+| **Parent chain** | Every tool path must have each parent segment registered (e.g. `catalog/products/metafields/set` requires `catalog`, `catalog/products`, `catalog/products/metafields`). |
+| **Summary ≤ 150 chars** | Category and tool `Summary` strings appear verbatim in LLM responses. Summaries describe what tools exist — not how to use them, not OAuth scopes, not API paths. Guidance belongs in `docs/` or tool descriptions. |
+| **R1+ tools declare `confirmed`** | Registration panics at startup if an R1+ tool lacks a `confirmed` boolean in its schema. |
+| **Future domains stay out** | `carts/`, `store/` remain unregistered until the first tool ships. Placeholder categories with no tools produce empty `discover_tools` leaves and confuse agents. |
+
+Run after any registration change:
+
+```bash
+go test ./internal/server/... -count=1 -run 'TestFullRegistration'
+```
+
+---
+
 ### Step 1: Add BC client methods
 
 Create `internal/bigcommerce/orders.go`:
@@ -789,39 +825,93 @@ func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, cache *sessi
 }
 ```
 
-Register the category path (and any parents) in `registerCategories` **before** or **with** the new tools so `discover_tools` stays non-empty at every node. Today only **`catalog/**`** is registered; add e.g. `orders` and `orders/management` when the first order tool lands.
+Register the category path (and any parents) in `registerCategories` **before** or **with** the new tools so `discover_tools` stays non-empty at every node. Keep every category `Summary` string ≤ 150 characters — `TestFullRegistrationCategorySummaryLength` will fail the build otherwise. Summaries describe *what tools exist*, not how to use them; implementation guidance belongs in `docs/` or individual tool descriptions.
+
+### Step 4: Use `CacheOrFetch` for preview→confirm caching
+
+For any R1+ tool that fetches data in the preview phase and needs it again in the confirm phase, use the canonical helper to avoid redundant BC API calls:
+
+```go
+import "github.com/roel-c/bc-admin-mcp/internal/session"
+
+// Both preview and confirm handlers call the same function.
+// First call: fetches from BC, stores in session cache.
+// Second call (confirmed=true): returns from cache, zero extra round-trip.
+data, err := session.CacheOrFetch(h.cache.ForContext(ctx), cacheKey, func() ([]MyType, error) {
+    return h.bc.FetchData(ctx, params)
+})
+if err != nil {
+    return toolError("%s", err), nil
+}
+
+// On successful confirm, clear the cache entry.
+h.cache.ForContext(ctx).Delete(cacheKey)
+```
 
 ---
 
 ## 9. Testing Strategy
 
-Per workspace conventions: `testify/suite`, `gomock`, `_test` package suffix.
+Per workspace conventions: `testify/suite`, `gomock`, `_test` package suffix. No table-driven tests; use `SetupTest()` for setup.
 
-### Unit Tests (Priority 1)
+### Running Tests
 
-| Package | What to Test |
-|---------|-------------|
-| `session` | Cache Set/Get/TTL expiration, Store per-session isolation, concurrent access |
-| `middleware` | TierEnforcer blocks R4, allows R0-R3; IsConfirmed parsing |
-| `discovery` | RegisterCategory/Tool hierarchy, Discover traversal, root entries |
-| `bigcommerce` | `calculateNewPrice` math, URL construction, pagination parsing |
-| `tools/catalog` | Preview response structure, confirmed=true flow, variant detection |
+```bash
+# Full suite
+go test ./... -count=1
 
-### Integration Tests (Priority 2)
+# Registration audit only (fast; run after any tool/category change)
+go test ./internal/server/... -count=1 -run 'TestFullRegistration'
 
-Use `mark3labs/mcp-go`'s in-process transport to test full tool calls without HTTP:
+# Live smoke tests (requires .env with real credentials)
+make smoke          # all domains
+make smoke-msf      # MSF/channel slice
+```
 
-```go
-func (s *ProductsTestSuite) TestUnifiedUpdatePreview() {
-    // Create server with mock BC client
-    // Call execute_tool with update args (no confirmed)
-    // Assert response contains preview with sample_changes
+### Unit Tests (implemented)
+
+| Package | Coverage |
+|---------|----------|
+| `session` | Cache TTL/eviction/size limits, `CacheOrFetch` hit/miss/error, `ForContext`/`SessionIDFromContext` fallback, per-session isolation, concurrent access |
+| `middleware` | TierEnforcer R4 block; `IsConfirmed` parsing; bearer auth rejection |
+| `discovery` | Registry hierarchy, meta-tool forwarding, `arguments` unwrapping, confirmed-param validation |
+| `config` | Env validation bounds |
+| `bigcommerce` | Types, orders, inventory, pricelists, promotions |
+| `tools/catalog` | Search filters, preview/confirm flows, caps, metafield CRUD, MSF surfaces |
+| `tools/orders`, `customers`, `promotions`, `inventory`, `webhooks`, `storefront` | Handler parsing, preview flows |
+| `server` (audit) | No empty discovery leaves; all tool parents exist; BFS reachability; R1+ tools expose `confirmed`; category/tool summary ≤ 150 chars |
+
+### Manual Drill — Discovery
+
+Use your MCP host's "call tool" UI or JSON-RPC:
+
+1. `discover_tools` with `path: ""` → expect the 7 active roots.
+2. `discover_tools` with `path: "catalog"` → subcategories.
+3. Drill to a leaf (e.g. `catalog/products/channel_assignments`) until you see tool stubs with `tier` fields.
+
+### Manual Drill — Preview then Confirm
+
+Pick any R1 tool (e.g. `catalog/categories/bulk_update`):
+
+1. **First call:** full payload, `"confirmed": false` (or omit `confirmed`). Expect `status: "pending_confirmation"` with no store mutation.
+2. **Second call:** identical `arguments` plus `"confirmed": true` to execute.
+
+`execute_tool` shape reminder — all tool parameters go inside `arguments`, never beside `tool_path`:
+
+```json
+{
+  "tool_path": "catalog/products/metafields/set",
+  "arguments": { "product_id": 123, "namespace": "example", "key": "flag", "value": "1" }
 }
 ```
 
+### Integration Tests (gap)
+
+In-process `mcp-go` transport integration tests (full `discover_tools` → `execute_tool` flow without HTTP) are not yet implemented. The gomock unit suites cover handler logic; end-to-end wiring is validated by the registration audit tests and live smoke scripts.
+
 ### Mock Strategy
 
-Define a `BigCommerceAPI` interface in the tools layer; mock it with gomock. The concrete `bigcommerce.Client` satisfies this interface.
+Define a `BigCommerceAPI` interface per domain package; mock with gomock. The concrete `bigcommerce.Client` satisfies every domain interface. See `internal/tools/catalog/interfaces.go` as the reference pattern.
 
 ---
 
@@ -890,15 +980,12 @@ A comprehensive line-by-line security audit was performed across all source file
 ## References
 
 - [SECURITY.md](./SECURITY.md) — Security review findings, threat model, and remediation details
+- [DEVELOPMENT.md](./DEVELOPMENT.md) — Tool tiers (R0–R4), numeric caps, concurrency policy, OAuth scopes, and channel assignment model
+- [AGENT.md](./AGENT.md) — Agent system prompt: tool tables, workflow, safety rules, and response format
+- [MSF.md](./MSF.md) — Multi-storefront research, shipped tools, and open follow-ups
 - [BC-API-Reference.md](./BC-API-Reference.md) — Full BigCommerce REST API endpoint map with batch sizes, concurrency limits, and pagination patterns
-- [BC-API-SPECIFICITY.md](./BC-API-SPECIFICITY.md) — Field-level API quirks, undocumented behaviors, and response shape differences discovered during development
-- [BC-Tool-Boundaries.md](./BC-Tool-Boundaries.md) — Tool tiers (R0-R4), numeric caps, safety rules, and MCP tool shape guidelines
-- [bc_system_prompt.md](./bc_system_prompt.md) — Agent operating guidelines, workflow patterns, and safety constraints
-- [discovery-registration-audit.md](./discovery-registration-audit.md) — Discovery tree vs `registerCategories` / `registerTools` policy and audit outcome
-- [catalog-completion-checklist.md](./catalog-completion-checklist.md) — Catalog completeness gate before adding new tool domains
-- [msf-research-outline.md](./msf-research-outline.md) — Multi-storefront / channels research and insertion points
-- [channels-msf-implementation-roadmap.md](./channels-msf-implementation-roadmap.md) — Phased MSF MCP features
-- [architecture-executive-summary.md](./architecture-executive-summary.md) — Executive-level architecture summary
+- [BC-API-SPECIFICITY.md](./BC-API-SPECIFICITY.md) — Field-level API quirks, undocumented behaviors, and response shape differences
+- [catalog-completion-checklist.md](./catalog-completion-checklist.md) — Catalog completeness gate and implementation reference
 - [MCP Specification](https://modelcontextprotocol.io/specification/latest) — Protocol reference
 - [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) — SDK documentation
 - [Progressive Disclosure MCP: 85x Token Savings](https://matthewkruczek.ai/blog/progressive-disclosure-mcp-servers.html) — Research on the lazy loading pattern

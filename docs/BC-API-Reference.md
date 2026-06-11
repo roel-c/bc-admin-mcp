@@ -2,9 +2,9 @@
 
 This file is the project’s canonical map of the BigCommerce REST Management API: endpoints by category, optimizations, and best practices. Use it with the MCP server (`internal/bigcommerce/client.go`) and the official [Management API documentation](https://developer.bigcommerce.com/docs/rest-management) for authoritative field-level specs.
 
-**Project env vars:** `BC_STORE_HASH` maps to the `{store_hash}` segment in URLs below; `BC_AUTH_TOKEN` is the value for the `X-Auth-Token` header. See `bc_system_prompt.md` and `.env.example`.
+**Project env vars:** `BC_STORE_HASH` maps to the `{store_hash}` segment in URLs below; `BC_AUTH_TOKEN` is the value for the `X-Auth-Token` header. See `AGENT.md` and `.env.example`.
 
-**Agent / MCP tooling:** For read vs write tiers, batch caps, and concurrency defaults, see **`BC-Tool-Boundaries.md`** (summarizes Section 9 below with project policy).
+**Agent / MCP tooling:** For read vs write tiers, batch caps, and concurrency defaults, see **`DEVELOPMENT.md`** (summarizes Section 9 below with project policy).
 
 **BigCommerce API Reference** — Structured for Agentic / LLM Tool Use
 Version: V3 (primary) / V2 (legacy where noted)

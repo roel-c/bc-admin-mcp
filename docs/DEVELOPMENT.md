@@ -1,12 +1,13 @@
-# BC Tool Boundaries — Read / Write / Risk Tiers & Caps
+# Development Guide — Tool Boundaries, Risk Tiers & Caps
 
-This document consolidates **tool design rules** for the MCP server and any agent-facing API layer. It merges:
+The developer reference for building and extending tools in this MCP server. Covers risk tiers, numeric caps, OAuth scopes, concurrency policy, and the channel assignment model. Read this before adding a new tool or domain.
 
-- **`bc_system_prompt.md`** — operator policy (what the agent must do)
-- **`BC-API-Reference.md`** — BigCommerce limits, concurrency, Section 9 LLM guidelines
-- **MCP server implementation** (`internal/bigcommerce/client.go`) — implemented constants and behavior
+Consolidates rules from:
+- `AGENT.md` — operator policy (what the agent must do)
+- `BC-API-Reference.md` — BigCommerce limits, concurrency, and LLM guidelines
+- `internal/bigcommerce/client.go` and `internal/config/config.go` — implemented constants
 
-For **field-level request/response shapes**, use `BC-API-Reference.md` and the official Management API docs.
+For field-level request/response shapes see `BC-API-Reference.md` and the official Developer Center.
 
 ---
 
@@ -67,7 +68,7 @@ Always honor response headers; **the MCP server does not raise plan-specific cei
 | General Management | **10–20** possible | Monitor 429s |
 | Webhook registration | **Serial** | Single |
 
-**Project policy (`bc_system_prompt.md`):** default to **sequential** writes (no extra threads) unless the operator explicitly opts into higher concurrency. That is **stricter** than the reference’s “3–5 threads” throughput pattern — intentional for live-store safety.
+**Project policy (`AGENT.md`):** default to **sequential** writes (no extra threads) unless the operator explicitly opts into higher concurrency. That is **stricter** than the reference’s “3–5 threads” throughput pattern — intentional for live-store safety.
 
 ### 2.4 Operator “test mode” (prompt policy)
 
@@ -183,14 +184,14 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 
 | Rule | Source |
 |------|--------|
-| **GET before PUT/POST/DELETE** on the same logical resource | BC-API-Reference §9, `bc_system_prompt` |
-| **Show diffs** (before/after for key fields) before bulk apply | `bc_system_prompt` |
+| **GET before PUT/POST/DELETE** on the same logical resource | BC-API-Reference §9, `AGENT.md` |
+| **Show diffs** (before/after for key fields) before bulk apply | `AGENT.md` |
 | **Paginate exhaustively** before large bulk writes (know full ID set) | BC-API-Reference §9 |
-| **Soft delete preferred:** `is_visible: false` vs DELETE | `bc_system_prompt`, §9 |
-| **Never** bulk overwrite `description` unless explicitly requested | `bc_system_prompt` |
-| **Never** payment capture/refund/void without per-order confirmation | `bc_system_prompt` |
-| **Never** customer password/auth fields unless that is the task | `bc_system_prompt` |
-| **Price lists:** confirm list **name** + **record count** before upsert | `bc_system_prompt` |
+| **Soft delete preferred:** `is_visible: false` vs DELETE | `AGENT.md`, §9 |
+| **Never** bulk overwrite `description` unless explicitly requested | `AGENT.md` |
+| **Never** payment capture/refund/void without per-order confirmation | `AGENT.md` |
+| **Never** customer password/auth fields unless that is the task | `AGENT.md` |
+| **Price lists:** confirm list **name** + **record count** before upsert | `AGENT.md` |
 | Use **serial requests** for price list record upserts — **no parallel** | MCP server policy, reference |
 
 ---
@@ -267,4 +268,38 @@ Current MCP server components:
 
 ---
 
-*Last aligned with: `bc_system_prompt.md`, `BC-API-Reference.md` §§3–5 & 9, MCP server implementation (`internal/config/config.go`, `internal/bigcommerce/client.go`).*
+*Last aligned with: `AGENT.md`, `BC-API-Reference.md` §§3–5 & 9, MCP server implementation (`internal/config/config.go`, `internal/bigcommerce/client.go`).*
+
+---
+
+## 9. Channel Assignments vs Channel Listings
+
+BigCommerce separates **which channels may sell a product** from **how that product appears on each channel's storefront**. Choosing the wrong surface causes "assigned but not visible" confusion.
+
+### Channel catalog assignments — `catalog/products/channel_assignments/*`
+
+**REST:** `GET|PUT|DELETE /v3/catalog/products/channel-assignments`
+
+Links a product to one or more sales channels at the catalog level. A product with no row for a channel is not part of that channel's sellable catalog.
+
+**Use when:** "Make this SKU available on the AU storefront channel" / "Remove this product from the wholesale channel."
+
+### Channel listings — `catalog/channels/listings/*`
+
+**REST:** `GET|POST|PUT /v3/channels/{channel_id}/listings`
+
+Controls channel-specific **presentation and state** (e.g. `active` vs `disabled`), name/description overrides, and visibility rules beyond mere assignment.
+
+**Use when:** "This product is assigned to the channel but doesn't appear on the storefront" — check listings for that `channel_id` and `product_id`. Also use when you need to set channel-specific copy or override the listing state.
+
+### Combined read
+
+`catalog/products/channel_summary` aggregates both surfaces for a small product batch (≤5 product IDs). Use it to diagnose MSF visibility without correlating two APIs by hand.
+
+### Listing `state` values
+
+`active`, `disabled`, `error`, `pending`, `pending_disable`, `pending_delete`, `partially_rejected`, `queued`, `rejected`, `submitted`, `deleted`. Variant-level listings use the same set minus `partially_rejected`.
+
+### Smoke check
+
+`make smoke-msf` (`scripts/smoke_msf_slice.sh`) exercises both channel-assignments and listings with live credentials.
