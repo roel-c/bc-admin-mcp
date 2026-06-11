@@ -285,6 +285,57 @@ func TestFullRegistrationOrdersInitialSubtreeIsFullyRegistered(t *testing.T) {
 	}
 }
 
+// maxSummaryLen is the upper bound for both category and tool Summary strings.
+// Summaries appear verbatim in discover_tools responses consumed by the LLM,
+// so keeping them short is the single most effective way to control discovery
+// token cost. Guidance, API paths, OAuth scopes, and implementation notes
+// belong in docs/ or tool error messages — never in discovery stubs.
+const maxSummaryLen = 150
+
+func TestFullRegistrationCategorySummaryLength(t *testing.T) {
+	reg := discovery.NewRegistry()
+	registerCategories(reg)
+	cfg := testBigCommerceConfig()
+	bc := bigcommerce.NewClient(cfg, slog.Default())
+	t.Cleanup(func() { bc.Close() })
+	cache := session.NewStore(cfg.CacheTTL)
+	registerTools(reg, bc, cache)
+
+	for _, path := range reg.ListCategoryPaths() {
+		path := path
+		cat := reg.GetCategory(path)
+		require.NotNil(t, cat, "category %q has no definition", path)
+		t.Run(path, func(t *testing.T) {
+			require.LessOrEqualf(t, len(cat.Summary), maxSummaryLen,
+				"category %q summary is %d chars (limit %d) — move guidance to docs/ or tool descriptions",
+				path, len(cat.Summary), maxSummaryLen,
+			)
+		})
+	}
+}
+
+func TestFullRegistrationToolSummaryLength(t *testing.T) {
+	reg := discovery.NewRegistry()
+	registerCategories(reg)
+	cfg := testBigCommerceConfig()
+	bc := bigcommerce.NewClient(cfg, slog.Default())
+	t.Cleanup(func() { bc.Close() })
+	cache := session.NewStore(cfg.CacheTTL)
+	registerTools(reg, bc, cache)
+
+	for _, path := range reg.ListToolPaths() {
+		path := path
+		def := reg.GetTool(path)
+		require.NotNil(t, def, "tool %q has no definition", path)
+		t.Run(path, func(t *testing.T) {
+			require.LessOrEqualf(t, len(def.Summary), maxSummaryLen,
+				"tool %q summary is %d chars (limit %d) — trim to a single short sentence",
+				path, len(def.Summary), maxSummaryLen,
+			)
+		})
+	}
+}
+
 func TestFullRegistrationInventoryInitialSubtreeIsFullyRegistered(t *testing.T) {
 	reg := discovery.NewRegistry()
 	registerCategories(reg)

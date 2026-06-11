@@ -1,6 +1,8 @@
 package session_test
 
 import (
+	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -93,6 +95,58 @@ func (s *CacheSuite) TestConcurrentAccess() {
 	wg.Wait()
 }
 
+func (s *CacheSuite) TestCacheOrFetchReturnsCachedValue() {
+	s.cache.Set("key", "cached")
+	calls := 0
+	val, err := session.CacheOrFetch(s.cache, "key", func() (string, error) {
+		calls++
+		return "fetched", nil
+	})
+	s.NoError(err)
+	s.Equal("cached", val)
+	s.Equal(0, calls, "fetch should not be called on a cache hit")
+}
+
+func (s *CacheSuite) TestCacheOrFetchCallsFetchOnMiss() {
+	calls := 0
+	val, err := session.CacheOrFetch(s.cache, "missing", func() (string, error) {
+		calls++
+		return "fetched", nil
+	})
+	s.NoError(err)
+	s.Equal("fetched", val)
+	s.Equal(1, calls)
+}
+
+func (s *CacheSuite) TestCacheOrFetchStoresFetchedValue() {
+	_, _ = session.CacheOrFetch(s.cache, "key", func() (string, error) {
+		return "stored", nil
+	})
+	raw, ok := s.cache.Get("key")
+	s.True(ok)
+	s.Equal("stored", raw)
+}
+
+func (s *CacheSuite) TestCacheOrFetchPropagatesFetchError() {
+	_, err := session.CacheOrFetch(s.cache, "key", func() (string, error) {
+		return "", fmt.Errorf("fetch failed")
+	})
+	s.EqualError(err, "fetch failed")
+	_, ok := s.cache.Get("key")
+	s.False(ok, "failed fetch must not populate the cache")
+}
+
+func (s *CacheSuite) TestCacheOrFetchDoesNotCacheOnError() {
+	calls := 0
+	for range 2 {
+		_, _ = session.CacheOrFetch(s.cache, "key", func() (string, error) {
+			calls++
+			return "", fmt.Errorf("fetch failed")
+		})
+	}
+	s.Equal(2, calls, "fetch should be retried when a previous call errored")
+}
+
 type StoreSuite struct {
 	suite.Suite
 	store *session.Store
@@ -128,6 +182,18 @@ func (s *StoreSuite) TestForSessionIsolatesSessions() {
 	val2, _ := c2.Get("key")
 	s.Equal("from-s1", val1)
 	s.Equal("from-s2", val2)
+}
+
+func (s *StoreSuite) TestForContextFallsBackToDefault() {
+	cache := s.store.ForContext(context.Background())
+	s.NotNil(cache)
+	defaultCache := s.store.ForSession("default")
+	s.Equal(defaultCache, cache, "ForContext with no MCP session should use the 'default' bucket")
+}
+
+func (s *StoreSuite) TestSessionIDFromContextReturnsFallback() {
+	id := session.SessionIDFromContext(context.Background())
+	s.Equal("default", id)
 }
 
 func (s *StoreSuite) TestRemoveSessionCleansUp() {

@@ -175,6 +175,13 @@ func (r *Registry) ListToolPaths() []string {
 	return out
 }
 
+// GetCategory returns the CategoryDef for path, or nil if not found.
+func (r *Registry) GetCategory(path string) *CategoryDef {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.categories[path]
+}
+
 // HasCategory reports whether a category path is registered.
 func (r *Registry) HasCategory(path string) bool {
 	r.mu.RLock()

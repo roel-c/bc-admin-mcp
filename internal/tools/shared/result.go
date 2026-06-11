@@ -22,8 +22,9 @@ func ToolError(format string, args ...any) *mcp.CallToolResult {
 }
 
 // ToolJSON marshals data and returns it as a CallToolResult text payload.
+// Compact JSON is used intentionally to minimise token consumption.
 func ToolJSON(data any) (*mcp.CallToolResult, error) {
-	raw, err := json.MarshalIndent(data, "", "  ")
+	raw, err := json.Marshal(data)
 	if err != nil {
 		return ToolError("failed to marshal response: %v", err), nil
 	}

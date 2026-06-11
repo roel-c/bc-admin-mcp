@@ -5,22 +5,16 @@ import (
 	"fmt"
 	"math"
 
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	"github.com/roel-c/bc-admin-mcp/internal/session"
 )
 
 const (
-	sessionKeyFallback    = "default"
 	cacheKeyProductUpdate = "product_update"
 	cacheKeyProductDelete = "product_delete"
 )
 
 func cacheSessionID(ctx context.Context) string {
-	if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
-		if id := session.SessionID(); id != "" {
-			return id
-		}
-	}
-	return sessionKeyFallback
+	return session.SessionIDFromContext(ctx)
 }
 
 // parseFloat64SliceToPositiveInts converts a JSON array ([]any of float64) to

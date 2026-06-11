@@ -1,9 +1,47 @@
 package session
 
 import (
+	"context"
 	"sync"
 	"time"
+
+	mcpserver "github.com/mark3labs/mcp-go/server"
 )
+
+const sessionIDFallback = "default"
+
+// SessionIDFromContext extracts the MCP session ID from ctx.
+// Falls back to "default" when no session is present, ensuring single-session
+// and stdio deployments still benefit from the preview→confirm cache.
+func SessionIDFromContext(ctx context.Context) string {
+	if s := mcpserver.ClientSessionFromContext(ctx); s != nil {
+		if id := s.SessionID(); id != "" {
+			return id
+		}
+	}
+	return sessionIDFallback
+}
+
+// CacheOrFetch returns the cached value for key if present and of type T.
+// On a cache miss it calls fetch, stores the result, and returns it.
+// This is the canonical pattern for preview→confirm caching: the preview
+// handler calls CacheOrFetch (which fetches and stores), and the confirm
+// handler calls it again (which returns the cached value, skipping the
+// redundant BC API round-trip).
+func CacheOrFetch[T any](cache *Cache, key string, fetch func() (T, error)) (T, error) {
+	if raw, ok := cache.Get(key); ok {
+		if v, ok := raw.(T); ok {
+			return v, nil
+		}
+	}
+	v, err := fetch()
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	cache.Set(key, v)
+	return v, nil
+}
 
 type entry struct {
 	value     any
@@ -163,6 +201,13 @@ func (s *Store) ForSession(sessionID string) *Cache {
 	c := NewCache(s.ttl)
 	s.sessions[sessionID] = sessionEntry{cache: c, createdAt: time.Now()}
 	return c
+}
+
+// ForContext is a convenience wrapper around ForSession that extracts the
+// session ID from ctx via SessionIDFromContext. Prefer this over ForSession
+// in tool handlers so the session-ID logic stays in one place.
+func (s *Store) ForContext(ctx context.Context) *Cache {
+	return s.ForSession(SessionIDFromContext(ctx))
 }
 
 // evictOldestSessionLocked removes the session with the earliest createdAt
