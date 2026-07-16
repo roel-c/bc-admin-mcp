@@ -40,9 +40,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Pinned to match the Makefile (GOLANGCI_LINT_VERSION) and .golangci.yml.
-      # Bump all three together.
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.64.8
+      # Install golangci-lint via `go install` so it is compiled with the Go
+      # toolchain from go.mod. The golangci-lint-action's prebuilt binaries are
+      # built against an older Go and fail to typecheck this module's newer Go
+      # sources (exit code 3). Version pinned to match the Makefile
+      # (GOLANGCI_LINT_VERSION) and .golangci.yml — bump all three together.
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+
+      - name: Run golangci-lint
+        run: golangci-lint run ./...
