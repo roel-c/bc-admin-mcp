@@ -176,9 +176,11 @@ There are two variants:
   marketing, inventory, storefront, webhooks, carts/checkout, orders). Run
   standalone whenever B2B isn't in scope.
 - **§10.3 B2B Surface Check** — **extends** the D2C check with B2B Edition
-  company/hierarchy/catalog-restriction/payment-method scenarios. Always run
-  §10.2 first (or confirm its artifacts already exist) — the B2B check reuses
-  the D2C sample product and category rather than creating its own.
+  company/hierarchy/catalog-restriction/payment-method scenarios **and** the
+  commercial path quote → checkout → order → invoice → offline payment.
+  Always run §10.2 first (or confirm its artifacts already exist) — the B2B
+  check reuses the D2C sample product and category rather than creating its
+  own.
 
 On multi-storefront stores, **both variants require the operator to confirm
 which channel(s) to target before any data is created** (§10.1).
@@ -198,7 +200,7 @@ which channel(s) to target before any data is created** (§10.1).
   `mcp-test-*` for D2C artifacts. The B2B category name is the one deliberate
   exception — see §10.3 step 1.
 - Decide nothing about cleanup up front — that's an explicit decision point
-  at the end of each variant (§10.2 step 10, §10.3 step 10). Don't delete
+  at the end of each variant (§10.2 step 10, §10.3 step 13). Don't delete
   anything without the operator's answer.
 - **Multi-storefront channel selection (required when MSF is enabled):** before
   creating any sample data in §10.2 or §10.3, call `catalog/channels/list`.
@@ -382,7 +384,62 @@ live-validated flow (group created *before* the company, not after).
    (`isEnabled: false`) anything else currently enabled (in one live run:
    store had `cheque` + a test gateway both enabled by default — disabled
    the gateway, kept `cheque`). Repeat for the subsidiary.
-10. **Verify** — `b2b/companies/hierarchy/get` on the parent (should list the
+10. **Quote → checkout → order** — exercise the commercial path on the
+    **parent** company (one quote is enough for the surface check):
+    1. `b2b/quotes/create` with `quote_json` for the sample product on the
+       target `channelId`, buyer `contactInfo` (must be an **object**), and
+       shipping address using **`state` / `stateCode`** (not
+       `stateOrProvince`). **Always include `companyId`** (the B2B company
+       id) — without it the quote appears in the Control Panel but **not**
+       in the Buyer Portal; `contactInfo.email` / `companyName` alone do
+       **not** link the quote (BC docs + live-confirmed 2026-07-16). Line
+       items need **`productId`**, **`variantId`**, **`basePrice`**,
+       **`offeredPrice`**, and **`discount`** as **numbers** (string prices
+       and missing `variantId` have produced B2B 500s live — see FU-7). Set
+       `expiredAt` as **`MM/DD/YYYY`**. Set `userEmail` to an existing B2B
+       Control Panel system user / sales rep (e.g. the store admin email) —
+       a buyer email 422s; omitting it can also fail depending on store
+       config (see FU-8). Leave the quote **unordered** if you need to
+       verify Buyer Portal visibility first — once ordered, `companyId`
+       cannot be attached (`422 Quote has already been ordered`).
+    2. `b2b/quotes/shipping/rates` then `b2b/quotes/shipping/select` so the
+       quote has a shipping method before checkout (select returns a sparse
+       body — re-`get` the quote if you need confirmation).
+    3. `b2b/quotes/checkout` → capture `urls.cartId` (and the cart/checkout
+       URLs).
+    4. Complete checkout via the carts domain on that `cartId`:
+       `carts/cart/update` to set the buyer's **`customer_id`** (quote
+       checkout carts often arrive with `customer_id: 0` — required for B2B
+       company indexing, see `docs/B2B.md` "Order lifecycle") →
+       `carts/checkout/billing_address` → `carts/checkout/consignment_add` →
+       `carts/checkout/consignment_update` (select a shipping option) →
+       `carts/checkout/convert`. Record the BC `order_id`.
+    5. `orders/management/update_status` off **Incomplete** (e.g. to
+       **Awaiting Payment** / `status_id: 7`) — Incomplete orders are not
+       reliably invoiceable / B2B-visible.
+    6. `b2b/quotes/assign_to_order` linking the quote to that `order_id`
+       (valid while the quote is still New / In Process / Updated by
+       Customer). Optionally `b2b/orders/get` with `bc_order_id` and wait
+       briefly (~5–25s) until `companyId` is populated before invoicing.
+11. **Invoice from order → offline payment** — continue the commercial path:
+    1. `b2b/invoices/create_from_order` with the BC `order_id` from step 10
+       (the tool resolves B2B Edition's internal order id automatically).
+       Record the invoice id and its `openBalance` / `originalBalance`.
+       (Fallback if `create_from_order` is unavailable for the order:
+       `b2b/invoices/create` with a full `invoice_json` — requires
+       `channelId`, and every address in `details.header` must include
+       `street2` even as `""`; see FU-8.)
+    2. `b2b/payment_records/create_offline` with `line_items_json` like
+       `[{"invoiceId":<id>,"amount":"<partial or full>"}]`, plus
+       `customer_id` = the **B2B company id** (string), `currency`, and a
+       memo. Prefer a **partial** amount first so verification can show
+       `status` flipping open → partially-paid and `openBalance`
+       decreasing.
+    3. Re-read: `b2b/invoices/get` (confirm balance/status) →
+       `b2b/payment_records/get` (or `list`) → `b2b/receipts/list` /
+       `b2b/receipts/lines/list_for_receipt` when a receipt appears for the
+       payment.
+12. **Verify** — `b2b/companies/hierarchy/get` on the parent (should list the
    subsidiary, and the subsidiary's own `b2b/companies/get` should show
    `parent_company_id`) → `customers/groups/get` on the group ID from step 3
    (confirm `category_access` shows `specific` + the one category) →
@@ -391,9 +448,14 @@ live-validated flow (group created *before* the company, not after).
    0/1/2) → `customers/get` on the linked BC customer IDs used in steps 5/8
    (confirm `origin_channel_id` / `channel_ids` point at the target
    storefront) → `b2b/companies/payments/list` per company (only Offline
-   methods enabled).
-11. **Decision point** — same as §10.2 step 10, scoped to all B2B artifacts
-   created here (users → companies, in that order, since deleting a company
+   methods enabled) → `b2b/quotes/get` on the quote from step 10 (linked
+   order when assigned) → `b2b/invoices/get` + payment/receipt reads from
+   step 11 (openBalance reduced; status partially-paid or completed).
+13. **Decision point** — same as §10.2 step 10, scoped to all B2B artifacts
+   created here: reverse dependency order for commercial artifacts first
+   (payment record → receipt lines/receipt if deletable → invoice → order
+   if created here → quote, or archive the quote via `b2b/quotes/update`
+   with `status=archived`) then users → companies (deleting a company
    cascades to its users and — by default — their linked BC customer
    accounts; see `b2b/companies/delete`'s `delete_bc_customers` flag) plus
    the customer group and the `Company Accounts` category/product assignment.

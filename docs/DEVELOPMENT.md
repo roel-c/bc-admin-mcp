@@ -215,7 +215,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `b2b/orders/get` / `extra_fields` | R0; B2B order view by BC order ID; order extra-field configs | `internal/tools/b2b/channel_order_tools.go` |
 | `b2b/orders/update` / `assign_customer_orders` / `reassign` | **R1** / **R2** / **R2**; PO+extra fields; attach historical orders; reassign by group (Dependent-behavior only) | `internal/tools/b2b/channel_order_tools.go` |
 | `b2b/quotes/list` / `get` / `extra_fields` | R0; quote IDs are integers (invoice/receipt IDs are strings) | `internal/tools/b2b/quote_tools.go` |
-| `b2b/quotes/create` / `update` | **R1**; take a raw `quote_json` body (nested line-item schema is underdocumented — see FOLLOW-UPS FU-7); `expiredAt` must be `MM/DD/YYYY` | `internal/tools/b2b/quote_tools.go` |
+| `b2b/quotes/create` / `update` | **R1**; take a raw `quote_json` body (nested line-item schema is underdocumented — see FOLLOW-UPS FU-7); **`companyId` required for Buyer Portal visibility** (contact email/name alone leave `companyInfo` empty); `expiredAt` must be `MM/DD/YYYY`; productList needs numeric `basePrice`/`offeredPrice`/`discount` + `variantId` | `internal/tools/b2b/quote_tools.go` |
 | `b2b/quotes/delete` | **R3 destructive**; prefer `update` with `status=archived` to hide instead | `internal/tools/b2b/quote_tools.go` |
 | `b2b/quotes/checkout` / `assign_to_order` | **R1** / **R2**; only valid in quote status New/In Process/Updated by Customer | `internal/tools/b2b/quote_tools.go` |
 | `b2b/quotes/shipping/*` | R0 reads; **R1** select; **R2** remove; plural `/shipping-rates` (GET) vs singular `/shipping-rate` (PUT/DELETE) — mixing them 405s | `internal/tools/b2b/quote_tools.go` |

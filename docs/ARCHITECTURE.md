@@ -902,7 +902,8 @@ Pick any R1 tool (e.g. `catalog/categories/bulk_update`):
 
 For a broader, real-data pass beyond the two drills above — creating sample
 records across every domain (D2C variant) or additionally exercising B2B
-company/hierarchy/catalog-restriction/payment scenarios (B2B variant) — see
+company/hierarchy/catalog-restriction/payment scenarios **plus** quote →
+checkout → order → invoice → offline payment (B2B variant) — see
 [**`WORKFLOW.md` §10**](./WORKFLOW.md#10-full-surface-check-d2c--b2b). It's
 written as a step-by-step runbook (not a script) since it involves
 preview→confirm judgment calls, an explicit keep-or-delete decision point,

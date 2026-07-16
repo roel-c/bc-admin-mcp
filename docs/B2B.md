@@ -160,7 +160,7 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 |------|------|-------------|
 | `b2b/quotes/list` | R0 | List quotes; filter by company/salesRep/status/date ranges |
 | `b2b/quotes/get` | R0 | Full detail: line items, addresses, shipping method, message history |
-| `b2b/quotes/create` | R1 | Create a quote (`quote_json`); visible to the buyer immediately unless `allowCheckout=false` |
+| `b2b/quotes/create` | R1 | Create a quote (`quote_json`); **must include `companyId`** for Buyer Portal visibility (contact email/name alone are insufficient); visible to the buyer immediately unless `allowCheckout=false` |
 | `b2b/quotes/update` | R1 | Partial update (`quote_json`); `productList` updates replace the full line-item set |
 | `b2b/quotes/delete` | R3 | Permanently delete (use `update` with `status=archived` to hide instead) |
 | `b2b/quotes/checkout` | R1 | Generate cart + checkout URLs (status New/In Process/Updated by Customer only) |
@@ -176,8 +176,13 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 
 **API quirks confirmed live:**
 - Quote IDs are **integers**; invoice/receipt IDs are strings.
+- **`companyId` is required for Buyer Portal visibility.** Without it, quotes
+  show in the Control Panel with empty `companyInfo: {}` but do not appear for
+  company buyers. `contactInfo.email` / `companyName` alone do not link the
+  quote. Ordered quotes cannot be patched with `companyId` afterward
+  (`422 Quote has already been ordered`).
 - `expiredAt` must be `MM/DD/YYYY` (BC's own 422 message has an unrendered `%D` template placeholder — cosmetic bug on their side).
-- `POST /rfq` requires `discount` (top-level) and each `productList` item needs `basePrice` + `discount`, none of which are marked required in the OpenAPI schema.
+- `POST /rfq` requires `discount` (top-level) and each `productList` item needs `basePrice` + `offeredPrice` + `discount` (prefer numbers; include `variantId`), none of which are marked required in the OpenAPI schema.
 - `PUT /rfq/{id}/shipping-rate` (select) returns `data: []` on success, not the updated quote — don't expect quote detail back from that call.
 - `/rfq/{id}/shipping-rates` (plural, GET) vs `/rfq/{id}/shipping-rate` (singular, PUT/DELETE) — mixing them returns BC's own 405.
 

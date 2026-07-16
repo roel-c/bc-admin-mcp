@@ -154,12 +154,17 @@ Payments/Credit/Net Terms) and live-validating against a POC store.
 
 **Open — quote `productList` write shape is underdocumented.** The OpenAPI
 schema for `POST /rfq` and `PUT /rfq/{id}` only documents `options` on
-`productList` items; live testing showed `basePrice` and `discount` are also
-required per-item (plus top-level `discount`), none of which are marked
-required in the schema. `internal/tools/b2b/quote_tools.go` accepts a raw
-`quote_json` body for this reason rather than modeling individual fields —
-revisit if BC's docs are corrected, or document the full required shape
-directly in the tool description from more live testing.
+`productList` items; live testing showed `basePrice`, `offeredPrice`, and
+`discount` are also required per-item (plus top-level `discount`), none of
+which are marked required in the schema. Additional live findings
+(2026-07-16 Aliens B2B surface check): prefer **numeric** prices (string
+prices + missing `variantId` correlated with B2B 500s); include
+`variantId`; use shipping-address fields `state` / `stateCode` (not
+`stateOrProvince`); set `expiredAt` as `MM/DD/YYYY`.
+`internal/tools/b2b/quote_tools.go` accepts a raw `quote_json` body for this
+reason rather than modeling individual fields — revisit if BC's docs are
+corrected, or document the full required shape directly in the tool
+description from more live testing.
 
 **Open — `/rfq/{id}/shipping-rate` (select) response is inconsistent with
 other quote write endpoints.** Returns `{"data": []}` on success instead of
@@ -280,6 +285,17 @@ open to partially-paid).
   existing B2B Control Panel system user." Omit the field when creating a
   quote on behalf of a buyer without assigning a specific sales rep; the
   tool description doesn't currently warn about this. (OPEN — doc fix)
+- ✅ **CONFIRMED (2026-07-16) — Buyer Portal quote visibility requires
+  `companyId`.** Quotes created with only `contactInfo.email` /
+  `companyName` (no `companyId`) show in the B2B Control Panel with empty
+  `companyInfo: {}`, but **do not appear** in the Buyer Portal for that
+  company's users — even when orders/invoices for the same buyer are
+  visible. BC docs: *"The `companyName` field and `email` fields will not
+  link a quote to a particular Company or Company user without a
+  corresponding `companyId`."* Live fix: pass `companyId` at create time;
+  verify `companyInfo.companyId` on `b2b/quotes/get`. Ordered quotes
+  cannot be patched (`422 Quote has already been ordered`). Updated
+  `WORKFLOW.md` §10.3 step 10 accordingly.
 - ✅ **FIXED (2026-07-16) — `carts/checkout/consignment_add` always reported
   `available_shipping_option_count: 0`, even though the store has two
   correctly-configured flat-rate shipping zones/methods ("Flat rate",

@@ -55,7 +55,7 @@ func (ct *CompanyTools) registerQuoteTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR1,
 		Summary: "Create a new sales quote (visible to the buyer immediately)",
 		Tool: mcp.NewTool("b2b_quotes_create",
-			mcp.WithDescription("Create a new B2B sales quote. The quote is immediately visible in the buyer's Buyer Portal unless allowCheckout=false is set in quote_json. quote_json should match the documented quoteData_POST body (subtotal, channelId, quoteTitle, referenceNumber, currency, extraFields, notes, discount, grandTotal, legalTerms, displayDiscount, allowCheckout, productList, shippingAddress, contactInfo, userEmail, expiredAt). Preview → confirm."),
+			mcp.WithDescription("Create a new B2B sales quote. For Buyer Portal visibility you MUST include companyId (B2B company id) — contactInfo.email/companyName alone leave companyInfo empty and the quote stays Control-Panel-only. quote_json should match quoteData_POST (companyId, subtotal, channelId, quoteTitle, referenceNumber, currency, extraFields, notes, discount, grandTotal, legalTerms, displayDiscount, allowCheckout, productList with productId/variantId/basePrice/offeredPrice/discount as numbers, shippingAddress with state/stateCode, contactInfo object, userEmail of a Control Panel system user, expiredAt as MM/DD/YYYY). Preview → confirm."),
 			mcp.WithString("quote_json", mcp.Description("JSON object matching the quote create body. Use b2b/quotes/get on an existing quote to see an example shape."), mcp.Required()),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create the quote.")),
 		),

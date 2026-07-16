@@ -233,6 +233,15 @@ Every tool uses the same envelope:
 | `b2b/orders/get\|update\|assign_customer_orders\|reassign\|extra_fields` | R0/R1/R2/R2/R0 |
 | `b2b/quotes/list\|get\|create\|update\|delete\|checkout\|assign_to_order\|pdf_export\|extra_fields` | R0/R0/R1/R1/R3/R1/R2/R0/R0 |
 | `b2b/quotes/shipping/rates\|select\|remove\|custom_methods` | R0/R1/R2/R0 |
+
+**Quotes — Buyer Portal visibility:** `b2b/quotes/create` must include
+`companyId` (B2B company id) in `quote_json`. Contact email/name alone leave
+`companyInfo` empty — the quote appears in the Control Panel but not for the
+buyer. Verify with `b2b/quotes/get` (`companyInfo.companyId` populated).
+Commercial path: quote (+ shipping) → `quotes/checkout` → bind cart
+`customer_id` → checkout convert → `update_status` off Incomplete →
+`assign_to_order` → `invoices/create_from_order` →
+`payment_records/create_offline`. See `docs/WORKFLOW.md` §10.3 steps 10–11.
 | `b2b/invoices/list\|get\|download_pdf\|extra_fields\|create\|create_from_order\|update\|delete` | R0/R0/R0/R0/R2/R2/R2/R3 (`/ip` base URL) |
 | `b2b/receipts/list\|get` \| `b2b/receipts/lines/list_all\|list_for_receipt\|get` | R0 (all) |
 | `b2b/receipts/delete` \| `b2b/receipts/lines/delete` | R3/R2 |
