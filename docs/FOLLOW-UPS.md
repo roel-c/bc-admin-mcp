@@ -213,3 +213,78 @@ BigCommerce's `POST /checkouts/{id}/orders` always creates the order in
 is expected platform behavior, not an MCP bug — see the "Order lifecycle"
 section in `docs/B2B.md` for the full write-up on moving an order out of
 Incomplete and what determines B2B-panel visibility.
+
+---
+
+## FU-8 — MCP-only create-data pass across all 9 domains (2026-07-16)
+
+Exercised every domain (`catalog`, `customers`, `marketing`, `inventory`,
+`storefront`, `webhooks`, `carts`/`checkout`, `orders`, `b2b`) exclusively
+through `discover_tools`/`execute_tool` — no direct API calls — creating
+`MCP Test *`-prefixed sample data end-to-end (brand, category, product with
+variants, customer group/customer/address/attribute, automatic + coupon
+promotions with a code, inventory location + absolute/relative adjustments,
+a storefront script, a webhook, a cart through checkout, a manual order with
+a shipment, and a full B2B company → quote → invoice → offline payment
+→ receipt → shopping list chain). Data intentionally left in the store per
+this pass's request (not the default cleanup policy in `WORKFLOW.md` §6).
+Cross-domain interactions were verified live (e.g. the automatic promotion
+created in this pass auto-discounted the cart created later; the offline
+payment reduced the invoice's `openBalance` and flipped its `status` from
+open to partially-paid).
+
+**New findings:**
+
+- **`customers/addresses/create` requires the full state name, not an
+  abbreviation.** Passing `state_or_province: "TX"` 422s with "A valid
+  state_or_province is required for address country"; `"Texas"` succeeds.
+  By contrast, `carts/checkout/billing_address`'s `state_or_province_code`
+  field accepts `"TX"` fine — the same conceptual field has different
+  format expectations on different BC endpoints. Worth surfacing in the
+  tool description for `customers/addresses/create`.
+- **`b2b/companies/create` requires `company_phone`.** Omitting it 422s
+  with "company_phone is required" even though neither the tool table in
+  `B2B.md` nor the `DEVELOPMENT.md` cap table calls it out as required.
+- **`b2b/invoices/create` requires `street2` on every address in
+  `details.header`** (`billingAddress` and each `shippingAddresses[]` row),
+  even as an empty string — 422 `street_2: This field is required.` The
+  example shape pulled from `b2b/invoices/get` on an existing invoice
+  didn't make this obvious since some historical invoices predate the
+  validation or omit the key when empty in the read path.
+- **`b2b/invoices/create` requires a valid `channelId`.** Omitting it
+  returns a 404 `"Store channels not exist"` rather than a 422 pointing at
+  the missing field. Resolve one via `b2b/channels/list` first.
+- **`b2b/payment_records/update_offline` is not a true partial patch**
+  despite its own tool description ("send only what changes"). BigCommerce's
+  underlying PUT requires the full field set (`currency`, `customerId`,
+  `lineItems`, `payerCustomerId`) — omitting any of them 422s with
+  "This field is required" / "This field may not be null" per field. The
+  handler (`handlePaymentRecordUpdateOffline` in
+  `internal/tools/b2b/payment_record_tools.go`) builds the payload directly
+  from supplied args with no fetch-merge step, unlike other B2B update tools
+  that fetch-then-merge. Fix: fetch the current payment record via
+  `GetB2BPaymentRecord` before building the PUT body, or update the tool
+  description to say all fields are effectively required. (OPEN)
+- **`b2b/quotes/create`'s `quote_json.userEmail` must be an existing B2B
+  Control Panel system user** (e.g. a sales rep email), not the buyer's
+  email — passing the buyer's email 422s with "Email must belong to an
+  existing B2B Control Panel system user." Omit the field when creating a
+  quote on behalf of a buyer without assigning a specific sales rep; the
+  tool description doesn't currently warn about this. (OPEN — doc fix)
+- **Cart/checkout shipping options vs. quote shipping rates disagreed for
+  the same address.** `carts/checkout/consignment_add` reported
+  `available_shipping_option_count: 0` for a Texas/US address on the
+  default channel (`channel_id` omitted → 0/1), while
+  `b2b/quotes/shipping/rates` returned 2 flat-rate options for the same
+  store and a similar US address under channel `1741970` (MSF-B2BE). This
+  suggests the store's shipping zone/method may be scoped to a specific
+  channel rather than globally absent, which would revise the earlier FU-3
+  addendum's framing ("missing store shipping config"). Re-test
+  `carts/cart/create` with an explicit `channel_id` matching the configured
+  zone before concluding shipping is unconfigured store-wide. (OPEN)
+- **`b2b/companies/addresses/create` returns a sparse body** (only
+  `address_id` populated; every other field empty/default) — extends the
+  existing FU-6 note about sparse B2B create responses (previously observed
+  for users/addresses) to confirm it also applies to the company-address
+  endpoint specifically. Re-fetch via `b2b/companies/addresses/list` for a
+  usable confirmation, same workaround already used for company create.
