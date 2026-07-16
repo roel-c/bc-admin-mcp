@@ -191,6 +191,40 @@ func (s *B2BCompanyToolsSuite) TestCompanyCreateConfirmed() {
 	s.Equal("created", data["status"])
 }
 
+func (s *B2BCompanyToolsSuite) TestCompanyCreateWithCustomerGroupIDPreview() {
+	res, err := s.callTool("b2b/companies/create", map[string]any{
+		"company_name":      "Acme Corp",
+		"company_email":     "info@acme.com",
+		"company_phone":     "5555550100",
+		"company_country":   "US",
+		"admin_email":       "admin@acme.com",
+		"admin_first_name":  "Admin",
+		"admin_last_name":   "User",
+		"customer_group_id": float64(19),
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+	payload := data["payload"].(map[string]any)
+	s.Equal(float64(19), payload["customerGroupId"])
+}
+
+func (s *B2BCompanyToolsSuite) TestCompanyCreateRejectsNegativeCustomerGroupID() {
+	res, err := s.callTool("b2b/companies/create", map[string]any{
+		"company_name":      "Acme Corp",
+		"company_email":     "info@acme.com",
+		"company_phone":     "5555550100",
+		"company_country":   "US",
+		"admin_email":       "admin@acme.com",
+		"admin_first_name":  "Admin",
+		"admin_last_name":   "User",
+		"customer_group_id": float64(-1),
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
 func (s *B2BCompanyToolsSuite) TestCompanyCreateRejectsNoAdminEmail() {
 	res, err := s.callTool("b2b/companies/create", map[string]any{
 		"company_name":  "Acme Corp",
@@ -229,8 +263,12 @@ func (s *B2BCompanyToolsSuite) TestCompanyUpdateConfirmed() {
 	co := sampleCompany()
 	updated := sampleCompany()
 	updated.CompanyName = "Acme Corp 2"
+	full := sampleCompany()
+	full.CompanyName = "Acme Corp 2"
 	s.mockBC.EXPECT().GetB2BCompany(gomock.Any(), 42).Return(&co, nil)
 	s.mockBC.EXPECT().UpdateB2BCompany(gomock.Any(), 42, gomock.Any()).Return(&updated, nil)
+	// Update response is sparse; the handler re-fetches for a useful confirmation.
+	s.mockBC.EXPECT().GetB2BCompany(gomock.Any(), 42).Return(&full, nil)
 
 	res, err := s.callTool("b2b/companies/update", map[string]any{
 		"company_id":   float64(42),
@@ -241,6 +279,53 @@ func (s *B2BCompanyToolsSuite) TestCompanyUpdateConfirmed() {
 	s.False(res.IsError)
 	data := s.parseJSON(res)
 	s.Equal("updated", data["status"])
+	company := data["company"].(map[string]any)
+	s.Equal("Acme Corp 2", company["company_name"])
+}
+
+func (s *B2BCompanyToolsSuite) TestCompanyUpdateCustomerGroupIDConfirmed() {
+	co := sampleCompany()
+	sparse := bigcommerce.B2BCompany{} // BC's real update response is near-empty
+	full := sampleCompany()
+	full.BCGroupID = 19
+	full.BCGroupName = "Wholesale Buyers"
+	s.mockBC.EXPECT().GetB2BCompany(gomock.Any(), 42).Return(&co, nil)
+	s.mockBC.EXPECT().UpdateB2BCompany(gomock.Any(), 42, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ int, patch bigcommerce.B2BCompanyUpdate) (*bigcommerce.B2BCompany, error) {
+			s.Require().NotNil(patch.CustomerGroupID)
+			s.Equal(19, *patch.CustomerGroupID)
+			return &sparse, nil
+		})
+	// Handler re-fetches to work around the sparse update response.
+	s.mockBC.EXPECT().GetB2BCompany(gomock.Any(), 42).Return(&full, nil)
+
+	res, err := s.callTool("b2b/companies/update", map[string]any{
+		"company_id":        float64(42),
+		"customer_group_id": float64(19),
+		"confirmed":         true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("updated", data["status"])
+	company := data["company"].(map[string]any)
+	s.Equal(float64(19), company["bc_group_id"])
+}
+
+func (s *B2BCompanyToolsSuite) TestCompanyUpdateAllowsUnassigningCustomerGroupWithZero() {
+	co := sampleCompany()
+	s.mockBC.EXPECT().GetB2BCompany(gomock.Any(), 42).Return(&co, nil)
+
+	res, err := s.callTool("b2b/companies/update", map[string]any{
+		"company_id":        float64(42),
+		"customer_group_id": float64(0),
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+	patch := data["patch"].(map[string]any)
+	s.Equal(float64(0), patch["customerGroupId"])
 }
 
 // --- b2b/companies/set_status ---

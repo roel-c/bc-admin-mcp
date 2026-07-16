@@ -150,3 +150,198 @@ Keep these in sync in the same change:
 - Validate all inputs; enforce per-tool caps (DEVELOPMENT.md §2).
 - Destructive and financial operations are preview→confirm and fail closed.
 - Prefer reversible operations during testing; clean up promptly.
+
+---
+
+## 10. Full Surface Check (D2C / B2B)
+
+A repeatable, on-demand, **MCP-only** capability review — every call goes through
+`discover_tools`/`execute_tool`, never a direct API call — that creates real
+sample data across every domain, exercises reads → previews → confirmed
+writes, verifies results, and confirms cross-domain behavior (e.g. an
+automatic promotion discounting a cart created afterward). Unlike §1–§9
+(which govern *adding* a tool), this is a *using* checklist: run it whenever
+you want an end-to-end health check of the live server, after a batch of
+domain changes, or before a demo. It does not require code changes to run —
+skip straight to §10.2/§10.3 if nothing changed since the last live-validate.
+
+Origin: this codifies the pass we first ran ad hoc and wrote up as `FU-8` in
+[`FOLLOW-UPS.md`](./FOLLOW-UPS.md) — read that entry for the full list of live
+API quirks discovered the first time through (several are called out inline
+below too).
+
+There are two variants:
+
+- **§10.2 D2C Surface Check** — the 8 always-on domains (catalog, customers,
+  marketing, inventory, storefront, webhooks, carts/checkout, orders). Run
+  standalone whenever B2B isn't in scope.
+- **§10.3 B2B Surface Check** — **extends** the D2C check with B2B Edition
+  company/hierarchy/catalog-restriction/payment-method scenarios. Always run
+  §10.2 first (or confirm its artifacts already exist) — the B2B check reuses
+  the D2C sample product and category rather than creating its own.
+
+### 10.1 Prerequisites
+
+- Confirm the running MCP server reflects the current binary if any tool code
+  changed recently: compare `ps -eo pid,lstart,comm | grep bc-mcp-server`
+  against `stat -f %Sm bc-mcp-server`; if the process predates the binary,
+  ask the operator to reload (§5) before starting.
+- For §10.3 only: `BC_B2B_ENABLED=true`. Also check whether **Account
+  Hierarchy** is enabled on the store before the subsidiary step
+  (§10.3 step 6) — if `b2b/companies/hierarchy/attach_parent` 404s/403s,
+  treat it as environment-gated (not a defect), note it, and continue with
+  the rest of the checklist.
+- Prefix every created record so strays are easy to spot: `MCP Test *` /
+  `mcp-test-*` for D2C artifacts. The B2B category name is the one deliberate
+  exception — see §10.3 step 1.
+- Decide nothing about cleanup up front — that's an explicit decision point
+  at the end of each variant (§10.2 step 10, §10.3 step 10). Don't delete
+  anything without the operator's answer.
+
+### 10.2 D2C Surface Check
+
+1. **Catalog** — `catalog/brands/create` ("MCP Test Brand") →
+   `catalog/categories/create` ("MCP Test Category") →
+   `catalog/products/create` with an inline `variants` array (two option
+   values, e.g. Size: Small/Large) and `category_ids`/`brand_id` set → verify
+   via `catalog/products/variants/list` → `catalog/products/metafields/set`
+   on the product.
+2. **Customers** — `customers/groups/create` → `customers/create` in that
+   group → `customers/addresses/create` → `customers/attributes/create` +
+   `customers/attribute_values/upsert`.
+   ⚠️ **Quirk:** `customers/addresses/create` requires the **full state
+   name** (`"Texas"`), not an abbreviation (`"TX"` 422s) — see `FU-8`.
+3. **Marketing** — `marketing/promotions/automatic/create` (a cart-value %
+   discount) → `marketing/promotions/coupon/create` →
+   `marketing/promotions/coupon/codes/create_single`.
+4. **Inventory** — `inventory/locations/list` (note the existing default) →
+   `inventory/locations/create` (needs `managed_by_external_source`,
+   `time_zone`, and `address.email` + `address.geo_coordinates` — see
+   `DEVELOPMENT.md` §2.5 / `FOLLOW-UPS.md` FU-6) →
+   `inventory/adjustments/absolute` then `inventory/adjustments/relative` on
+   a product variant → verify with `inventory/items/get`.
+5. **Storefront** — `storefront/scripts/create` (note the scope warning if
+   `visibility: all_pages`).
+6. **Webhooks** — `webhooks/create` with an HTTPS destination.
+7. **Carts/Checkout** — `carts/cart/create` (line item = the sample variant,
+   `customer_id` set) → `carts/checkout/billing_address` →
+   `carts/checkout/consignment_add` → `carts/checkout/get` to read
+   `available_shipping_options` (should be non-empty for a real address if
+   the store has shipping zones configured — if it comes back empty, don't
+   assume the store is misconfigured; confirm the client is requesting
+   `include=consignments.available_shipping_options`, see `FU-8`) →
+   `carts/checkout/consignment_update` to select one → `carts/checkout/convert`.
+8. **Orders** — the converted order lands in **Incomplete** status by design
+   (no payment taken by `convert`); follow up with
+   `orders/management/update_status` (e.g. → Awaiting Fulfillment) →
+   `orders/management/metafields/set` → `orders/management/shipping_addresses/list`
+   to get `order_address_id` → `orders/fulfillment/shipments/create`.
+9. **Verify** — re-read each created record (list/get) and confirm the
+   cross-domain interaction: the cart/order total should reflect the
+   automatic promotion's discount from step 3.
+10. **Decision point** — ask the operator: *keep this sample data, or delete
+    it now?* Only proceed to delete (reverse dependency order: shipments →
+    order → cart/checkout already consumed → webhook → script → inventory
+    adjustments are one-way (no delete, just note them) → location →
+    coupon code → promotions → customer attribute value/attribute →
+    address → customer → group → product → category → brand) on an explicit
+    "delete" answer.
+    - **Preview-first on destructive deletes:** R3 tools such as
+      `catalog/products/delete` and `orders/management/delete` require a
+      preview call (no `confirmed`) on the **same targeting** before
+      `confirmed=true` — otherwise product delete returns *"no matching
+      preview found"* and order delete may not execute as expected.
+    - **Verify order cleanup:** after confirming
+      `orders/management/delete`, re-fetch with `orders/management/get`.
+      On at least one live store, delete returned `"status":"deleted"` while
+      the order still existed (see `FOLLOW-UPS.md` FU-8) — note survivors
+      rather than assuming cleanup succeeded.
+
+### 10.3 B2B Surface Check (extends §10.2)
+
+Naming: use `MCP Test Company` (parent) and `MCP Test Company - Subsidiary`
+(child) for the two companies. The category name is **`Company Accounts`**
+verbatim (not `MCP Test`-prefixed) — it's meant to read like a real
+restricted-catalog label, not an obviously-disposable test artifact.
+
+⚠️ **Correction (validated live, 2026-07-16):** an earlier draft of this
+section assumed B2B Edition auto-provisions a native customer group per
+company. That's only true for legacy **Dependent Companies** behavior. This
+store — like all new B2B Edition stores since Oct 2024 — uses **Independent
+Companies** behavior, where **no group is created automatically**; you create
+the group yourself and assign it via a `customerGroupId` field at company
+create/update time. Confirmed live: a company created via the Management API
+sat at `bc_group_id: 0` for over an hour with no group appearing, while a
+genuinely storefront-registered company on the same store had a real one —
+there is no polling/waiting fix for API-created companies, because there was
+never anything to wait for. This also surfaced a real tool gap — neither
+`b2b/companies/create` nor `update` exposed a way to set this field at all —
+fixed in the same pass (see `internal/bigcommerce/b2b_companies.go` /
+`internal/tools/b2b/company_tools.go`); both tools now accept an optional
+`customer_group_id` integer. The step order below reflects the corrected,
+live-validated flow (group created *before* the company, not after).
+
+1. **Category** — `catalog/categories/create` with `name: "Company Accounts"`.
+2. **Create the customer group, restricted to that category, first** —
+   `customers/groups/create` with `category_access_type: "specific"` and
+   `category_access_categories: [<Company Accounts category ID>]` set at
+   creation time (no separate update step needed). This is the native
+   BigCommerce mechanism: any storefront login mapped to this group sees
+   only that one category and its products.
+3. **Assign the D2C sample product to the category** —
+   `catalog/products/assign_categories` with the product from §10.2 step 1
+   and this category's ID (additive; doesn't remove its existing category).
+4. **Create (or update) the parent company with the group attached** —
+   `b2b/companies/create` (`company_name`, `company_email`, `company_country`,
+   **`company_phone`** — required though undocumented in the tool schema,
+   see `FU-8` — plus `admin_first_name`/`admin_last_name`/`admin_email`, plus
+   **`customer_group_id`** = the group from step 2) if creating fresh; use
+   `b2b/companies/update` with the same `customer_group_id` if reassigning an
+   existing company (Independent behavior allows reassignment — Dependent
+   does not). Create also provisions the company's first user (role 0,
+   admin) automatically.
+   ⚠️ **The `update` response is sparse** — even on a successful
+   `customer_group_id` change, the returned company object can come back
+   with `bc_group_id: 0` and most other fields blank. This is now fixed
+   MCP-side (the tool re-fetches after update, mirroring what `create`
+   already did for its own sparse-response quirk) — but if you're ever
+   unsure, `b2b/companies/get` is the source of truth.
+5. **Create the subsidiary company with the same group** — `b2b/companies/create`
+   for `MCP Test Company - Subsidiary` with the **same** `customer_group_id`
+   from step 2 (per the "shared" scoping decision — do not create a second
+   category or group), then `b2b/companies/hierarchy/attach_parent` with
+   `company_id` = subsidiary, `parent_company_id` = parent.
+6. **Create 3 users per company (Admin / Senior / Junior)** — each company
+   already has 1 admin user (role 0) from its create call in steps 4/5. Add
+   the other two via `b2b/companies/users/bulk_create` (`users_json`, max 10
+   per call) with `role: 1` (senior buyer) and `role: 2` (junior buyer) —
+   one bulk-create call can cover both companies at once (`company_id`
+   varies per row), 6 users overall.
+7. **Restrict payment methods to Offline-only** — `b2b/payments/list` for
+   the store-wide method registry; inspect each entry's `code`/`title` to
+   identify which are genuine Offline Payment Methods (e.g. `cheque`/Check,
+   COD, bank deposit, in-store pickup, custom manual methods) as opposed to
+   gateways/test providers **and** BigCommerce's built-in Gift
+   Certificate/Store Credit (those are their own category, not "Offline,"
+   even though they might look like a fit) — the endpoint has no explicit
+   `is_offline` flag, so this is a manual read, not a filter. Then
+   `b2b/companies/payments/list` per company to see current enabled state,
+   and `b2b/companies/payments/update` with `updates_json` enabling
+   (`isEnabled: true`) every identified Offline method and disabling
+   (`isEnabled: false`) anything else currently enabled (in one live run:
+   store had `cheque` + a test gateway both enabled by default — disabled
+   the gateway, kept `cheque`). Repeat for the subsidiary.
+8. **Verify** — `b2b/companies/hierarchy/get` on the parent (should list the
+   subsidiary, and the subsidiary's own `b2b/companies/get` should show
+   `parent_company_id`) → `customers/groups/get` on the group ID from step 2
+   (confirm `category_access` shows `specific` + the one category) →
+   `catalog/categories/products` on the category (confirm the sample product
+   is listed) → `b2b/companies/users/list` per company (3 rows each, roles
+   0/1/2) → `b2b/companies/payments/list` per company (only Offline methods
+   enabled).
+9. **Decision point** — same as §10.2 step 10, scoped to all B2B artifacts
+   created here (users → companies, in that order, since deleting a company
+   cascades to its users and — by default — their linked BC customer
+   accounts; see `b2b/companies/delete`'s `delete_bc_customers` flag) plus
+   the customer group and the `Company Accounts` category/product assignment.
+   Same preview-first and order-delete verification notes as §10.2 step 10.

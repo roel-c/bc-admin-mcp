@@ -57,8 +57,8 @@ BigCommerce documents 11 server-to-server resource families:
 |------|------|-------------|
 | `b2b/companies/list` | R0 | List companies; filter by status/name/email |
 | `b2b/companies/get` | R0 | Get company details by ID |
-| `b2b/companies/create` | R1 | Create company + initial admin user (supports `extra_fields_json`) |
-| `b2b/companies/update` | R1 | Update profile fields (supports `extra_fields_json`) |
+| `b2b/companies/create` | R1 | Create company + initial admin user (supports `extra_fields_json`, `customer_group_id`) |
+| `b2b/companies/update` | R1 | Update profile fields (supports `extra_fields_json`, `customer_group_id`); response is sparse — the tool re-fetches before returning |
 | `b2b/companies/set_status` | R2 | Approve, reject, deactivate |
 | `b2b/companies/delete` | R3 | Permanently delete company + all users; also deletes the users' linked BC customer accounts by default (`delete_bc_customers=false` to keep) |
 | `b2b/companies/extra_fields` | R0 | List company extra-field (custom field) definitions |
@@ -141,6 +141,8 @@ BigCommerce documents 11 server-to-server resource families:
 **Permission levels:** 1=user, 2=company, 3=company and subsidiaries
 
 **Extra fields:** Stores can require custom fields on companies/users. Use the `extra_fields` tools to discover definitions, and pass `extra_fields_json` (`[{"fieldName","fieldValue"}]`) on create/update.
+
+**Customer group assignment (catalog/pricing visibility):** a company's buyers see the products/pricing determined by its linked BigCommerce customer group. Pass `customer_group_id` on `b2b/companies/create` or `update` to assign one — but this only takes effect on stores using **Independent Companies** behavior (the default for new stores since Oct 2024). On legacy **Dependent Companies** stores, BC Edition auto-creates and permanently 1:1-links a group per company instead, and `customer_group_id` is ignored. There is no MCP tool to detect which mode a store is in directly; infer it by creating a company and checking whether `bc_group_id` populates without you setting `customer_group_id` (Dependent) or stays `0` (Independent). To restrict a company to a specific catalog slice: create a category, create a customer group with `category_access_type: "specific"` scoped to that category (`customers/groups/create`), then assign that group's ID as `customer_group_id` on the company. Multiple companies (e.g. a parent and its subsidiaries) may share the same group/category restriction — live-validated in `WORKFLOW.md` §10.3.
 
 **Deferred (management API, needs a focused pass):** bulk-create companies (unusual `data.errors`+`meta[]` envelope), batch update `PUT /companies` (redundant with per-id update), and convert customer-group→company (legacy Dependent-behavior migration).
 

@@ -198,7 +198,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `carts/checkout/consignment_add` / `consignment_update` | **R1**; add assigns items to a shipping address; update selects a `shipping_option_id` | `internal/tools/carts/checkout_tools.go` |
 | `carts/checkout/convert` | **R2**; converts checkout to an order (cart consumed, irreversible); preview warns if billing address or consignment missing; order always lands in **Incomplete** status (no payment taken by this endpoint) — follow up with `orders/management/update_status` | `internal/tools/carts/checkout_tools.go` |
 | `b2b/companies/list` / `get` | R0; B2B Edition; requires `BC_B2B_ENABLED=true` | `internal/tools/b2b/company_tools.go` |
-| `b2b/companies/create` / `update` | **R1**; preview then confirm; create also provisions the initial admin user | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/create` / `update` | **R1**; preview then confirm; create also provisions the initial admin user; optional `customer_group_id` on both (Independent Companies behavior — see DEVELOPMENT §2.6); `update`'s BC response is sparse, so the handler re-fetches before returning | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/set_status` | **R2**; approve / reject / deactivate (status 0–3) | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/delete` | **R3 destructive**; deletes the company, all its users, and (by default) the users' linked BC customer accounts — resolved by `bcCustomerId` or email fallback; `delete_bc_customers=false` keeps them | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/extra_fields` / `update_catalog` | R0 / **R2**; extra-field config discovery; catalog assign (read-only on Independent-behavior stores) | `internal/tools/b2b/company_tools.go` |
@@ -225,6 +225,35 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `b2b/sales_staff/*` | R0 reads; **R1** `update_assignments` (non-destructive; body field is `assignStatus`) | `internal/tools/b2b/sales_staff_tools.go` |
 | `b2b/super_admins/*`, `b2b/companies/super_admins/*` | R0 reads; **R1** create/bulk_create/update/update_assignments; assignment body field is `isAssigned` (not `assignStatus` — differs from Sales Staff) | `internal/tools/b2b/super_admin_tools.go` |
 | `b2b/shopping_lists/*` | R0 list/get; **R1** create/update; **R3** delete; **R2** items/remove; `create` defaults `status` to `"0"` since the live API rejects a null status despite the schema not marking it required | `internal/tools/b2b/shopping_list_tools.go` |
+
+### 2.6 Independent vs Dependent Companies behavior (customer group assignment)
+
+BigCommerce B2B Edition has two mutually-exclusive behavior modes, set at the
+store level (Independent has been the default for new stores since Oct 2024;
+existing stores must contact BC support to switch, and cannot switch back):
+
+| | **Independent Companies** (current default) | **Dependent Companies** (legacy) |
+|--|--|--|
+| Group on company create | Not auto-created. `bc_group_id` stays `0` unless you pass `customer_group_id` (or a store-configured default group applies) | Auto-created and auto-linked, one-to-one, on every company create/approval |
+| Reassignment | Allowed any time via `customer_group_id` on `b2b/companies/update` | Not allowed — the link is permanent once set |
+| Multiple companies sharing one group | Supported (e.g. a parent + subsidiary sharing one restricted catalog) | Not supported — always 1:1 |
+| Relevant tools | `b2b/companies/create` / `update` (`customer_group_id` param) | Same tools, but `customer_group_id` is ignored — BC manages the group itself |
+
+**Do not assume `bc_group_id` will populate on its own** for an
+API-created company on an Independent-behavior store — confirmed live
+(`FOLLOW-UPS.md` FU-8/`WORKFLOW.md` §10.3): a company sat at `bc_group_id: 0`
+for over an hour with no group ever appearing, because there was nothing to
+wait for. Create the customer group first (`customers/groups/create`,
+optionally with `category_access_type`/`category_access_categories` to
+restrict the buyer's catalog view), then pass its ID as `customer_group_id`
+on the company create/update call.
+
+**`b2b/companies/update`'s underlying BC response is sparse** — a successful
+`customer_group_id` change can come back with `bc_group_id: 0` and most other
+fields blank in the immediate response. The tool re-fetches the company after
+a confirmed update before returning, the same fix already applied to
+`create`'s equally sparse response — so callers should trust the tool's
+`company` object, but be aware the raw BC API alone would be misleading here.
 
 ---
 

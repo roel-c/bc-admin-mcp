@@ -307,3 +307,48 @@ open to partially-paid).
   for users/addresses) to confirm it also applies to the company-address
   endpoint specifically. Re-fetch via `b2b/companies/addresses/list` for a
   usable confirmation, same workaround already used for company create.
+- ✅ **FIXED (2026-07-16) — `b2b/companies/create`/`update` had no way to set
+  a company's BigCommerce customer group, and this store's `bc_group_id`
+  never auto-populated as assumed.** Root cause: this store (like all new
+  B2B Edition stores since Oct 2024) uses **Independent Companies**
+  behavior, where no group is auto-created per company — only legacy
+  **Dependent Companies** stores do that. Confirmed live: a company created
+  via the Management API sat at `bc_group_id: 0` for over an hour, while a
+  genuinely storefront-registered company on the same store had a real
+  `bc_group_id`. BigCommerce's own docs confirm the fix: pass `customerGroupId`
+  in the create/update request body — a field our tools never exposed.
+  Added `customer_group_id` (optional int) to both
+  `b2b/companies/create`/`update` (`internal/bigcommerce/b2b_companies.go`,
+  `internal/tools/b2b/company_tools.go`), with unit tests covering preview,
+  confirm, and rejection of negative values. See `DEVELOPMENT.md` §2.6 for
+  the full Independent-vs-Dependent explainer and `WORKFLOW.md` §10.3 for
+  the live-validated end-to-end flow (category → restricted customer group →
+  company with `customer_group_id` → subsidiary sharing the same group).
+  While fixing this, also found and fixed a second bug: `b2b/companies/update`'s
+  raw BC response is sparse (a successful `customer_group_id` change came
+  back showing `bc_group_id: 0` and most fields blank) — the handler now
+  re-fetches the company after a confirmed update, mirroring the same fix
+  `create` already had for its own sparse-response quirk.
+- ✅ **FIXED (2026-07-16) — `GET /v3/customers/attributes` rejects `id:in`
+  filtering.** Passing `id:in=…` 422s with "The filter(s): id:in are not
+  valid filter parameter(s)" — only `name`/`name:like` or an unfiltered
+  list work. `GetCustomerAttributesByIDs` in
+  `internal/bigcommerce/customer_attributes.go` now fetches the full
+  attribute set and filters client-side (attribute definitions are expected
+  to be a small set on any store).
+- **`orders/management/delete` can report success without removing the
+  order (OPEN — store/platform behavior).** During Full Surface Check
+  cleanup on this POC store, preview → confirm on orders 136/138/140/141
+  each returned `{"status":"deleted","order_id":…}`, but
+  `orders/management/get` on the same IDs immediately afterward still
+  returned the full order (including line items). Shipments on those orders
+  *did* delete successfully via `orders/fulfillment/shipments/delete`.
+  Catalog/customer/group cleanup on the same pass worked normally.
+  Hypothesis: BC may restrict or no-op order DELETE on some store
+  plans/settings even when the API returns 2xx — needs confirmation on
+  another store before treating as a tool bug vs environment gate. Until
+  verified, cleanup runbooks should re-fetch each order after delete and
+  note any survivors rather than assuming the `"deleted"` response means
+  the record is gone. (Also: `catalog/products/delete` rejects
+  `confirmed=true` without a prior preview on the same targeting — returns
+  "no matching preview found"; always preview first.)

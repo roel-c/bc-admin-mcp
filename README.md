@@ -413,8 +413,8 @@ The `b2b/` root only registers when `BC_B2B_ENABLED=true`; it reuses the existin
 |-----------|------|-------------|
 | `b2b/companies/list` | R0 | List companies; filter by status/name/email |
 | `b2b/companies/get` | R0 | Company details by ID |
-| `b2b/companies/create` | R1 | Create company + initial admin user; preview → **`confirmed`** |
-| `b2b/companies/update` | R1 | Update company profile fields; preview → **`confirmed`** |
+| `b2b/companies/create` | R1 | Create company + initial admin user; optional `customer_group_id` (Independent Companies behavior only); preview → **`confirmed`** |
+| `b2b/companies/update` | R1 | Update company profile fields, including reassigning `customer_group_id`; preview → **`confirmed`** |
 | `b2b/companies/set_status` | R2 | Approve, reject, or deactivate a company; preview → **`confirmed`** |
 | `b2b/companies/delete` | R3 | Permanently delete company, all users, and (by default) their linked BC customer accounts (`delete_bc_customers=false` to keep); preview → **`confirmed`** |
 | `b2b/companies/extra_fields` | R0 | List company extra-field (custom field) definitions |
@@ -543,7 +543,7 @@ The client layer implements the conservative defaults from [`docs/DEVELOPMENT.md
 
 ## Documentation
 
-- **[docs/WORKFLOW.md](./docs/WORKFLOW.md)** — Implementation workflow for adding endpoints: research → implement → build/test/lint gate → reload → live-validate with cleanup → docs → commit → CI. **Follow this for all new endpoint work.**
+- **[docs/WORKFLOW.md](./docs/WORKFLOW.md)** — Implementation workflow for adding endpoints: research → implement → build/test/lint gate → reload → live-validate with cleanup → docs → commit → CI. **Follow this for all new endpoint work.** Also documents the on-demand **Full Surface Check** (§10) — an MCP-only, end-to-end capability review (D2C and B2B variants) you can run anytime, independent of code changes.
 - **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — Full architecture, design decisions, token analysis, security controls, known limitations, expansion roadmap, registration policy (§8), and testing strategy incl. manual discovery/preview drills (§9)
 - **[docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)** — Tool tiers, numeric caps, OAuth scopes, concurrency policy, and the channel assignments vs listings model
 - **[docs/AGENT.md](./docs/AGENT.md)** — Agent operating guidelines: tool tables, the universal `execute_tool` envelope, and response format

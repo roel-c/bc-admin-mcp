@@ -98,6 +98,7 @@ func (ct *CompanyTools) registerCompanyTools(reg *discovery.Registry) {
 			mcp.WithString("admin_first_name", mcp.Description("Admin first name."), mcp.Required()),
 			mcp.WithString("admin_last_name", mcp.Description("Admin last name."), mcp.Required()),
 			mcp.WithNumber("bc_customer_id", mcp.Description("Link existing BC customer as admin instead of creating a new user.")),
+			mcp.WithNumber("customer_group_id", mcp.Description("BigCommerce customer group ID to assign (Independent Companies behavior only — see b2b/companies/get's bc_group_id). Controls the company's buyer catalog visibility/pricing. Omit to use the store's default group; pass 0 for no group. Ignored on legacy Dependent Companies stores, which auto-provision their own group instead.")),
 			mcp.WithString("extra_fields_json", mcp.Description(`Optional JSON array of custom fields: [{"fieldName":"License No","fieldValue":"12345"}]. Use b2b/companies/extra_fields to discover required fields.`)),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create the company.")),
 		),
@@ -120,6 +121,7 @@ func (ct *CompanyTools) registerCompanyTools(reg *discovery.Registry) {
 			mcp.WithString("company_country", mcp.Description("New country.")),
 			mcp.WithString("company_zip", mcp.Description("New zip code.")),
 			mcp.WithString("description", mcp.Description("Company description.")),
+			mcp.WithNumber("customer_group_id", mcp.Description("Reassign the company's BigCommerce customer group (Independent Companies behavior only). Pass 0 to unassign (default catalog/pricing). Not supported on legacy Dependent Companies stores — a company's group there is one-to-one and immutable after creation.")),
 			mcp.WithString("extra_fields_json", mcp.Description(`Optional JSON array of custom fields: [{"fieldName":"License No","fieldValue":"12345"}].`)),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to apply.")),
 		),
@@ -276,6 +278,13 @@ func (ct *CompanyTools) handleCompanyCreate(ctx context.Context, request mcp.Cal
 	if v, ok := args["admin_first_name"].(string); ok { payload.AdminFirstName = v }
 	if v, ok := args["admin_last_name"].(string); ok { payload.AdminLastName = v }
 	if v, ok := args["bc_customer_id"].(float64); ok && v > 0 { payload.BCCustomerID = int(v) }
+	if v, ok := args["customer_group_id"].(float64); ok {
+		n := int(v)
+		if n < 0 {
+			return shared.ToolError("customer_group_id must be >= 0"), nil
+		}
+		payload.CustomerGroupID = &n
+	}
 	if ef, eerr := parseB2BExtraFieldsJSON(args, "extra_fields_json"); eerr != nil {
 		return shared.ToolError("%s", eerr.Error()), nil
 	} else {
@@ -345,6 +354,14 @@ func (ct *CompanyTools) handleCompanyUpdate(ctx context.Context, request mcp.Cal
 	if v, ok := args["company_country"].(string); ok && v != "" { patch.Country = v; hasField = true }
 	if v, ok := args["company_zip"].(string); ok && v != "" { patch.ZipCode = v; hasField = true }
 	if v, ok := args["description"].(string); ok && v != "" { patch.Description = v; hasField = true }
+	if v, ok := args["customer_group_id"].(float64); ok {
+		n := int(v)
+		if n < 0 {
+			return shared.ToolError("customer_group_id must be >= 0"), nil
+		}
+		patch.CustomerGroupID = &n
+		hasField = true
+	}
 	if ef, eerr := parseB2BExtraFieldsJSON(args, "extra_fields_json"); eerr != nil {
 		return shared.ToolError("%s", eerr.Error()), nil
 	} else if len(ef) > 0 {
@@ -378,6 +395,15 @@ func (ct *CompanyTools) handleCompanyUpdate(ctx context.Context, request mcp.Cal
 	updated, err := ct.bc.UpdateB2BCompany(ctx, id, patch)
 	if err != nil {
 		return shared.ToolError("failed to update B2B company %d: %v", id, err), nil
+	}
+	// Like create, the B2B update response is sparse (e.g. a customerGroupId
+	// change comes back with bc_group_id still 0 and most other fields
+	// blank) — re-fetch so the caller gets a confirmation that actually
+	// reflects the new state. Fall back to the sparse view if it fails.
+	if updated != nil {
+		if full, gerr := ct.bc.GetB2BCompany(ctx, id); gerr == nil && full != nil {
+			updated = full
+		}
 	}
 	return shared.ToolJSON(map[string]any{"status": "updated", "company": companyView(*updated)})
 }

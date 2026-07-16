@@ -7,10 +7,6 @@ import (
 	"net/url"
 )
 
-// maxCustomerAttributeIDInQuery caps the number of attribute ids in a single
-// id:in query string for /v3/customers/attributes.
-const maxCustomerAttributeIDInQuery = 40
-
 // maxCustomerMetafieldIDInQuery caps the number of metafield ids in a single
 // id:in query for /v3/customers/{customerId}/metafields and the batch endpoint.
 const maxCustomerMetafieldIDInQuery = 50
@@ -58,27 +54,36 @@ func (c *Client) SearchCustomerAttributes(ctx context.Context, params map[string
 	return out, nil
 }
 
-// GetCustomerAttributesByIDs fetches attributes by numeric IDs using
-// GET /v3/customers/attributes?id:in=… IDs are chunked to keep query strings small.
+// GetCustomerAttributesByIDs fetches attributes by numeric ID.
+//
+// Unlike most V3 list endpoints, GET /v3/customers/attributes does NOT
+// support id / id:in filtering — BigCommerce returns a 422 ("The filter(s):
+// id:in are not valid filter parameter(s)") for any attempt to filter by id.
+// Confirmed live (FOLLOW-UPS.md FU-8); this endpoint only supports
+// name/name:like filters or a full unfiltered list. There is no
+// server-side way to narrow by ID, so this fetches the full attribute set
+// and filters client-side. Stores are expected to have a small number of
+// attribute definitions (BC's own UI is designed around this), so this is
+// not a pagination-cost concern in practice.
 func (c *Client) GetCustomerAttributesByIDs(ctx context.Context, ids []int) ([]CustomerAttribute, error) {
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("no attribute ids provided")
 	}
-	var all []CustomerAttribute
-	for i := 0; i < len(ids); i += maxCustomerAttributeIDInQuery {
-		end := i + maxCustomerAttributeIDInQuery
-		if end > len(ids) {
-			end = len(ids)
-		}
-		sub := ids[i:end]
-		params := map[string]string{"id:in": joinInts(sub)}
-		part, err := c.SearchCustomerAttributes(ctx, params)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, part...)
+	all, err := c.SearchCustomerAttributes(ctx, nil)
+	if err != nil {
+		return nil, err
 	}
-	return all, nil
+	want := make(map[int]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	out := make([]CustomerAttribute, 0, len(ids))
+	for _, attr := range all {
+		if want[attr.ID] {
+			out = append(out, attr)
+		}
+	}
+	return out, nil
 }
 
 // CreateCustomerAttributes creates attributes via POST /v3/customers/attributes.

@@ -73,6 +73,16 @@ type B2BCompanyCreate struct {
 	// of creating a new user.
 	BCCustomerID int             `json:"bcCustomerId,omitempty"`
 	ExtraFields  []B2BExtraField `json:"extraFields,omitempty"`
+	// CustomerGroupID assigns a BigCommerce customer group to the company —
+	// only meaningful on stores using Independent Companies behavior (the
+	// default since Oct 2024). On those stores B2B Edition does NOT
+	// auto-create a group per company (bcGroupId stays 0 unless this is
+	// set); omitting the field falls back to the store's configured default
+	// group, and 0 explicitly means "no group" (default catalog/pricing).
+	// Legacy Dependent Companies behavior ignores this field and always
+	// auto-provisions its own group instead. Pointer so an explicit 0 is
+	// distinguishable from "not provided" (omitempty on *int only omits nil).
+	CustomerGroupID *int `json:"customerGroupId,omitempty"`
 }
 
 // B2BCompanyUpdate is the request body for PUT /companies/{companyId}.
@@ -89,6 +99,11 @@ type B2BCompanyUpdate struct {
 	ZipCode      string `json:"zipCode,omitempty"`
 	Description  string          `json:"description,omitempty"`
 	ExtraFields  []B2BExtraField `json:"extraFields,omitempty"`
+	// CustomerGroupID — see the identical field on B2BCompanyCreate. On
+	// Independent Companies stores this can be reassigned after creation
+	// (unlike legacy Dependent behavior, where a company's one-to-one group
+	// link cannot be changed once set).
+	CustomerGroupID *int `json:"customerGroupId,omitempty"`
 }
 
 // B2BAttachment is a file attached to a company account. List responses use

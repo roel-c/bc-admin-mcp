@@ -246,7 +246,7 @@ Every tool uses the same envelope:
 
 **B2B Edition — scope: `B2B Edition` (requires `BC_B2B_ENABLED=true` in `.env`):**
 
-The `b2b/` root only appears when `BC_B2B_ENABLED=true`. Company status: 0=pending, 1=approved, 2=rejected, 3=inactive. User roles: 0=admin, 1=senior buyer, 2=junior buyer. See `docs/B2B.md` for setup and the full phased plan.
+The `b2b/` root only appears when `BC_B2B_ENABLED=true`. Company status: 0=pending, 1=approved, 2=rejected, 3=inactive. User roles: 0=admin, 1=senior buyer, 2=junior buyer. Catalog/pricing visibility for a company's buyers is controlled by its BigCommerce customer group — pass `customer_group_id` on `b2b/companies/create`/`update` to assign one (Independent Companies behavior stores only; see `docs/B2B.md`). See `docs/B2B.md` for setup and the full phased plan.
 
 **Carts — scope: `store_cart`:**
 - `carts/cart/create` — Create a server-side cart. Provide `line_items_json` and/or `custom_items_json` as JSON arrays. Optional `customer_id` to assign a customer; `channel_id` for MSF channels.

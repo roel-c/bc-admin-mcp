@@ -898,6 +898,16 @@ Pick any R1 tool (e.g. `catalog/categories/bulk_update`):
 }
 ```
 
+### Full Surface Check (on-demand, MCP-only)
+
+For a broader, real-data pass beyond the two drills above — creating sample
+records across every domain (D2C variant) or additionally exercising B2B
+company/hierarchy/catalog-restriction/payment scenarios (B2B variant) — see
+[**`WORKFLOW.md` §10**](./WORKFLOW.md#10-full-surface-check-d2c--b2b). It's
+written as a step-by-step runbook (not a script) since it involves
+preview→confirm judgment calls and an explicit keep-or-delete decision point;
+run it after a batch of domain changes or before a demo.
+
 ### Integration Tests (gap)
 
 In-process `mcp-go` transport integration tests (full `discover_tools` → `execute_tool` flow without HTTP) are not yet implemented. The gomock unit suites cover handler logic; end-to-end wiring is validated by the registration audit tests and live smoke scripts.
