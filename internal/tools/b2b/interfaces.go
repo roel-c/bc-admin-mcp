@@ -87,6 +87,26 @@ type B2BCompanyAPI interface {
 	ListB2BActivePaymentMethods(ctx context.Context, params string) ([]map[string]any, error)
 	GetB2BCompanyCredit(ctx context.Context, companyID int) (*bigcommerce.B2BCompanyCredit, error)
 	GetB2BCompanyPaymentTerms(ctx context.Context, companyID int) (*bigcommerce.B2BPaymentTerms, error)
+	UpdateB2BCompanyPaymentMethods(ctx context.Context, companyID int, updates []bigcommerce.B2BCompanyPaymentMethodUpdate) error
+	UpdateB2BCompanyCredit(ctx context.Context, companyID int, payload bigcommerce.B2BCompanyCredit) (*bigcommerce.B2BCompanyCredit, error)
+	UpdateB2BCompanyPaymentTerms(ctx context.Context, companyID int, isEnabled bool, paymentTerms string) (*bigcommerce.B2BPaymentTerms, error)
+	// Invoice writes
+	CreateB2BInvoice(ctx context.Context, body map[string]any) (map[string]any, error)
+	CreateB2BInvoiceFromOrder(ctx context.Context, orderID int) (map[string]any, error)
+	UpdateB2BInvoice(ctx context.Context, invoiceID string, body map[string]any) (map[string]any, error)
+	DeleteB2BInvoice(ctx context.Context, invoiceID string) error
+	DeleteB2BReceipt(ctx context.Context, receiptID string) error
+	DeleteB2BReceiptLine(ctx context.Context, receiptID, lineID string) error
+	// Payment records (invoice-management payments group)
+	ListB2BPaymentRecords(ctx context.Context, params string) ([]map[string]any, error)
+	GetB2BPaymentRecord(ctx context.Context, paymentID int) (map[string]any, error)
+	ListB2BPaymentTransactions(ctx context.Context, paymentID int) ([]map[string]any, error)
+	GetB2BPaymentOperations(ctx context.Context, paymentID int) (map[string]any, error)
+	CreateB2BOfflinePayment(ctx context.Context, payload bigcommerce.B2BOfflinePaymentCreate) (map[string]any, error)
+	UpdateB2BOfflinePayment(ctx context.Context, paymentID int, payload bigcommerce.B2BOfflinePaymentCreate) (map[string]any, error)
+	PerformB2BPaymentOperation(ctx context.Context, paymentID int, operationCode string) (map[string]any, error)
+	UpdateB2BPaymentProcessingStatus(ctx context.Context, paymentID int, processingStatus int) (map[string]any, error)
+	DeleteB2BPayment(ctx context.Context, paymentID int) error
 	// Sales staff
 	ListB2BSalesStaff(ctx context.Context, params string) ([]map[string]any, error)
 	GetB2BSalesStaff(ctx context.Context, salesStaffID int) (map[string]any, error)

@@ -57,6 +57,71 @@ func (s *B2BCompanyToolsSuite) TestInvoiceExtraFieldsList() {
 	s.Equal(float64(1), data["total"])
 }
 
+// --- b2b/invoices writes ---
+
+func (s *B2BCompanyToolsSuite) TestInvoiceCreatePreviewThenConfirm() {
+	prev, err := s.callTool("b2b/invoices/create", map[string]any{
+		"invoice_json": `{"invoiceNumber":"INV-100"}`,
+	})
+	s.NoError(err)
+	s.Equal("preview", s.parseJSON(prev)["status"])
+
+	s.mockBC.EXPECT().CreateB2BInvoice(gomock.Any(), gomock.Any()).Return(map[string]any{"id": float64(1)}, nil)
+	res, err := s.callTool("b2b/invoices/create", map[string]any{
+		"invoice_json": `{"invoiceNumber":"INV-100"}`, "confirmed": true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	s.Equal("created", s.parseJSON(res)["status"])
+}
+
+func (s *B2BCompanyToolsSuite) TestInvoiceCreateRejectsInvalidJSON() {
+	res, err := s.callTool("b2b/invoices/create", map[string]any{"invoice_json": `not-json`})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+func (s *B2BCompanyToolsSuite) TestInvoiceCreateFromOrderConfirmed() {
+	// The Invoice Management API expects B2B Edition's internal order ID
+	// (56469299), not the BigCommerce order ID (135) — the handler must
+	// resolve it via GetB2BOrder before calling CreateB2BInvoiceFromOrder.
+	s.mockBC.EXPECT().GetB2BOrder(gomock.Any(), 135).Return(map[string]any{"id": float64(56469299), "bcOrderId": "135"}, nil)
+	s.mockBC.EXPECT().CreateB2BInvoiceFromOrder(gomock.Any(), 56469299).Return(map[string]any{"id": float64(1)}, nil)
+	res, err := s.callTool("b2b/invoices/create_from_order", map[string]any{"order_id": float64(135), "confirmed": true})
+	s.NoError(err)
+	s.False(res.IsError)
+	s.Equal("created", s.parseJSON(res)["status"])
+}
+
+func (s *B2BCompanyToolsSuite) TestInvoiceCreateFromOrderRejectsMissingInternalID() {
+	s.mockBC.EXPECT().GetB2BOrder(gomock.Any(), 135).Return(map[string]any{"bcOrderId": "135"}, nil)
+	res, err := s.callTool("b2b/invoices/create_from_order", map[string]any{"order_id": float64(135), "confirmed": true})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+func (s *B2BCompanyToolsSuite) TestInvoiceUpdateConfirmed() {
+	s.mockBC.EXPECT().UpdateB2BInvoice(gomock.Any(), "inv-1", gomock.Any()).Return(map[string]any{"id": "inv-1"}, nil)
+	res, err := s.callTool("b2b/invoices/update", map[string]any{
+		"invoice_id": "inv-1", "invoice_json": `{"purchaseOrderNumber":"PO-9"}`, "confirmed": true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	s.Equal("updated", s.parseJSON(res)["status"])
+}
+
+func (s *B2BCompanyToolsSuite) TestInvoiceDeletePreviewThenConfirm() {
+	prev, err := s.callTool("b2b/invoices/delete", map[string]any{"invoice_id": "inv-1"})
+	s.NoError(err)
+	s.Equal("preview", s.parseJSON(prev)["status"])
+
+	s.mockBC.EXPECT().DeleteB2BInvoice(gomock.Any(), "inv-1").Return(nil)
+	res, err := s.callTool("b2b/invoices/delete", map[string]any{"invoice_id": "inv-1", "confirmed": true})
+	s.NoError(err)
+	s.False(res.IsError)
+	s.Equal("deleted", s.parseJSON(res)["status"])
+}
+
 // --- b2b/receipts ---
 
 func (s *B2BCompanyToolsSuite) TestReceiptListReturnsReceipts() {
@@ -119,4 +184,30 @@ func (s *B2BCompanyToolsSuite) TestReceiptLineGetRejectsMissingIDs() {
 	res, err := s.callTool("b2b/receipts/lines/get", map[string]any{"receipt_id": "rcpt-1"})
 	s.NoError(err)
 	s.True(res.IsError)
+}
+
+func (s *B2BCompanyToolsSuite) TestReceiptDeletePreviewThenConfirm() {
+	prev, err := s.callTool("b2b/receipts/delete", map[string]any{"receipt_id": "rcpt-1"})
+	s.NoError(err)
+	s.Equal("preview", s.parseJSON(prev)["status"])
+
+	s.mockBC.EXPECT().DeleteB2BReceipt(gomock.Any(), "rcpt-1").Return(nil)
+	res, err := s.callTool("b2b/receipts/delete", map[string]any{"receipt_id": "rcpt-1", "confirmed": true})
+	s.NoError(err)
+	s.False(res.IsError)
+	s.Equal("deleted", s.parseJSON(res)["status"])
+}
+
+func (s *B2BCompanyToolsSuite) TestReceiptLineDeletePreviewThenConfirm() {
+	prev, err := s.callTool("b2b/receipts/lines/delete", map[string]any{"receipt_id": "rcpt-1", "line_id": "line-1"})
+	s.NoError(err)
+	s.Equal("preview", s.parseJSON(prev)["status"])
+
+	s.mockBC.EXPECT().DeleteB2BReceiptLine(gomock.Any(), "rcpt-1", "line-1").Return(nil)
+	res, err := s.callTool("b2b/receipts/lines/delete", map[string]any{
+		"receipt_id": "rcpt-1", "line_id": "line-1", "confirmed": true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	s.Equal("deleted", s.parseJSON(res)["status"])
 }

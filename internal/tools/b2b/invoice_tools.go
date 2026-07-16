@@ -2,8 +2,11 @@ package b2b
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
@@ -12,7 +15,7 @@ import (
 )
 
 // ============================================================
-// Invoice tools (read-only)
+// Invoice tools
 // ============================================================
 
 func (ct *CompanyTools) registerInvoiceTools(reg *discovery.Registry) {
@@ -66,6 +69,55 @@ func (ct *CompanyTools) registerInvoiceTools(reg *discovery.Registry) {
 			mcp.WithNumber("offset", mcp.Description("Results to skip (default 0).")),
 		),
 		Handler: ct.handleInvoiceExtraFields,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/invoices/create",
+		Tier:    middleware.TierR2,
+		Summary: "Create an invoice from a raw JSON body",
+		Tool: mcp.NewTool("b2b_invoices_create",
+			mcp.WithDescription("Create a B2B invoice from invoice_json, matching the documented create schema (invoiceNumber, dueDate, status [0=open,1=partially paid,2=completed], orderNumber, purchaseOrderNumber, originalBalance, openBalance, details, customerId [B2B company ID], channelId, etc.). Use b2b/invoices/get on an existing invoice to see an example shape. Preview → confirm."),
+			mcp.WithString("invoice_json", mcp.Description("JSON object matching the invoice create body."), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create.")),
+		),
+		Handler: ct.handleInvoiceCreate,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/invoices/create_from_order",
+		Tier:    middleware.TierR2,
+		Summary: "Generate an invoice from an existing BigCommerce order",
+		Tool: mcp.NewTool("b2b_invoices_create_from_order",
+			mcp.WithDescription("Generate a B2B invoice using an existing BigCommerce order's data. Internally resolves the BC order ID to B2B Edition's own order ID first. Preview → confirm."),
+			mcp.WithNumber("order_id", mcp.Description("BigCommerce order ID"), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create.")),
+		),
+		Handler: ct.handleInvoiceCreateFromOrder,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/invoices/update",
+		Tier:    middleware.TierR2,
+		Summary: "Update an invoice from a raw JSON body",
+		Tool: mcp.NewTool("b2b_invoices_update",
+			mcp.WithDescription("Update a B2B invoice from invoice_json. No field is required — send only what changes. IMPORTANT: updating `details` completely replaces the existing value rather than merging it. Preview → confirm."),
+			mcp.WithString("invoice_id", mcp.Description("Invoice ID"), mcp.Required()),
+			mcp.WithString("invoice_json", mcp.Description("JSON object with the fields to update."), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Pass true to apply.")),
+		),
+		Handler: ct.handleInvoiceUpdate,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/invoices/delete",
+		Tier:    middleware.TierR3,
+		Summary: "Permanently delete an invoice",
+		Tool: mcp.NewTool("b2b_invoices_delete",
+			mcp.WithDescription("Permanently delete a B2B invoice. Preview → confirm."),
+			mcp.WithString("invoice_id", mcp.Description("Invoice ID"), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Pass true to delete permanently.")),
+		),
+		Handler: ct.handleInvoiceDelete,
 	})
 
 	// ---- Receipts ----
@@ -136,6 +188,31 @@ func (ct *CompanyTools) registerInvoiceTools(reg *discovery.Registry) {
 			mcp.WithString("line_id", mcp.Description("Receipt line ID"), mcp.Required()),
 		),
 		Handler: ct.handleReceiptLineGet,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/receipts/delete",
+		Tier:    middleware.TierR3,
+		Summary: "Permanently delete a receipt",
+		Tool: mcp.NewTool("b2b_receipts_delete",
+			mcp.WithDescription("Permanently delete a B2B payment receipt. Preview → confirm."),
+			mcp.WithString("receipt_id", mcp.Description("Receipt ID"), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Pass true to delete permanently.")),
+		),
+		Handler: ct.handleReceiptDelete,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/receipts/lines/delete",
+		Tier:    middleware.TierR2,
+		Summary: "Permanently delete a single receipt line",
+		Tool: mcp.NewTool("b2b_receipts_lines_delete",
+			mcp.WithDescription("Permanently delete a single line from a B2B payment receipt. Preview → confirm."),
+			mcp.WithString("receipt_id", mcp.Description("Receipt ID"), mcp.Required()),
+			mcp.WithString("line_id", mcp.Description("Receipt line ID"), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Pass true to delete permanently.")),
+		),
+		Handler: ct.handleReceiptLineDelete,
 	})
 }
 
@@ -219,6 +296,149 @@ func (ct *CompanyTools) handleInvoiceExtraFields(ctx context.Context, request mc
 		return shared.ToolError("failed to list B2B invoice extra fields: %v", err), nil
 	}
 	return shared.ToolJSON(map[string]any{"total": len(defs), "extra_fields": defs})
+}
+
+func parseInvoiceJSONBody(args map[string]any, key string) (map[string]any, error) {
+	raw, ok := args[key].(string)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return nil, fmt.Errorf("%s is required (a JSON object)", key)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(raw), &body); err != nil {
+		return nil, fmt.Errorf("invalid %s: %v", key, err)
+	}
+	return body, nil
+}
+
+func (ct *CompanyTools) handleInvoiceCreate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	body, err := parseInvoiceJSONBody(args, "invoice_json")
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return shared.ToolJSON(map[string]any{
+			"status":  "preview",
+			"action":  "create_b2b_invoice",
+			"payload": body,
+			"message": "Will create this invoice. Pass confirmed=true.",
+		})
+	}
+
+	invoice, err := ct.bc.CreateB2BInvoice(ctx, body)
+	if err != nil {
+		return shared.ToolError("failed to create B2B invoice: %v", err), nil
+	}
+	return shared.ToolJSON(map[string]any{"status": "created", "invoice": invoice})
+}
+
+// b2bOrderInternalID extracts B2B Edition's internal numeric order ID (the
+// "id" field) from a GetB2BOrder response, which is distinct from the
+// BigCommerce order ID ("bcOrderId").
+func b2bOrderInternalID(order map[string]any) (int, error) {
+	idVal, ok := order["id"]
+	if !ok {
+		return 0, fmt.Errorf("B2B order response missing internal id field")
+	}
+	switch v := idVal.(type) {
+	case float64:
+		return int(v), nil
+	case string:
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return 0, fmt.Errorf("B2B order internal id %q is not numeric", v)
+		}
+		return n, nil
+	default:
+		return 0, fmt.Errorf("B2B order internal id has unexpected type %T", v)
+	}
+}
+
+func (ct *CompanyTools) handleInvoiceCreateFromOrder(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	orderID, err := shared.ReadPositiveInt(args, "order_id")
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return shared.ToolJSON(map[string]any{
+			"status":   "preview",
+			"action":   "create_b2b_invoice_from_order",
+			"order_id": orderID,
+			"message":  fmt.Sprintf("Will generate an invoice from order %d. Pass confirmed=true.", orderID),
+		})
+	}
+
+	// The Invoice Management API's create-from-order endpoint expects B2B
+	// Edition's own internal order ID, not the BigCommerce order ID — the two
+	// are different numbers (see GetB2BOrder's "id" vs "bcOrderId" fields).
+	// Resolve it first so callers can keep using the familiar BC order ID.
+	b2bOrder, err := ct.bc.GetB2BOrder(ctx, orderID)
+	if err != nil {
+		return shared.ToolError("failed to resolve B2B order for BC order %d: %v", orderID, err), nil
+	}
+	internalID, err := b2bOrderInternalID(b2bOrder)
+	if err != nil {
+		return shared.ToolError("order %d: %v", orderID, err), nil
+	}
+
+	invoice, err := ct.bc.CreateB2BInvoiceFromOrder(ctx, internalID)
+	if err != nil {
+		return shared.ToolError("failed to create B2B invoice from order %d: %v", orderID, err), nil
+	}
+	return shared.ToolJSON(map[string]any{"status": "created", "order_id": orderID, "invoice": invoice})
+}
+
+func (ct *CompanyTools) handleInvoiceUpdate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	id, _ := args["invoice_id"].(string)
+	if id == "" {
+		return shared.ToolError("invoice_id is required"), nil
+	}
+	body, err := parseInvoiceJSONBody(args, "invoice_json")
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return shared.ToolJSON(map[string]any{
+			"status":     "preview",
+			"action":     "update_b2b_invoice",
+			"invoice_id": id,
+			"payload":    body,
+			"message":    fmt.Sprintf("Will apply these fields to invoice %s. Pass confirmed=true.", id),
+		})
+	}
+
+	invoice, err := ct.bc.UpdateB2BInvoice(ctx, id, body)
+	if err != nil {
+		return shared.ToolError("failed to update B2B invoice %s: %v", id, err), nil
+	}
+	return shared.ToolJSON(map[string]any{"status": "updated", "invoice_id": id, "invoice": invoice})
+}
+
+func (ct *CompanyTools) handleInvoiceDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	id, _ := args["invoice_id"].(string)
+	if id == "" {
+		return shared.ToolError("invoice_id is required"), nil
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return shared.ToolJSON(map[string]any{
+			"status":     "preview",
+			"action":     "delete_b2b_invoice",
+			"invoice_id": id,
+			"message":    fmt.Sprintf("Will permanently delete invoice %s. Pass confirmed=true.", id),
+		})
+	}
+
+	if err := ct.bc.DeleteB2BInvoice(ctx, id); err != nil {
+		return shared.ToolError("failed to delete B2B invoice %s: %v", id, err), nil
+	}
+	return shared.ToolJSON(map[string]any{"status": "deleted", "invoice_id": id})
 }
 
 // ---- receipt handlers ----
@@ -309,4 +529,50 @@ func (ct *CompanyTools) handleReceiptLineGet(ctx context.Context, request mcp.Ca
 		return shared.ToolError("failed to get B2B receipt %s line %s: %v", receiptID, lineID, err), nil
 	}
 	return shared.ToolJSON(map[string]any{"line": line})
+}
+
+func (ct *CompanyTools) handleReceiptDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	id, _ := args["receipt_id"].(string)
+	if id == "" {
+		return shared.ToolError("receipt_id is required"), nil
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return shared.ToolJSON(map[string]any{
+			"status":     "preview",
+			"action":     "delete_b2b_receipt",
+			"receipt_id": id,
+			"message":    fmt.Sprintf("Will permanently delete receipt %s. Pass confirmed=true.", id),
+		})
+	}
+
+	if err := ct.bc.DeleteB2BReceipt(ctx, id); err != nil {
+		return shared.ToolError("failed to delete B2B receipt %s: %v", id, err), nil
+	}
+	return shared.ToolJSON(map[string]any{"status": "deleted", "receipt_id": id})
+}
+
+func (ct *CompanyTools) handleReceiptLineDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	receiptID, _ := args["receipt_id"].(string)
+	lineID, _ := args["line_id"].(string)
+	if receiptID == "" || lineID == "" {
+		return shared.ToolError("receipt_id and line_id are required"), nil
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return shared.ToolJSON(map[string]any{
+			"status":     "preview",
+			"action":     "delete_b2b_receipt_line",
+			"receipt_id": receiptID,
+			"line_id":    lineID,
+			"message":    fmt.Sprintf("Will permanently delete line %s from receipt %s. Pass confirmed=true.", lineID, receiptID),
+		})
+	}
+
+	if err := ct.bc.DeleteB2BReceiptLine(ctx, receiptID, lineID); err != nil {
+		return shared.ToolError("failed to delete line %s from B2B receipt %s: %v", lineID, receiptID, err), nil
+	}
+	return shared.ToolJSON(map[string]any{"status": "deleted", "receipt_id": receiptID, "line_id": lineID})
 }

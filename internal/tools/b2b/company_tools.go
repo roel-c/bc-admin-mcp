@@ -45,6 +45,7 @@ func (ct *CompanyTools) RegisterTools(reg *discovery.Registry) {
 	ct.registerInvoiceTools(reg)
 	ct.registerQuoteTools(reg)
 	ct.registerPaymentTools(reg)
+	ct.registerPaymentRecordTools(reg)
 	ct.registerSalesStaffTools(reg)
 	ct.registerSuperAdminTools(reg)
 	ct.registerShoppingListTools(reg)

@@ -514,6 +514,7 @@ func TestFullRegistrationB2BRootIsGatedByFlag(t *testing.T) {
 		"b2b/super_admins",
 		"b2b/companies/super_admins",
 		"b2b/shopping_lists",
+		"b2b/payment_records",
 	}
 	for _, cat := range requiredCategories {
 		require.True(t, enabled.HasCategory(cat), "missing required category %q when enabled", cat)
@@ -609,6 +610,24 @@ func TestFullRegistrationB2BRootIsGatedByFlag(t *testing.T) {
 		"b2b/shopping_lists/update",
 		"b2b/shopping_lists/delete",
 		"b2b/shopping_lists/items/remove",
+		"b2b/companies/payments/update",
+		"b2b/companies/credit/update",
+		"b2b/companies/payment_terms/update",
+		"b2b/invoices/create",
+		"b2b/invoices/create_from_order",
+		"b2b/invoices/update",
+		"b2b/invoices/delete",
+		"b2b/receipts/delete",
+		"b2b/receipts/lines/delete",
+		"b2b/payment_records/list",
+		"b2b/payment_records/get",
+		"b2b/payment_records/transactions",
+		"b2b/payment_records/operations",
+		"b2b/payment_records/create_offline",
+		"b2b/payment_records/update_offline",
+		"b2b/payment_records/perform_operation",
+		"b2b/payment_records/update_processing_status",
+		"b2b/payment_records/delete",
 	}
 	for _, toolPath := range requiredTools {
 		def := enabled.GetTool(toolPath)

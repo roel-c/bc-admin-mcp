@@ -60,6 +60,7 @@ func (s *B2BCompanyToolsSuite) SetupTest() {
 	s.reg.RegisterCategory("b2b/super_admins", "Super admins")
 	s.reg.RegisterCategory("b2b/companies/super_admins", "Company super admins")
 	s.reg.RegisterCategory("b2b/shopping_lists", "Shopping lists")
+	s.reg.RegisterCategory("b2b/payment_records", "Payment records")
 	s.ct.RegisterTools(s.reg)
 }
 

@@ -119,7 +119,7 @@ func (c *Carts) RegisterCheckoutTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR2,
 		Summary: "Convert a completed checkout into an order (irreversible)",
 		Tool: mcp.NewTool("carts_checkout_convert",
-			mcp.WithDescription("Convert a checkout to an order. Prerequisites: billing address set, consignment with shipping option selected, cart has items. Returns the new order ID. The cart is consumed — this cannot be undone. Scope: store_checkouts."),
+			mcp.WithDescription("Convert a checkout to an order. Prerequisites: billing address set, consignment with shipping option selected, cart has items. Returns the new order ID. The cart is consumed — this cannot be undone. IMPORTANT: this endpoint takes no payment, so BigCommerce always creates the order in 'Incomplete' status (hidden from the default Orders view). Follow up with orders/management/update_status to move it to a real status (e.g. Awaiting Fulfillment/Payment) before it's usable for invoicing or visible in dashboards. Scope: store_checkouts."),
 			mcp.WithString("checkout_id", mcp.Description("Cart/Checkout UUID"), mcp.Required()),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create the order.")),
 		),

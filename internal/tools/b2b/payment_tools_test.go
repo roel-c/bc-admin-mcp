@@ -74,3 +74,81 @@ func (s *B2BCompanyToolsSuite) TestCompanyCreditGetRejectsMissingID() {
 	s.NoError(err)
 	s.True(res.IsError)
 }
+
+// --- b2b/companies/payments/update ---
+
+func (s *B2BCompanyToolsSuite) TestCompanyPaymentsUpdatePreviewThenConfirm() {
+	prev, err := s.callTool("b2b/companies/payments/update", map[string]any{
+		"company_id": float64(42), "updates_json": `[{"code":"cheque","isEnabled":true}]`,
+	})
+	s.NoError(err)
+	s.Equal("preview", s.parseJSON(prev)["status"])
+
+	s.mockBC.EXPECT().UpdateB2BCompanyPaymentMethods(gomock.Any(), 42, gomock.Any()).Return(nil)
+	res, err := s.callTool("b2b/companies/payments/update", map[string]any{
+		"company_id": float64(42), "updates_json": `[{"code":"cheque","isEnabled":true}]`, "confirmed": true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	s.Equal("updated", s.parseJSON(res)["status"])
+}
+
+func (s *B2BCompanyToolsSuite) TestCompanyPaymentsUpdateRejectsEmpty() {
+	res, err := s.callTool("b2b/companies/payments/update", map[string]any{
+		"company_id": float64(42), "updates_json": `[]`, "confirmed": true,
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+// --- b2b/companies/credit/update ---
+
+func (s *B2BCompanyToolsSuite) TestCompanyCreditUpdatePreviewThenConfirm() {
+	prev, err := s.callTool("b2b/companies/credit/update", map[string]any{
+		"company_id": float64(42), "credit_enabled": true,
+	})
+	s.NoError(err)
+	s.Equal("preview", s.parseJSON(prev)["status"])
+
+	s.mockBC.EXPECT().UpdateB2BCompanyCredit(gomock.Any(), 42, gomock.Any()).Return(&bigcommerce.B2BCompanyCredit{CreditEnabled: true}, nil)
+	res, err := s.callTool("b2b/companies/credit/update", map[string]any{
+		"company_id": float64(42), "credit_enabled": true, "confirmed": true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	s.Equal("updated", s.parseJSON(res)["status"])
+}
+
+// --- b2b/companies/payment_terms/update ---
+
+func (s *B2BCompanyToolsSuite) TestCompanyPaymentTermsUpdatePreviewThenConfirm() {
+	prev, err := s.callTool("b2b/companies/payment_terms/update", map[string]any{
+		"company_id": float64(42), "is_enabled": true, "payment_terms": "45",
+	})
+	s.NoError(err)
+	s.Equal("preview", s.parseJSON(prev)["status"])
+
+	s.mockBC.EXPECT().UpdateB2BCompanyPaymentTerms(gomock.Any(), 42, true, "45").Return(&bigcommerce.B2BPaymentTerms{IsEnabled: true}, nil)
+	res, err := s.callTool("b2b/companies/payment_terms/update", map[string]any{
+		"company_id": float64(42), "is_enabled": true, "payment_terms": "45", "confirmed": true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	s.Equal("updated", s.parseJSON(res)["status"])
+}
+
+func (s *B2BCompanyToolsSuite) TestCompanyPaymentTermsUpdateRejectsInvalidTerms() {
+	res, err := s.callTool("b2b/companies/payment_terms/update", map[string]any{
+		"company_id": float64(42), "is_enabled": true, "payment_terms": "99", "confirmed": true,
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+func (s *B2BCompanyToolsSuite) TestCompanyPaymentTermsUpdateRejectsMissingIsEnabled() {
+	res, err := s.callTool("b2b/companies/payment_terms/update", map[string]any{
+		"company_id": float64(42), "payment_terms": "45", "confirmed": true,
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}

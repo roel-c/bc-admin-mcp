@@ -120,3 +120,52 @@ func (c *B2BClient) GetB2BCompanyPaymentTerms(ctx context.Context, companyID int
 	}
 	return &out, nil
 }
+
+// B2BCompanyPaymentMethodUpdate is one entry in the PUT /companies/{id}/payments
+// request body: enables/disables a payment method for the company.
+type B2BCompanyPaymentMethodUpdate struct {
+	Code      string `json:"code"`
+	IsEnabled bool   `json:"isEnabled"`
+}
+
+// UpdateB2BCompanyPaymentMethods enables/disables payment methods for a
+// company. Only the methods listed in updates are affected.
+func (c *B2BClient) UpdateB2BCompanyPaymentMethods(ctx context.Context, companyID int, updates []B2BCompanyPaymentMethodUpdate) error {
+	body := map[string]any{"payments": updates}
+	_, err := c.B2BPut(ctx, fmt.Sprintf("companies/%d/payments", companyID), body)
+	if err != nil {
+		return fmt.Errorf("update B2B company %d payment methods: %w", companyID, err)
+	}
+	return nil
+}
+
+// UpdateB2BCompanyCredit updates a company's credit settings. Fails if the
+// store's Company Credit feature is disabled. The request body is the same
+// shape as B2BCompanyCredit (the GET response).
+func (c *B2BClient) UpdateB2BCompanyCredit(ctx context.Context, companyID int, payload B2BCompanyCredit) (*B2BCompanyCredit, error) {
+	body, err := c.B2BPut(ctx, fmt.Sprintf("companies/%d/credit", companyID), payload)
+	if err != nil {
+		return nil, fmt.Errorf("update B2B company %d credit: %w", companyID, err)
+	}
+	var out B2BCompanyCredit
+	if err := b2bUnmarshalSingle(body, &out, "update B2B company credit"); err != nil {
+		return &payload, nil //nolint:nilerr // write succeeded; response body shape varies
+	}
+	return &out, nil
+}
+
+// UpdateB2BCompanyPaymentTerms updates a company's net-terms configuration.
+// paymentTerms must be one of "0","5","15","30","45","60" and is ignored by
+// BC (defaults to the store-level value) when isEnabled is false.
+func (c *B2BClient) UpdateB2BCompanyPaymentTerms(ctx context.Context, companyID int, isEnabled bool, paymentTerms string) (*B2BPaymentTerms, error) {
+	body := map[string]any{"isEnabled": isEnabled, "paymentTerms": paymentTerms}
+	respBody, err := c.B2BPut(ctx, fmt.Sprintf("companies/%d/payment-terms", companyID), body)
+	if err != nil {
+		return nil, fmt.Errorf("update B2B company %d payment terms: %w", companyID, err)
+	}
+	var out B2BPaymentTerms
+	if err := b2bUnmarshalSingle(respBody, &out, "update B2B company payment terms"); err != nil {
+		return &B2BPaymentTerms{IsEnabled: isEnabled, PaymentTerms: flexString(paymentTerms)}, nil //nolint:nilerr // write succeeded; response body shape varies
+	}
+	return &out, nil
+}

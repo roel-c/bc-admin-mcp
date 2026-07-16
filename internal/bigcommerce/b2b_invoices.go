@@ -58,6 +58,69 @@ func (c *B2BClient) DownloadB2BInvoicePDF(ctx context.Context, invoiceID string)
 	return out, nil
 }
 
+// CreateB2BInvoice creates an invoice from a raw JSON body matching the
+// documented create schema (invoiceNumber, dueDate, status, orderNumber,
+// purchaseOrderNumber, originalBalance, openBalance, details, customerId,
+// channelId, etc.). Deeply nested and store-specific, so passed through
+// rather than modeled field by field — mirror an existing invoice's shape
+// (via b2b/invoices/get) when building the body.
+func (c *B2BClient) CreateB2BInvoice(ctx context.Context, body map[string]any) (map[string]any, error) {
+	respBody, err := c.B2BPost(ctx, "ip/invoices", body)
+	if err != nil {
+		return nil, fmt.Errorf("create B2B invoice: %w", err)
+	}
+	out := map[string]any{}
+	if err := b2bUnmarshalSingle(respBody, &out, "create B2B invoice"); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CreateB2BInvoiceFromOrder generates an invoice from an existing order's
+// data. Takes no request body.
+//
+// IMPORTANT: orderID here is B2B Edition's own internal order ID (the "id"
+// field on a GetB2BOrder response), NOT the BigCommerce order ID
+// ("bcOrderId") — the two are different numbers. Passing a BigCommerce order
+// ID returns a 404 "Order does not exist" even for a valid, existing order.
+// Callers should resolve the internal ID via GetB2BOrder first (see
+// handleInvoiceCreateFromOrder).
+func (c *B2BClient) CreateB2BInvoiceFromOrder(ctx context.Context, orderID int) (map[string]any, error) {
+	respBody, err := c.B2BPost(ctx, fmt.Sprintf("ip/orders/%d/invoices", orderID), map[string]any{})
+	if err != nil {
+		return nil, fmt.Errorf("create B2B invoice from order %d: %w", orderID, err)
+	}
+	out := map[string]any{}
+	if err := b2bUnmarshalSingle(respBody, &out, "create B2B invoice from order"); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// UpdateB2BInvoice updates an invoice from a raw JSON body. Per the API
+// contract, updating `details` completely replaces the existing value rather
+// than merging.
+func (c *B2BClient) UpdateB2BInvoice(ctx context.Context, invoiceID string, body map[string]any) (map[string]any, error) {
+	respBody, err := c.B2BPut(ctx, fmt.Sprintf("ip/invoices/%s", invoiceID), body)
+	if err != nil {
+		return nil, fmt.Errorf("update B2B invoice %s: %w", invoiceID, err)
+	}
+	out := map[string]any{}
+	if err := b2bUnmarshalSingle(respBody, &out, "update B2B invoice"); err != nil {
+		return map[string]any{}, nil //nolint:nilerr // write succeeded; response body shape varies
+	}
+	return out, nil
+}
+
+// DeleteB2BInvoice permanently deletes an invoice.
+func (c *B2BClient) DeleteB2BInvoice(ctx context.Context, invoiceID string) error {
+	_, err := c.B2BDelete(ctx, fmt.Sprintf("ip/invoices/%s", invoiceID))
+	if err != nil {
+		return fmt.Errorf("delete B2B invoice %s: %w", invoiceID, err)
+	}
+	return nil
+}
+
 // ListB2BInvoiceExtraFields returns the extra-field definitions configured for
 // invoices.
 func (c *B2BClient) ListB2BInvoiceExtraFields(ctx context.Context, params string) ([]B2BExtraFieldDef, error) {
@@ -146,6 +209,24 @@ func (c *B2BClient) GetB2BReceiptLine(ctx context.Context, receiptID, lineID str
 		return nil, err
 	}
 	return out, nil
+}
+
+// DeleteB2BReceipt permanently deletes a receipt.
+func (c *B2BClient) DeleteB2BReceipt(ctx context.Context, receiptID string) error {
+	_, err := c.B2BDelete(ctx, fmt.Sprintf("ip/receipts/%s", receiptID))
+	if err != nil {
+		return fmt.Errorf("delete B2B receipt %s: %w", receiptID, err)
+	}
+	return nil
+}
+
+// DeleteB2BReceiptLine permanently deletes a single line from a receipt.
+func (c *B2BClient) DeleteB2BReceiptLine(ctx context.Context, receiptID, lineID string) error {
+	_, err := c.B2BDelete(ctx, fmt.Sprintf("ip/receipts/%s/lines/%s", receiptID, lineID))
+	if err != nil {
+		return fmt.Errorf("delete line %s from B2B receipt %s: %w", lineID, receiptID, err)
+	}
+	return nil
 }
 
 // unmarshalMapSlice unmarshals a slice of raw JSON objects into
