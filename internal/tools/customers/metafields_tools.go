@@ -15,7 +15,6 @@ import (
 const (
 	defaultCustomerMetafieldPermissionSet = "app_only"
 	maxBulkCustomerMetafieldTargets       = 50
-	maxCustomerMetafieldDeleteIDs         = 50
 )
 
 // CustomerMetafieldListSearchFilters maps tool params to /v3/customers/metafields keys.
@@ -460,8 +459,12 @@ func (m *CustomerMetafields) handleBulkSet(ctx context.Context, request mcp.Call
 		})
 	}
 
+	status := "completed"
+	if failed > 0 {
+		status = "partial_success"
+	}
 	out := map[string]any{
-		"status":    "completed",
+		"status":    status,
 		"total":     len(ids),
 		"succeeded": succeeded,
 		"failed":    failed,
@@ -548,8 +551,12 @@ func (m *CustomerMetafields) handleBulkDelete(ctx context.Context, request mcp.C
 		})
 	}
 
+	status := "completed"
+	if failed > 0 {
+		status = "partial_success"
+	}
 	out := map[string]any{
-		"status":    "completed",
+		"status":    status,
 		"total":     len(ids),
 		"succeeded": succeeded,
 		"skipped":   skipped,

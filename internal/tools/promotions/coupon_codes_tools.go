@@ -320,31 +320,19 @@ func (cc *CouponCodes) handleGenerateBulk(ctx context.Context, request mcp.CallT
 		})
 	}
 
-	generated, err := cc.bc.GenerateCouponCodes(ctx, id, req)
-	if err != nil {
+	if _, err := cc.bc.GenerateCouponCodes(ctx, id, req); err != nil {
 		return shared.ToolError("codegen failed: %v", err), nil
 	}
+	// BigCommerce's /codegen response is a batch record, not the codes. The
+	// requested batch_size is what gets minted; retrieve the actual codes via
+	// the list tool.
 	return shared.ToolJSON(map[string]any{
 		"status":          "generated",
 		"promotion_id":    id,
-		"generated_count": len(generated),
-		"sample":          sampleCodes(generated, 5),
+		"generated_count": req.BatchSize,
+		"message":         "Codes minted. Use marketing/promotions/coupon/codes/list to retrieve the generated codes.",
 		"request":         req,
 	})
-}
-
-// sampleCodes returns up to n code strings from the head of the slice — the
-// codegen response can be large, so the tool returns a small sample plus the
-// total count rather than the entire payload.
-func sampleCodes(codes []bigcommerce.CouponCode, n int) []string {
-	if n > len(codes) {
-		n = len(codes)
-	}
-	out := make([]string, 0, n)
-	for i := 0; i < n; i++ {
-		out = append(out, codes[i].Code)
-	}
-	return out
 }
 
 // ---------------------------------------------------------------------------

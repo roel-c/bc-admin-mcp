@@ -10,6 +10,7 @@ import (
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
+	"github.com/roel-c/bc-admin-mcp/internal/session"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/shared"
 )
 
@@ -29,12 +30,13 @@ const cascadeDeleteCodesCap = 1000
 // kept parallel rather than refactored into a shared base so each tool tree
 // reads cleanly on its own.
 type CouponPromotions struct {
-	bc BigCommercePromotionsAPI
+	bc    BigCommercePromotionsAPI
+	cache *session.Store
 }
 
 // NewCouponPromotions constructs the COUPON promotions tool handlers.
-func NewCouponPromotions(bc BigCommercePromotionsAPI) *CouponPromotions {
-	return &CouponPromotions{bc: bc}
+func NewCouponPromotions(bc BigCommercePromotionsAPI, cache *session.Store) *CouponPromotions {
+	return &CouponPromotions{bc: bc, cache: cache}
 }
 
 // RegisterTools wires the marketing/promotions/coupon/* tools into the
@@ -355,11 +357,16 @@ func (c *CouponPromotions) handleUpdate(ctx context.Context, request mcp.CallToo
 
 	patch, _ := args["patch"].(map[string]any)
 	rulesPatchRaw, hasRulesPatch := args["rules_patch"]
-	if (patch == nil || len(patch) == 0) && !hasRulesPatch {
+	if len(patch) == 0 && !hasRulesPatch {
 		return shared.ToolError("provide patch (object) and/or rules_patch (array)"), nil
 	}
 
-	current, err := c.bc.GetPromotion(ctx, id)
+	// Cache the fetched promotion under an update-scoped key so confirm reuses
+	// the preview snapshot instead of a second GET (namespaced to this handler).
+	cacheKey := fmt.Sprintf("coupon_update:%d", id)
+	current, err := session.CacheOrFetch(c.cache.ForContext(ctx), cacheKey, func() (*bigcommerce.Promotion, error) {
+		return c.bc.GetPromotion(ctx, id)
+	})
 	if err != nil {
 		return shared.ToolError("failed to fetch current promotion %d: %v", id, err), nil
 	}
@@ -404,6 +411,7 @@ func (c *CouponPromotions) handleUpdate(ctx context.Context, request mcp.CallToo
 	if err != nil {
 		return shared.ToolError("update failed: %v", err), nil
 	}
+	c.cache.ForContext(ctx).Delete(cacheKey)
 	resp := map[string]any{"status": "updated", "promotion": updated}
 	if len(warnings) > 0 {
 		resp["warnings"] = warnings

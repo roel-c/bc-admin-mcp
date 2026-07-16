@@ -85,7 +85,7 @@ func (s *UpdateToolSuite) TestUpdateExecuteSingleProduct() {
 	}, nil)
 
 	// Preview first
-	s.callTool("catalog/products/update", map[string]any{
+	_, _ = s.callTool("catalog/products/update", map[string]any{
 		"product_ids": []any{float64(42)},
 		"price":       float64(24.99),
 	})

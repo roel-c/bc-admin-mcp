@@ -231,8 +231,12 @@ func (p *Products) handleProductMetafieldsBulkSet(ctx context.Context, request m
 		})
 	}
 
+	status := "completed"
+	if failed > 0 {
+		status = "partial_success"
+	}
 	out := map[string]any{
-		"status":    "completed",
+		"status":    status,
 		"total":     len(ids),
 		"succeeded": succeeded,
 		"failed":    failed,
@@ -338,8 +342,12 @@ func (p *Products) handleProductMetafieldsBulkDelete(ctx context.Context, reques
 		})
 	}
 
+	status := "completed"
+	if failed > 0 {
+		status = "partial_success"
+	}
 	out := map[string]any{
-		"status":    "completed",
+		"status":    status,
 		"total":     len(ids),
 		"succeeded": succeeded,
 		"skipped":   skipped,

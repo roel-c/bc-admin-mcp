@@ -126,6 +126,8 @@ type BigCommerceAPI interface {
 	GetBrand(ctx context.Context, brandID int) (*bigcommerce.Brand, error)
 	CreateBrand(ctx context.Context, input bigcommerce.BrandCreate) (*bigcommerce.Brand, error)
 	UpdateBrand(ctx context.Context, brandID int, input bigcommerce.BrandUpdate) (*bigcommerce.Brand, error)
+	DeleteBrand(ctx context.Context, brandID int) error
+	DeleteBrandImage(ctx context.Context, brandID int) error
 
 	// Brand metafields
 	ListBrandMetafields(ctx context.Context, brandID int) ([]bigcommerce.Metafield, error)

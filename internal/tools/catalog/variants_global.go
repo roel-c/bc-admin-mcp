@@ -257,8 +257,12 @@ func (g *GlobalVariants) handleGlobalBulkUpdate(ctx context.Context, request mcp
 		return toolError("batch update failed: %v", err), nil
 	}
 
+	status := "completed"
+	if result.Failed > 0 {
+		status = "partial_success"
+	}
 	return toolJSON(map[string]any{
-		"status":    "completed",
+		"status":    status,
 		"succeeded": result.Succeeded,
 		"failed":    result.Failed,
 		"errors":    result.Errors,

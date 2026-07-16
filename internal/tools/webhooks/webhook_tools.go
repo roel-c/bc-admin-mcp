@@ -3,7 +3,9 @@ package webhooks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -96,7 +98,7 @@ func (w *Webhooks) RegisterTools(reg *discovery.Registry) {
 
 	reg.RegisterTool(&discovery.ToolDef{
 		Path:    "webhooks/create",
-		Tier:    middleware.TierR2,
+		Tier:    middleware.TierR1,
 		Summary: "Register a new webhook (preview → confirm)",
 		Description: "POST /v3/hooks — creates a new webhook registration. " +
 			"destination must be an HTTPS URL (BC rejects plain HTTP). " +
@@ -138,7 +140,7 @@ func (w *Webhooks) RegisterTools(reg *discovery.Registry) {
 
 	reg.RegisterTool(&discovery.ToolDef{
 		Path:    "webhooks/update",
-		Tier:    middleware.TierR2,
+		Tier:    middleware.TierR1,
 		Summary: "Update a webhook's scope, destination, active status, or headers (preview → confirm)",
 		Description: "PUT /v3/hooks/{id} — updates a webhook. " +
 			"Fetches the current record then applies the provided changes (fetch-merge-PUT). " +
@@ -269,6 +271,19 @@ func (w *Webhooks) handleEvents(ctx context.Context, request mcp.CallToolRequest
 
 	events, err := w.bc.GetWebhookEvents(ctx, hookID)
 	if err != nil {
+		// BigCommerce returns 404 for a webhook that has no recorded delivery
+		// history — that's "no events yet", not "hook not found". Return an
+		// empty result with a note rather than a misleading error.
+		var apiErr *bigcommerce.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+			return toolJSON(map[string]any{
+				"hook_id": hookID,
+				"total":   0,
+				"events":  []any{},
+				"note":    "No delivery events recorded for this webhook yet (BigCommerce returns 404 for hooks with no event history). If you expected the hook itself to exist, confirm it via webhooks/get.",
+				"api":     fmt.Sprintf("GET /v3/hooks/%d/events", hookID),
+			})
+		}
 		return toolError("failed to get events for webhook %d: %v", hookID, err), nil
 	}
 

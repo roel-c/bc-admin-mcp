@@ -29,8 +29,11 @@ func (p *Products) RegisterOptionTools(reg *discovery.Registry) {
 		Path:    "catalog/products/options/create",
 		Tier:    middleware.TierR1,
 		Summary: "Create a variant-generating option on a product",
-		Description: "Adds an option (e.g. Size, Color) with values. " +
-			"This defines variant axes; variants are auto-generated based on value combinations.",
+		Description: "Adds an option (e.g. Size, Color) with values, defining a variant axis. " +
+			"NOTE: this does NOT auto-generate variants — create each variant explicitly via " +
+			"catalog/products/variants/create (option_values need id + option_id + label). " +
+			"To create a product and all its variants in ONE call, prefer catalog/products/create " +
+			"with an inline variants array (BigCommerce V3 best practice).",
 		Tool: mcp.NewTool("catalog_products_options_create",
 			mcp.WithDescription(
 				"Create an option on a product. Provide display_name, type, and option_values. "+

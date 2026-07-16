@@ -9,6 +9,7 @@ import (
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
 	"github.com/roel-c/bc-admin-mcp/internal/session"
+	"github.com/roel-c/bc-admin-mcp/internal/tools/b2b"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/carts"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/catalog"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/customers"
@@ -23,12 +24,21 @@ import (
 // behind the progressive disclosure meta-tools.
 func New(cfg *config.Config, logger *slog.Logger) *server.MCPServer {
 	bcClient := bigcommerce.NewClient(cfg.BigCommerce, logger)
+	var b2bClient *bigcommerce.B2BClient
+	if cfg.BigCommerce.B2BEnabled {
+		b2bClient = bigcommerce.NewB2BClient(
+			cfg.BigCommerce.StoreHash,
+			cfg.BigCommerce.AuthToken,
+			cfg.BigCommerce.MaxRetries,
+			logger,
+		)
+	}
 	cacheStore := session.NewStore(cfg.BigCommerce.CacheTTL)
 	tierEnforcer := middleware.NewTierEnforcer()
 
 	reg := discovery.NewRegistry()
-	registerCategories(reg)
-	registerTools(reg, bcClient, cacheStore)
+	registerCategories(reg, cfg.BigCommerce.B2BEnabled)
+	registerTools(reg, bcClient, b2bClient, cacheStore)
 
 	mcpServer := server.NewMCPServer(
 		cfg.Server.Name,
@@ -47,7 +57,8 @@ func New(cfg *config.Config, logger *slog.Logger) *server.MCPServer {
 }
 
 // registerCategories sets up the tool hierarchy for progressive disclosure.
-func registerCategories(reg *discovery.Registry) {
+// b2bEnabled gates the b2b/ root — only register it when BC_B2B_ENABLED=true.
+func registerCategories(reg *discovery.Registry, b2bEnabled bool) {
 	reg.RegisterCategory("catalog", "Product catalog: products, categories, brands, variants, and price lists")
 	reg.RegisterCategory("catalog/products", "Product operations: search, get, create, update, delete, and sub-resource management")
 	reg.RegisterCategory("catalog/products/channel_assignments", "MSF: product ↔ channel catalog assignments (list, assign, remove via /v3/catalog/products/channel-assignments)")
@@ -60,7 +71,8 @@ func registerCategories(reg *discovery.Registry) {
 	reg.RegisterCategory("catalog/products/metafields", "Product metafield CRUD: list, set, delete, bulk_set, bulk_delete (namespace+key; permission_set for Storefront access)")
 	reg.RegisterCategory("catalog/categories", "Category operations: list, get, create, update, SEO, metafields")
 	reg.RegisterCategory("catalog/categories/metafields", "Category metafield CRUD: list, set, delete custom key-value data")
-	reg.RegisterCategory("catalog/brands", "Brand operations: list, get, create, update, metafields")
+	reg.RegisterCategory("catalog/brands", "Brand operations: list, get, create, update, delete, image, metafields")
+	reg.RegisterCategory("catalog/brands/image", "Brand image: set by URL (via update) or remove (DELETE /v3/catalog/brands/{id}/image)")
 	reg.RegisterCategory("catalog/brands/metafields", "Brand metafield CRUD: list, set, delete custom key-value data")
 	reg.RegisterCategory("catalog/variants", "Global catalog variants: list/search (GET /v3/catalog/variants) and batch update (PUT); product-scoped CRUD remains under catalog/products/variants")
 	reg.RegisterCategory("catalog/channels", "Sales channels and MSF catalog context: list/get/update channels, category trees per channel, and channel listings.")
@@ -118,15 +130,26 @@ func registerCategories(reg *discovery.Registry) {
 	reg.RegisterCategory("storefront", "Storefront operations: script injection and management via the BigCommerce Scripts API.")
 	reg.RegisterCategory("storefront/scripts", "Script Manager: list, get, create (R1), update (R1), toggle enabled (R1), delete (R3) via /v3/content/scripts.")
 
-	reg.RegisterCategory("carts", "Server-side cart lifecycle: create, get, update, delete, item management, and checkout URL generation via /v3/carts.")
-	reg.RegisterCategory("carts/cart", "Cart CRUD: create, get, update, delete a cart.")
+	reg.RegisterCategory("carts", "Server-side cart and checkout lifecycle via /v3/carts and /v3/checkouts.")
+	reg.RegisterCategory("carts/cart", "Cart CRUD: create, get, update, delete; checkout URL generation.")
 	reg.RegisterCategory("carts/cart/items", "Cart item management: add, update quantity, remove items.")
+	reg.RegisterCategory("carts/cart/metafields", "Cart metafield CRUD: list, set (upsert), delete.")
+	reg.RegisterCategory("carts/checkout", "Checkout: get, coupon apply/remove, billing address, consignment, convert to order.")
+
+	// B2B Edition — gated by BC_B2B_ENABLED; only registers when the store has B2BE.
+	if b2bEnabled {
+		reg.RegisterCategory("b2b", "B2B Edition: company accounts, buyer users, and company addresses.")
+		reg.RegisterCategory("b2b/companies", "Company account CRUD and lifecycle status management.")
+		reg.RegisterCategory("b2b/companies/users", "Buyer portal user CRUD; roles: admin, senior buyer, junior buyer.")
+		reg.RegisterCategory("b2b/companies/addresses", "Company address CRUD: billing and shipping locations.")
+	}
 
 	// store/* remains omitted until tools exist to avoid empty discover_tools leaves.
 }
 
 // registerTools wires up all tool implementations into the registry.
-func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, cache *session.Store) {
+// b2bBC is nil when B2B Edition is disabled; tools are skipped in that case.
+func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, b2bBC *bigcommerce.B2BClient, cache *session.Store) {
 	products := catalog.NewProducts(bc, cache)
 	products.RegisterTools(reg)
 
@@ -165,7 +188,7 @@ func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, cache *sessi
 	categories := catalog.NewCategories(bc, cache)
 	categories.RegisterTools(reg)
 
-	brands := catalog.NewBrands(bc, cache)
+	brands := catalog.NewBrands(bc)
 	brands.RegisterTools(reg)
 
 	customerGroups := customers.NewGroups(bc)
@@ -204,16 +227,16 @@ func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, cache *sessi
 	shopperProfiles := customers.NewShopperProfiles(bc)
 	shopperProfiles.RegisterTools(reg)
 
-	autoPromotions := promotions.NewAutomaticPromotions(bc)
+	autoPromotions := promotions.NewAutomaticPromotions(bc, cache)
 	autoPromotions.RegisterTools(reg)
 
-	couponPromotions := promotions.NewCouponPromotions(bc)
+	couponPromotions := promotions.NewCouponPromotions(bc, cache)
 	couponPromotions.RegisterTools(reg)
 
 	couponCodes := promotions.NewCouponCodes(bc)
 	couponCodes.RegisterTools(reg)
 
-	promotionSettings := promotions.NewPromotionSettingsTools(bc)
+	promotionSettings := promotions.NewPromotionSettingsTools(bc, cache)
 	promotionSettings.RegisterTools(reg)
 
 	inventoryTools := inventory.New(bc)
@@ -227,4 +250,11 @@ func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, cache *sessi
 
 	cartTools := carts.NewCarts(bc, cache)
 	cartTools.RegisterTools(reg)
+	cartTools.RegisterMetafieldTools(reg)
+	cartTools.RegisterCheckoutTools(reg)
+
+	if b2bBC != nil {
+		b2bCompanies := b2b.NewCompanyTools(b2bBC, bc, cache)
+		b2bCompanies.RegisterTools(reg)
+	}
 }

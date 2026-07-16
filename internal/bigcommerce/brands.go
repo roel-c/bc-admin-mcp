@@ -68,6 +68,30 @@ func (c *Client) CreateBrand(ctx context.Context, payload BrandCreate) (*Brand, 
 	return &created, nil
 }
 
+// DeleteBrand deletes a single brand via DELETE /v3/catalog/brands/{id}.
+// Products previously assigned to the brand remain; their brand_id is cleared.
+func (c *Client) DeleteBrand(ctx context.Context, brandID int) error {
+	if brandID <= 0 {
+		return fmt.Errorf("brand id must be positive")
+	}
+	if _, err := c.Delete(ctx, fmt.Sprintf("catalog/brands/%d", brandID)); err != nil {
+		return fmt.Errorf("delete brand %d: %w", brandID, err)
+	}
+	return nil
+}
+
+// DeleteBrandImage removes a brand's image via
+// DELETE /v3/catalog/brands/{id}/image.
+func (c *Client) DeleteBrandImage(ctx context.Context, brandID int) error {
+	if brandID <= 0 {
+		return fmt.Errorf("brand id must be positive")
+	}
+	if _, err := c.Delete(ctx, fmt.Sprintf("catalog/brands/%d/image", brandID)); err != nil {
+		return fmt.Errorf("delete brand %d image: %w", brandID, err)
+	}
+	return nil
+}
+
 // UpdateBrand updates a brand via PUT /v3/catalog/brands/{id}.
 func (c *Client) UpdateBrand(ctx context.Context, brandID int, payload BrandUpdate) (*Brand, error) {
 	path := fmt.Sprintf("catalog/brands/%d", brandID)

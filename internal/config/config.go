@@ -35,6 +35,11 @@ type BigCommerceConfig struct {
 	DelayBetweenChunks  time.Duration
 	MaxWriteConcurrency int
 	CacheTTL            time.Duration
+
+	// B2BEnabled gates the b2b/ discovery root. Set BC_B2B_ENABLED=true on
+	// stores with B2B Edition enabled. Uses the same BC_AUTH_TOKEN +
+	// BC_STORE_HASH credentials; no separate token is required.
+	B2BEnabled bool
 }
 
 type ServerConfig struct {
@@ -74,6 +79,7 @@ func Load() (*Config, error) {
 			DelayBetweenChunks:  time.Duration(envInt("BC_DELAY_BETWEEN_CHUNKS_MS", 500)) * time.Millisecond,
 			MaxWriteConcurrency: envInt("BC_MAX_WRITE_CONCURRENCY", 1),
 			CacheTTL:            time.Duration(envInt("BC_CACHE_TTL_SECONDS", 60)) * time.Second,
+			B2BEnabled:          envBool("BC_B2B_ENABLED", false),
 		},
 		Server: ServerConfig{
 			Name:      envStr("MCP_SERVER_NAME", "bigcommerce-mcp"),
@@ -145,6 +151,15 @@ func envInt(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
 		if i, err := strconv.Atoi(v); err == nil {
 			return i
+		}
+	}
+	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
 		}
 	}
 	return fallback

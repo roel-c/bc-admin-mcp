@@ -199,11 +199,6 @@ func (p *Products) executeBulkSKUUpdate(ctx context.Context, entries []bulkSKUEn
 	key := bulkSKUCacheKey(entries)
 
 	// Build the update slice — either from cache (fast path) or a fresh fetch.
-	type skuPair struct {
-		ProductID int
-		NewSKU    string
-	}
-
 	var updates []bigcommerce.ProductUpdate
 
 	type cachedEntry struct {
@@ -243,8 +238,12 @@ func (p *Products) executeBulkSKUUpdate(ctx context.Context, entries []bulkSKUEn
 	}
 	sessionCache.Delete(key)
 
+	status := "completed"
+	if result.Failed > 0 {
+		status = "partial_success"
+	}
 	resp := map[string]any{
-		"status":           "completed",
+		"status":           status,
 		"products_updated": result.Succeeded,
 		"products_failed":  result.Failed,
 	}

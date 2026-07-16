@@ -52,8 +52,11 @@ func (c *Client) CreateInventoryLocation(ctx context.Context, payload json.RawMe
 	return decodeV3DataOrBody(body), nil
 }
 
-// UpdateInventoryLocation updates one inventory location via
-// PUT /v3/inventory/locations/{id}.
+// UpdateInventoryLocation updates one inventory location. BigCommerce's update
+// is a BATCH operation — PUT /v3/inventory/locations with an ARRAY body where
+// each object carries the immutable id (there is no per-id PUT path; hitting
+// /inventory/locations/{id} returns 403). We inject the id into the caller's
+// patch object and send a single-element array.
 func (c *Client) UpdateInventoryLocation(ctx context.Context, locationID int, payload json.RawMessage) (json.RawMessage, error) {
 	if locationID <= 0 {
 		return nil, fmt.Errorf("location id must be positive")
@@ -61,20 +64,27 @@ func (c *Client) UpdateInventoryLocation(ctx context.Context, locationID int, pa
 	if len(payload) == 0 {
 		return nil, fmt.Errorf("inventory location update payload is required")
 	}
-	body, err := c.Put(ctx, fmt.Sprintf("inventory/locations/%d", locationID), json.RawMessage(payload))
+	var patch map[string]any
+	if err := json.Unmarshal(payload, &patch); err != nil {
+		return nil, fmt.Errorf("invalid inventory location update payload: %w", err)
+	}
+	patch["id"] = locationID
+	body, err := c.Put(ctx, "inventory/locations", []map[string]any{patch})
 	if err != nil {
 		return nil, fmt.Errorf("update inventory location %d: %w", locationID, err)
 	}
 	return decodeV3DataOrBody(body), nil
 }
 
-// DeleteInventoryLocation deletes one inventory location via
-// DELETE /v3/inventory/locations/{id}.
+// DeleteInventoryLocation deletes one inventory location. BigCommerce's delete
+// is a BATCH operation — DELETE /v3/inventory/locations?location_id:in=… (there
+// is no per-id DELETE path; /inventory/locations/{id} returns 403, and the
+// query param is location_id:in, NOT id:in).
 func (c *Client) DeleteInventoryLocation(ctx context.Context, locationID int) error {
 	if locationID <= 0 {
 		return fmt.Errorf("location id must be positive")
 	}
-	if _, err := c.Delete(ctx, fmt.Sprintf("inventory/locations/%d", locationID)); err != nil {
+	if _, err := c.Delete(ctx, fmt.Sprintf("inventory/locations?location_id:in=%d", locationID)); err != nil {
 		return fmt.Errorf("delete inventory location %d: %w", locationID, err)
 	}
 	return nil
@@ -245,24 +255,26 @@ func (c *Client) ListInventoryItems(ctx context.Context, params InventoryItemLis
 	return rows, nil
 }
 
-// GetInventoryItem fetches one variant inventory record from
-// GET /v3/inventory/items/{variant_id}.
+// GetInventoryItem fetches one variant's inventory record. BigCommerce has NO
+// single-item GET (/v3/inventory/items/{id} does not exist and 403/404s) — the
+// items API is list-only, so we query the list endpoint filtered by
+// variant_id:in and return the single matching row.
 func (c *Client) GetInventoryItem(ctx context.Context, variantID int) (json.RawMessage, error) {
 	if variantID <= 0 {
 		return nil, fmt.Errorf("variant id must be positive")
 	}
-	body, err := c.Get(ctx, fmt.Sprintf("inventory/items/%d", variantID))
+	body, err := c.Get(ctx, fmt.Sprintf("inventory/items?variant_id:in=%d&limit=1", variantID))
 	if err != nil {
 		return nil, fmt.Errorf("get inventory item %d: %w", variantID, err)
 	}
-	var resp SingleResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
+	rows, err := decodeV3PageData(body)
+	if err != nil {
 		return nil, fmt.Errorf("parse inventory item response: %w", err)
 	}
-	if len(resp.Data) == 0 || string(resp.Data) == "null" {
-		return nil, fmt.Errorf("inventory item response missing data")
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("no inventory item found for variant %d (it may not be inventory-tracked)", variantID)
 	}
-	return resp.Data, nil
+	return rows[0], nil
 }
 
 // CreateInventoryAbsoluteAdjustment submits one absolute adjustment batch via

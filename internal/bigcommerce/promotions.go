@@ -14,11 +14,6 @@ import (
 // we use 40 to stay under URL-length and concurrent-request limits.
 const maxPromotionIDInDelete = 40
 
-// promotionsDataEnvelope is the V3 list-response shape for /v3/promotions.
-type promotionsDataEnvelope struct {
-	Data []Promotion `json:"data"`
-}
-
 // promotionDataEnvelope is the V3 single-response shape for /v3/promotions/{id}.
 type promotionDataEnvelope struct {
 	Data Promotion `json:"data"`

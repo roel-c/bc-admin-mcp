@@ -80,7 +80,7 @@ func (s *DeleteToolSuite) TestDeleteExecute() {
 	}, nil)
 
 	// Preview
-	s.callTool("catalog/products/delete", map[string]any{
+	_, _ = s.callTool("catalog/products/delete", map[string]any{
 		"product_ids": []any{float64(42)},
 	})
 
@@ -109,4 +109,26 @@ func (s *DeleteToolSuite) TestDeleteWithoutPreviewFails() {
 	})
 	s.NoError(err)
 	s.True(result.IsError)
+}
+
+// Confirming with DIFFERENT targeting than the preview must miss the
+// fingerprinted cache and be rejected — never delete the preview's products.
+func (s *DeleteToolSuite) TestDeleteConfirmWithMismatchedTargetingRejected() {
+	s.mockBC.EXPECT().GetProductsByIDs(gomock.Any(), []int{42}).Return([]bigcommerce.Product{
+		{ID: 42, Name: "Widget"},
+	}, nil)
+
+	// Preview targets product 42.
+	_, _ = s.callTool("catalog/products/delete", map[string]any{
+		"product_ids": []any{float64(42)},
+	})
+
+	// Confirm targets a DIFFERENT product (99). No DeleteProducts call must
+	// happen — the mock has no expectation for it, so any call fails the test.
+	result, err := s.callTool("catalog/products/delete", map[string]any{
+		"product_ids": []any{float64(99)},
+		"confirmed":   true,
+	})
+	s.NoError(err)
+	s.True(result.IsError, "confirm with mismatched targeting must be rejected")
 }

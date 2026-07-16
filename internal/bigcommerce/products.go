@@ -190,16 +190,6 @@ func (c *Client) SearchCategories(ctx context.Context, params map[string]string)
 	return cats, nil
 }
 
-// ListCategories fetches categories, optionally filtered by name.
-// Retained for backward compatibility; new code should prefer SearchCategories.
-func (c *Client) ListCategories(ctx context.Context, name string) ([]Category, error) {
-	params := make(map[string]string)
-	if name != "" {
-		params["name"] = name
-	}
-	return c.SearchCategories(ctx, params)
-}
-
 const categoryBatchSize = 50
 
 // CreateCategory creates a new category via POST /v3/catalog/trees/categories.

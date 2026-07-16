@@ -11,6 +11,7 @@ import (
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
+	"github.com/roel-c/bc-admin-mcp/internal/session"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/shared"
 )
 
@@ -20,7 +21,6 @@ const (
 	rulesPerPromotionSoftWarn    = 10 // BC recommends ≤ 10 rules per promotion
 	activePromotionsSoftWarnAt   = 100
 	activePromotionsSearchPageSz = 250 // page size we use for the active-count gate on create
-	defaultListLimit             = 50  // BC default; we surface it in the tool description
 )
 
 // hardPinAutomatic is the value forced onto every list call from this tool —
@@ -45,12 +45,13 @@ var validSortDirections = map[string]struct{}{
 // AutomaticPromotions holds tool handlers for /v3/promotions where the
 // redemption_type is hard-pinned to AUTOMATIC.
 type AutomaticPromotions struct {
-	bc BigCommercePromotionsAPI
+	bc    BigCommercePromotionsAPI
+	cache *session.Store
 }
 
 // NewAutomaticPromotions constructs the AUTOMATIC promotions tool handlers.
-func NewAutomaticPromotions(bc BigCommercePromotionsAPI) *AutomaticPromotions {
-	return &AutomaticPromotions{bc: bc}
+func NewAutomaticPromotions(bc BigCommercePromotionsAPI, cache *session.Store) *AutomaticPromotions {
+	return &AutomaticPromotions{bc: bc, cache: cache}
 }
 
 // RegisterTools wires the marketing/promotions/automatic/* tools into the
@@ -361,11 +362,17 @@ func (a *AutomaticPromotions) handleUpdate(ctx context.Context, request mcp.Call
 
 	patch, _ := args["patch"].(map[string]any)
 	rulesPatchRaw, hasRulesPatch := args["rules_patch"]
-	if (patch == nil || len(patch) == 0) && !hasRulesPatch {
+	if len(patch) == 0 && !hasRulesPatch {
 		return shared.ToolError("provide patch (object) and/or rules_patch (array)"), nil
 	}
 
-	current, err := a.bc.GetPromotion(ctx, id)
+	// Cache the fetched promotion under an update-scoped key so the confirm
+	// call reuses the preview's snapshot instead of issuing a second GET. The
+	// key is namespaced to this handler to avoid colliding with other tools.
+	cacheKey := fmt.Sprintf("promotion_update:%d", id)
+	current, err := session.CacheOrFetch(a.cache.ForContext(ctx), cacheKey, func() (*bigcommerce.Promotion, error) {
+		return a.bc.GetPromotion(ctx, id)
+	})
 	if err != nil {
 		return shared.ToolError("failed to fetch current promotion %d: %v", id, err), nil
 	}
@@ -410,6 +417,8 @@ func (a *AutomaticPromotions) handleUpdate(ctx context.Context, request mcp.Call
 	if err != nil {
 		return shared.ToolError("update failed: %v", err), nil
 	}
+	// Snapshot is now stale — drop it so a later preview refetches.
+	a.cache.ForContext(ctx).Delete(cacheKey)
 	resp := map[string]any{"status": "updated", "promotion": updated}
 	if len(warnings) > 0 {
 		resp["warnings"] = warnings
@@ -429,16 +438,14 @@ func buildUpdatePayload(current *bigcommerce.Promotion, patch map[string]any, ru
 
 	rulesReplaced := false
 
-	if patch != nil {
-		for k, v := range patch {
-			if k == "rules" {
-				rulesReplaced = true
-			}
-			if k == "id" || k == "redemption_type" || k == "current_uses" || k == "created_from" {
-				return nil, false, fmt.Errorf("patch may not include read-only field %q", k)
-			}
-			merged[k] = v
+	for k, v := range patch {
+		if k == "rules" {
+			rulesReplaced = true
 		}
+		if k == "id" || k == "redemption_type" || k == "current_uses" || k == "created_from" {
+			return nil, false, fmt.Errorf("patch may not include read-only field %q", k)
+		}
+		merged[k] = v
 	}
 
 	if rulesPatchRaw != nil {

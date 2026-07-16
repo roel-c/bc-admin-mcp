@@ -240,10 +240,6 @@ func (c *ChannelTools) handleUpdate(ctx context.Context, request mcp.CallToolReq
 		}
 		s = strings.TrimSpace(s)
 		if _, valid := validChannelStatuses[s]; !valid {
-			valid := make([]string, 0, len(validChannelStatuses))
-			for k := range validChannelStatuses {
-				valid = append(valid, k)
-			}
 			return toolError("status %q is not valid; accepted values: active, inactive, connected, disconnected, prelaunch", s), nil
 		}
 		payload.Status = s

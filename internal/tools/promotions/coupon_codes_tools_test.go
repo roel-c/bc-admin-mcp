@@ -297,10 +297,7 @@ func (s *CouponCodesSuite) TestGenerateBulkExecutesOnConfirm() {
 			Return(&bigcommerce.Promotion{ID: 11, RedemptionType: "COUPON", CouponType: "BULK"}, nil),
 		s.mockBC.EXPECT().
 			GenerateCouponCodes(gomock.Any(), 11, gomock.Any()).
-			Return([]bigcommerce.CouponCode{
-				{ID: 100, Code: "SUM-AAA111"},
-				{ID: 101, Code: "SUM-BBB222"},
-			}, nil),
+			Return(&bigcommerce.CodeGenResult{ID: 1, BatchSize: 2}, nil),
 	)
 
 	res, err := s.call("marketing/promotions/coupon/codes/generate_bulk", map[string]any{
@@ -315,8 +312,7 @@ func (s *CouponCodesSuite) TestGenerateBulkExecutesOnConfirm() {
 	data := s.parseJSON(res)
 	s.Equal("generated", data["status"])
 	s.Equal(float64(2), data["generated_count"])
-	sample, _ := data["sample"].([]any)
-	s.Len(sample, 2)
+	s.Contains(data["message"], "codes/list")
 }
 
 // ---------------------------------------------------------------------------

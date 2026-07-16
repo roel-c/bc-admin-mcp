@@ -14,7 +14,6 @@
 package promotions
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -573,16 +572,6 @@ func validateCartCondition(v any) error {
 		}
 	}
 	return nil
-}
-
-// rawJSONToMap is a small helper used by the tools layer for round-tripping
-// a json.RawMessage payload through the validators.
-func rawJSONToMap(raw json.RawMessage) (map[string]any, error) {
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, fmt.Errorf("payload is not a JSON object: %w", err)
-	}
-	return m, nil
 }
 
 // maxCouponCodeLength mirrors BigCommerce's documented per-code length cap.

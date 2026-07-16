@@ -284,14 +284,14 @@ func (c *CustomerRecords) handleCreate(ctx context.Context, request mcp.CallTool
 		return shared.ToolError("customer_batch exceeds max of %d per call", maxCustomerWriteBatch), nil
 	}
 
+	// Password writes require an explicit acknowledgement (set_password=true)
+	// in addition to the normal confirmed=true gate. The acknowledgement is
+	// still required, but a redacted preview is shown before confirmation so
+	// the operator can review the (password-masked) payload — rather than
+	// forcing a blind confirmed=true on the first call.
 	hasPW := customerCreatesHaveNewPassword(creates)
-	if hasPW {
-		if !shared.ReadBool(args, "set_password") {
-			return shared.ToolError("new_password was supplied — set set_password=true to acknowledge this high-risk write (R2)."), nil
-		}
-		if !middleware.IsConfirmedFromArgs(args) {
-			return shared.ToolError("new_password was supplied — pass confirmed=true after preview to execute."), nil
-		}
+	if hasPW && !shared.ReadBool(args, "set_password") {
+		return shared.ToolError("new_password was supplied — set set_password=true to acknowledge this high-risk write (R2)."), nil
 	}
 
 	if middleware.IsConfirmedFromArgs(args) {
@@ -325,14 +325,11 @@ func (c *CustomerRecords) handleUpdate(ctx context.Context, request mcp.CallTool
 		return shared.ToolError("customer_batch exceeds max of %d per call", maxCustomerWriteBatch), nil
 	}
 
+	// Same double-gate as create: set_password=true acknowledges the password
+	// write, then a redacted preview is shown before the confirmed=true step.
 	hasPW := customerUpdatesHaveNewPassword(updates)
-	if hasPW {
-		if !shared.ReadBool(args, "set_password") {
-			return shared.ToolError("new_password was supplied — set set_password=true to acknowledge this high-risk write (R2)."), nil
-		}
-		if !middleware.IsConfirmedFromArgs(args) {
-			return shared.ToolError("new_password was supplied — pass confirmed=true after preview to execute."), nil
-		}
+	if hasPW && !shared.ReadBool(args, "set_password") {
+		return shared.ToolError("new_password was supplied — set set_password=true to acknowledge this high-risk write (R2)."), nil
 	}
 
 	if middleware.IsConfirmedFromArgs(args) {

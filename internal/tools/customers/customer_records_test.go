@@ -115,6 +115,23 @@ func (s *CustomerRecordsHandlerSuite) TestCreateExecutesWithPasswordGates() {
 	s.Equal("created", data["status"])
 }
 
+// With set_password=true but no confirmed, a password create must return a
+// redacted PREVIEW (not an error and not a blind execute), and must never echo
+// the plaintext password.
+func (s *CustomerRecordsHandlerSuite) TestCreatePasswordShowsRedactedPreview() {
+	res, err := s.callTool("customers/create", map[string]any{
+		"email": "n@e.com", "first_name": "N", "last_name": "E",
+		"new_password": "secret",
+		"set_password": true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	text := res.Content[0].(mcp.TextContent).Text
+	s.NotContains(text, "secret", "plaintext password must never appear in the preview")
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+}
+
 func (s *CustomerRecordsHandlerSuite) TestAssignGroupPreview() {
 	s.mockBC.EXPECT().GetCustomersByIDs(gomock.Any(), []int{1, 2}).
 		Return([]bigcommerce.Customer{

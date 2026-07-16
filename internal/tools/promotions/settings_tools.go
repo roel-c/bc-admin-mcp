@@ -9,6 +9,7 @@ import (
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
+	"github.com/roel-c/bc-admin-mcp/internal/session"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/shared"
 )
 
@@ -17,12 +18,13 @@ import (
 // price overrides, zero-price products, multi-coupon checkout, and price
 // cascades behave for every promotion.
 type PromotionSettingsTools struct {
-	bc BigCommercePromotionsAPI
+	bc    BigCommercePromotionsAPI
+	cache *session.Store
 }
 
 // NewPromotionSettingsTools constructs the settings tool handlers.
-func NewPromotionSettingsTools(bc BigCommercePromotionsAPI) *PromotionSettingsTools {
-	return &PromotionSettingsTools{bc: bc}
+func NewPromotionSettingsTools(bc BigCommercePromotionsAPI, cache *session.Store) *PromotionSettingsTools {
+	return &PromotionSettingsTools{bc: bc, cache: cache}
 }
 
 // RegisterTools wires the marketing/promotions/settings/* tools into the
@@ -106,7 +108,12 @@ func (p *PromotionSettingsTools) handleUpdate(ctx context.Context, request mcp.C
 		return shared.ToolError("no settings supplied — provide at least one of: promotions_triggered_by_products_with_zero_product_price, promotions_apply_on_products_with_custom_product_price, number_of_coupons_allowed_at_checkout, promotions_applied_on_original_product_price"), nil
 	}
 
-	current, err := p.bc.GetPromotionSettings(ctx)
+	// Cache the settings snapshot so the confirm call reuses the preview's
+	// fetch instead of a second GET within the TTL window.
+	const settingsCacheKey = "promotion_settings_update"
+	current, err := session.CacheOrFetch(p.cache.ForContext(ctx), settingsCacheKey, func() (*bigcommerce.PromotionSettings, error) {
+		return p.bc.GetPromotionSettings(ctx)
+	})
 	if err != nil {
 		return shared.ToolError("failed to fetch current promotion settings: %v", err), nil
 	}
@@ -141,6 +148,7 @@ func (p *PromotionSettingsTools) handleUpdate(ctx context.Context, request mcp.C
 		}
 		return shared.ToolError("update failed: %v%s", err, hint), nil
 	}
+	p.cache.ForContext(ctx).Delete(settingsCacheKey)
 	return shared.ToolJSON(map[string]any{
 		"status":   "updated",
 		"settings": updated,

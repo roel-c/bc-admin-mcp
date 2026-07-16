@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -271,7 +273,9 @@ func (r *Registry) handleDiscover(ctx context.Context, request mcp.CallToolReque
 		}, nil
 	}
 
-	data, _ := json.MarshalIndent(entries, "", "  ")
+	// Compact JSON (no indentation) keeps discovery responses token-cheap —
+	// this is the single most frequent response shape the LLM sees.
+	data, _ := json.Marshal(entries)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: string(data)}},
 	}, nil
@@ -335,6 +339,18 @@ func (r *Registry) handleExecute(tierEnforcer *middleware.TierEnforcer) server.T
 			},
 		}
 
-		return def.Handler(ctx, innerRequest)
+		// The logging middleware only sees the meta-tool name (execute_tool);
+		// log the resolved inner tool path + latency here so observability
+		// reflects the real operation rather than the dispatcher.
+		start := time.Now()
+		result, err := def.Handler(ctx, innerRequest)
+		isErr := err != nil || (result != nil && result.IsError)
+		slog.Default().Info("tool_executed",
+			"tool_path", def.Path,
+			"tier", string(def.Tier),
+			"duration_ms", time.Since(start).Milliseconds(),
+			"is_error", isErr,
+		)
+		return result, err
 	}
 }

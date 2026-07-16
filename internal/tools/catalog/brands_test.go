@@ -152,10 +152,11 @@ func (s *BrandHandlerSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.mockBC = NewMockBigCommerceAPI(s.ctrl)
 	s.cache = session.NewStore(60 * time.Second)
-	s.brands = catalog.NewBrands(s.mockBC, s.cache)
+	s.brands = catalog.NewBrands(s.mockBC)
 	s.reg = discovery.NewRegistry()
 	s.reg.RegisterCategory("catalog", "Catalog")
 	s.reg.RegisterCategory("catalog/brands", "Brands")
+	s.reg.RegisterCategory("catalog/brands/image", "Brand image")
 	s.reg.RegisterCategory("catalog/brands/metafields", "Brand metafields")
 	s.brands.RegisterTools(s.reg)
 }
@@ -380,4 +381,47 @@ func (s *BrandHandlerSuite) TestMetafieldsDeleteExecute() {
 	s.NoError(err)
 	data := s.parseJSON(result)
 	s.Equal("deleted", data["status"])
+}
+
+func (s *BrandHandlerSuite) TestBrandDeletePreviewThenExecute() {
+	// Preview fetches the brand and does NOT delete.
+	s.mockBC.EXPECT().GetBrand(gomock.Any(), 5).Return(&bigcommerce.Brand{ID: 5, Name: "Acme"}, nil)
+	preview, err := s.callTool("catalog/brands/delete", map[string]any{"brand_id": float64(5)})
+	s.NoError(err)
+	s.Equal("pending_confirmation", s.parseJSON(preview)["status"])
+
+	// Confirm fetches again then deletes.
+	s.mockBC.EXPECT().GetBrand(gomock.Any(), 5).Return(&bigcommerce.Brand{ID: 5, Name: "Acme"}, nil)
+	s.mockBC.EXPECT().DeleteBrand(gomock.Any(), 5).Return(nil)
+	res, err := s.callTool("catalog/brands/delete", map[string]any{"brand_id": float64(5), "confirmed": true})
+	s.NoError(err)
+	s.Equal("deleted", s.parseJSON(res)["status"])
+}
+
+func (s *BrandHandlerSuite) TestBrandImageSetPreviewThenExecute() {
+	preview, err := s.callTool("catalog/brands/image/set", map[string]any{
+		"brand_id": float64(5), "image_url": "https://cdn.example.com/logo.png",
+	})
+	s.NoError(err)
+	s.Equal("pending_confirmation", s.parseJSON(preview)["status"])
+
+	s.mockBC.EXPECT().UpdateBrand(gomock.Any(), 5, gomock.Any()).Return(&bigcommerce.Brand{ID: 5, Name: "Acme", ImageURL: "https://cdn.example.com/logo.png"}, nil)
+	res, err := s.callTool("catalog/brands/image/set", map[string]any{
+		"brand_id": float64(5), "image_url": "https://cdn.example.com/logo.png", "confirmed": true,
+	})
+	s.NoError(err)
+	s.Equal("updated", s.parseJSON(res)["status"])
+}
+
+func (s *BrandHandlerSuite) TestBrandImageSetRequiresURL() {
+	res, err := s.callTool("catalog/brands/image/set", map[string]any{"brand_id": float64(5), "confirmed": true})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+func (s *BrandHandlerSuite) TestBrandImageDeleteExecute() {
+	s.mockBC.EXPECT().DeleteBrandImage(gomock.Any(), 5).Return(nil)
+	res, err := s.callTool("catalog/brands/image/delete", map[string]any{"brand_id": float64(5), "confirmed": true})
+	s.NoError(err)
+	s.Equal("deleted", s.parseJSON(res)["status"])
 }

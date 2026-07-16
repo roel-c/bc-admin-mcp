@@ -139,6 +139,185 @@ func (mr *MockCartAPIMockRecorder) DeleteCartItem(ctx, cartID, itemID any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCartItem", reflect.TypeOf((*MockCartAPI)(nil).DeleteCartItem), ctx, cartID, itemID)
 }
 
+// ListCartMetafields mocks base method.
+func (m *MockCartAPI) ListCartMetafields(ctx context.Context, cartID string) ([]bigcommerce.Metafield, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCartMetafields", ctx, cartID)
+	ret0, _ := ret[0].([]bigcommerce.Metafield)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListCartMetafields indicates an expected call of ListCartMetafields.
+func (mr *MockCartAPIMockRecorder) ListCartMetafields(ctx, cartID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCartMetafields", reflect.TypeOf((*MockCartAPI)(nil).ListCartMetafields), ctx, cartID)
+}
+
+// CreateCartMetafield mocks base method.
+func (m *MockCartAPI) CreateCartMetafield(ctx context.Context, cartID string, mf bigcommerce.Metafield) (*bigcommerce.Metafield, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateCartMetafield", ctx, cartID, mf)
+	ret0, _ := ret[0].(*bigcommerce.Metafield)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateCartMetafield indicates an expected call of CreateCartMetafield.
+func (mr *MockCartAPIMockRecorder) CreateCartMetafield(ctx, cartID, mf any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCartMetafield", reflect.TypeOf((*MockCartAPI)(nil).CreateCartMetafield), ctx, cartID, mf)
+}
+
+// UpdateCartMetafield mocks base method.
+func (m *MockCartAPI) UpdateCartMetafield(ctx context.Context, cartID string, mfID int, mf bigcommerce.Metafield) (*bigcommerce.Metafield, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCartMetafield", ctx, cartID, mfID, mf)
+	ret0, _ := ret[0].(*bigcommerce.Metafield)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateCartMetafield indicates an expected call of UpdateCartMetafield.
+func (mr *MockCartAPIMockRecorder) UpdateCartMetafield(ctx, cartID, mfID, mf any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCartMetafield", reflect.TypeOf((*MockCartAPI)(nil).UpdateCartMetafield), ctx, cartID, mfID, mf)
+}
+
+// DeleteCartMetafield mocks base method.
+func (m *MockCartAPI) DeleteCartMetafield(ctx context.Context, cartID string, mfID int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteCartMetafield", ctx, cartID, mfID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteCartMetafield indicates an expected call of DeleteCartMetafield.
+func (mr *MockCartAPIMockRecorder) DeleteCartMetafield(ctx, cartID, mfID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCartMetafield", reflect.TypeOf((*MockCartAPI)(nil).DeleteCartMetafield), ctx, cartID, mfID)
+}
+
+// GetCheckout mocks base method.
+func (m *MockCartAPI) GetCheckout(ctx context.Context, checkoutID string) (*bigcommerce.Checkout, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCheckout", ctx, checkoutID)
+	ret0, _ := ret[0].(*bigcommerce.Checkout)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCheckout indicates an expected call of GetCheckout.
+func (mr *MockCartAPIMockRecorder) GetCheckout(ctx, checkoutID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCheckout", reflect.TypeOf((*MockCartAPI)(nil).GetCheckout), ctx, checkoutID)
+}
+
+// ApplyCoupon mocks base method.
+func (m *MockCartAPI) ApplyCoupon(ctx context.Context, checkoutID, code string) (*bigcommerce.Checkout, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ApplyCoupon", ctx, checkoutID, code)
+	ret0, _ := ret[0].(*bigcommerce.Checkout)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ApplyCoupon indicates an expected call of ApplyCoupon.
+func (mr *MockCartAPIMockRecorder) ApplyCoupon(ctx, checkoutID, code any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApplyCoupon", reflect.TypeOf((*MockCartAPI)(nil).ApplyCoupon), ctx, checkoutID, code)
+}
+
+// RemoveCoupon mocks base method.
+func (m *MockCartAPI) RemoveCoupon(ctx context.Context, checkoutID, code string) (*bigcommerce.Checkout, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveCoupon", ctx, checkoutID, code)
+	ret0, _ := ret[0].(*bigcommerce.Checkout)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RemoveCoupon indicates an expected call of RemoveCoupon.
+func (mr *MockCartAPIMockRecorder) RemoveCoupon(ctx, checkoutID, code any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveCoupon", reflect.TypeOf((*MockCartAPI)(nil).RemoveCoupon), ctx, checkoutID, code)
+}
+
+// SetBillingAddress mocks base method.
+func (m *MockCartAPI) SetBillingAddress(ctx context.Context, checkoutID string, addr bigcommerce.CheckoutAddressInput) (*bigcommerce.Checkout, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetBillingAddress", ctx, checkoutID, addr)
+	ret0, _ := ret[0].(*bigcommerce.Checkout)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetBillingAddress indicates an expected call of SetBillingAddress.
+func (mr *MockCartAPIMockRecorder) SetBillingAddress(ctx, checkoutID, addr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetBillingAddress", reflect.TypeOf((*MockCartAPI)(nil).SetBillingAddress), ctx, checkoutID, addr)
+}
+
+// UpdateBillingAddress mocks base method.
+func (m *MockCartAPI) UpdateBillingAddress(ctx context.Context, checkoutID, addrID string, addr bigcommerce.CheckoutAddressInput) (*bigcommerce.Checkout, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateBillingAddress", ctx, checkoutID, addrID, addr)
+	ret0, _ := ret[0].(*bigcommerce.Checkout)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateBillingAddress indicates an expected call of UpdateBillingAddress.
+func (mr *MockCartAPIMockRecorder) UpdateBillingAddress(ctx, checkoutID, addrID, addr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateBillingAddress", reflect.TypeOf((*MockCartAPI)(nil).UpdateBillingAddress), ctx, checkoutID, addrID, addr)
+}
+
+// AddConsignment mocks base method.
+func (m *MockCartAPI) AddConsignment(ctx context.Context, checkoutID string, consignment bigcommerce.CheckoutConsignmentInput) (*bigcommerce.Checkout, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddConsignment", ctx, checkoutID, consignment)
+	ret0, _ := ret[0].(*bigcommerce.Checkout)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AddConsignment indicates an expected call of AddConsignment.
+func (mr *MockCartAPIMockRecorder) AddConsignment(ctx, checkoutID, consignment any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddConsignment", reflect.TypeOf((*MockCartAPI)(nil).AddConsignment), ctx, checkoutID, consignment)
+}
+
+// UpdateConsignment mocks base method.
+func (m *MockCartAPI) UpdateConsignment(ctx context.Context, checkoutID, consignID string, update bigcommerce.CheckoutConsignmentUpdate) (*bigcommerce.Checkout, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateConsignment", ctx, checkoutID, consignID, update)
+	ret0, _ := ret[0].(*bigcommerce.Checkout)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateConsignment indicates an expected call of UpdateConsignment.
+func (mr *MockCartAPIMockRecorder) UpdateConsignment(ctx, checkoutID, consignID, update any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateConsignment", reflect.TypeOf((*MockCartAPI)(nil).UpdateConsignment), ctx, checkoutID, consignID, update)
+}
+
+// ConvertCheckoutToOrder mocks base method.
+func (m *MockCartAPI) ConvertCheckoutToOrder(ctx context.Context, checkoutID string) (*bigcommerce.CheckoutOrderResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConvertCheckoutToOrder", ctx, checkoutID)
+	ret0, _ := ret[0].(*bigcommerce.CheckoutOrderResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ConvertCheckoutToOrder indicates an expected call of ConvertCheckoutToOrder.
+func (mr *MockCartAPIMockRecorder) ConvertCheckoutToOrder(ctx, checkoutID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConvertCheckoutToOrder", reflect.TypeOf((*MockCartAPI)(nil).ConvertCheckoutToOrder), ctx, checkoutID)
+}
+
 // CreateCartRedirectURLs mocks base method.
 func (m *MockCartAPI) CreateCartRedirectURLs(ctx context.Context, cartID string) (*bigcommerce.CartRedirectURLs, error) {
 	m.ctrl.T.Helper()

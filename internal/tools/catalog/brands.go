@@ -3,12 +3,12 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
-	"github.com/roel-c/bc-admin-mcp/internal/session"
 )
 
 // BrandSearchFilters maps tool parameters to BigCommerce brand list query keys.
@@ -33,13 +33,12 @@ var validBrandSortFields = map[string]bool{
 
 // Brands provides MCP tool handlers for catalog brand operations.
 type Brands struct {
-	bc    BigCommerceAPI
-	cache *session.Store
+	bc BigCommerceAPI
 }
 
 // NewBrands constructs brand tool handlers.
-func NewBrands(bc BigCommerceAPI, cache *session.Store) *Brands {
-	return &Brands{bc: bc, cache: cache}
+func NewBrands(bc BigCommerceAPI) *Brands {
+	return &Brands{bc: bc}
 }
 
 // RegisterTools registers brand list/get/create/update tools.
@@ -151,7 +150,127 @@ func (b *Brands) RegisterTools(reg *discovery.Registry) {
 		Handler: b.handleUpdate,
 	})
 
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "catalog/brands/delete",
+		Tier:    middleware.TierR3,
+		Summary: "Permanently delete a brand by ID",
+		Description: "DELETE /v3/catalog/brands/{id}. Destructive and irreversible. Products keep existing " +
+			"but their brand association is cleared. Preview shows the brand; pass confirmed=true to delete.",
+		Tool: mcp.NewTool("catalog_brands_delete",
+			mcp.WithDescription("Delete a brand by brand_id. Preview first; pass confirmed=true to permanently delete."),
+			mcp.WithNumber("brand_id", mcp.Description("Brand ID to delete."), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Set to true to permanently delete after reviewing the preview.")),
+		),
+		Handler: b.handleDelete,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "catalog/brands/image/set",
+		Tier:    middleware.TierR1,
+		Summary: "Set or replace a brand's image by URL",
+		Description: "Sets the brand image via PUT /v3/catalog/brands/{id} with image_url (BigCommerce fetches " +
+			"the publicly accessible URL). Direct file uploads (multipart) are not supported here — host the " +
+			"image and pass its URL. Preview first; pass confirmed=true to apply.",
+		Tool: mcp.NewTool("catalog_brands_image_set",
+			mcp.WithDescription("Set/replace a brand's image using a publicly accessible image URL. Preview first; confirmed=true to apply."),
+			mcp.WithNumber("brand_id", mcp.Description("Brand ID."), mcp.Required()),
+			mcp.WithString("image_url", mcp.Description("Publicly accessible image URL (jpg/png/gif/webp)."), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Set to true to apply after reviewing the preview.")),
+		),
+		Handler: b.handleImageSet,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:        "catalog/brands/image/delete",
+		Tier:        middleware.TierR2,
+		Summary:     "Remove a brand's image",
+		Description: "DELETE /v3/catalog/brands/{id}/image. Removes the brand's current image. Preview first; pass confirmed=true.",
+		Tool: mcp.NewTool("catalog_brands_image_delete",
+			mcp.WithDescription("Remove a brand's image by brand_id. Preview first; pass confirmed=true."),
+			mcp.WithNumber("brand_id", mcp.Description("Brand ID."), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Set to true to remove the image after reviewing the preview.")),
+		),
+		Handler: b.handleImageDelete,
+	})
+
 	b.registerBrandMetafieldTools(reg)
+}
+
+func (b *Brands) handleDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	brandID, err := requiredPositiveInt(args, "brand_id")
+	if err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+
+	current, err := b.bc.GetBrand(ctx, brandID)
+	if err != nil {
+		return toolError("failed to fetch brand %d: %v", brandID, err), nil
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return toolJSON(map[string]any{
+			"status":   "pending_confirmation",
+			"action":   "delete_brand",
+			"brand":    map[string]any{"id": current.ID, "name": current.Name},
+			"message":  fmt.Sprintf("WARNING: brand %d (%q) will be PERMANENTLY DELETED. Products keep existing but lose this brand association. Pass confirmed=true to execute.", current.ID, current.Name),
+		})
+	}
+
+	if err := b.bc.DeleteBrand(ctx, brandID); err != nil {
+		return toolError("failed to delete brand %d: %v", brandID, err), nil
+	}
+	return toolJSON(map[string]any{"status": "deleted", "brand_id": brandID})
+}
+
+func (b *Brands) handleImageSet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	brandID, err := requiredPositiveInt(args, "brand_id")
+	if err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+	imageURL, ok := args["image_url"].(string)
+	if !ok || strings.TrimSpace(imageURL) == "" {
+		return toolError("image_url is required and must be a non-empty string"), nil
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return toolJSON(map[string]any{
+			"status":    "pending_confirmation",
+			"action":    "set_brand_image",
+			"brand_id":  brandID,
+			"image_url": imageURL,
+			"message":   "The brand image will be set to this URL (BigCommerce fetches it server-side). Pass confirmed=true to apply.",
+		})
+	}
+
+	updated, err := b.bc.UpdateBrand(ctx, brandID, bigcommerce.BrandUpdate{ImageURL: &imageURL})
+	if err != nil {
+		return toolError("failed to set brand %d image: %v", brandID, err), nil
+	}
+	return toolJSON(map[string]any{"status": "updated", "brand": updated})
+}
+
+func (b *Brands) handleImageDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	brandID, err := requiredPositiveInt(args, "brand_id")
+	if err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return toolJSON(map[string]any{
+			"status":   "pending_confirmation",
+			"action":   "delete_brand_image",
+			"brand_id": brandID,
+			"message":  fmt.Sprintf("The image on brand %d will be removed. Pass confirmed=true to execute.", brandID),
+		})
+	}
+
+	if err := b.bc.DeleteBrandImage(ctx, brandID); err != nil {
+		return toolError("failed to delete brand %d image: %v", brandID, err), nil
+	}
+	return toolJSON(map[string]any{"status": "deleted", "brand_id": brandID, "message": "Brand image removed."})
 }
 
 func (b *Brands) handleList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

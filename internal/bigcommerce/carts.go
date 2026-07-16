@@ -265,3 +265,65 @@ func (c *Client) CreateCartRedirectURLs(ctx context.Context, cartID string) (*Ca
 	}
 	return &urls, nil
 }
+
+// ---- Cart metafields (/v3/carts/{id}/metafields) ----
+
+// ListCartMetafields lists all metafields on a cart.
+func (c *Client) ListCartMetafields(ctx context.Context, cartID string) ([]Metafield, error) {
+	raw, err := c.GetAll(ctx, fmt.Sprintf("carts/%s/metafields", cartID))
+	if err != nil {
+		return nil, fmt.Errorf("list metafields for cart %s: %w", cartID, err)
+	}
+	mfs := make([]Metafield, 0, len(raw))
+	for _, r := range raw {
+		var mf Metafield
+		if err := json.Unmarshal(r, &mf); err != nil {
+			return nil, fmt.Errorf("unmarshal cart metafield: %w", err)
+		}
+		mfs = append(mfs, mf)
+	}
+	return mfs, nil
+}
+
+// CreateCartMetafield creates a metafield on a cart.
+func (c *Client) CreateCartMetafield(ctx context.Context, cartID string, mf Metafield) (*Metafield, error) {
+	body, err := c.Post(ctx, fmt.Sprintf("carts/%s/metafields", cartID), mf)
+	if err != nil {
+		return nil, fmt.Errorf("create metafield on cart %s: %w", cartID, err)
+	}
+	var resp SingleResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parse cart metafield response: %w", err)
+	}
+	var created Metafield
+	if err := json.Unmarshal(resp.Data, &created); err != nil {
+		return nil, fmt.Errorf("unmarshal created cart metafield: %w", err)
+	}
+	return &created, nil
+}
+
+// UpdateCartMetafield updates an existing metafield on a cart.
+func (c *Client) UpdateCartMetafield(ctx context.Context, cartID string, mfID int, mf Metafield) (*Metafield, error) {
+	body, err := c.Put(ctx, fmt.Sprintf("carts/%s/metafields/%d", cartID, mfID), mf)
+	if err != nil {
+		return nil, fmt.Errorf("update metafield %d on cart %s: %w", mfID, cartID, err)
+	}
+	var resp SingleResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parse cart metafield response: %w", err)
+	}
+	var updated Metafield
+	if err := json.Unmarshal(resp.Data, &updated); err != nil {
+		return nil, fmt.Errorf("unmarshal updated cart metafield: %w", err)
+	}
+	return &updated, nil
+}
+
+// DeleteCartMetafield removes a metafield from a cart.
+func (c *Client) DeleteCartMetafield(ctx context.Context, cartID string, mfID int) error {
+	_, err := c.Delete(ctx, fmt.Sprintf("carts/%s/metafields/%d", cartID, mfID))
+	if err != nil {
+		return fmt.Errorf("delete metafield %d from cart %s: %w", mfID, cartID, err)
+	}
+	return nil
+}

@@ -9,6 +9,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
+	"github.com/roel-c/bc-admin-mcp/internal/session"
 	"github.com/roel-c/bc-admin-mcp/internal/tools/promotions"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
@@ -33,7 +34,7 @@ func (s *PromotionSettingsSuite) SetupTest() {
 	s.registry.RegisterCategory("marketing/promotions", "promotions")
 	s.registry.RegisterCategory("marketing/promotions/settings", "settings")
 
-	promotions.NewPromotionSettingsTools(s.mockBC).RegisterTools(s.registry)
+	promotions.NewPromotionSettingsTools(s.mockBC, session.NewStore(0)).RegisterTools(s.registry)
 }
 
 func (s *PromotionSettingsSuite) TearDownTest() {

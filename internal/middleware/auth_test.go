@@ -21,7 +21,7 @@ func TestBearerAuthSuite(t *testing.T) {
 func (s *BearerAuthSuite) SetupTest() {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"ok":true}`))
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 	s.handler = middleware.BearerAuth("test-secret-token")(inner)
 }

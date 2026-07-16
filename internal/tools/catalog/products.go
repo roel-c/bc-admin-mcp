@@ -252,6 +252,12 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 			mcp.WithBoolean("open_graph_use_image", mcp.Description("Use product image for OG")),
 			mcp.WithString("layout_file", mcp.Description("Layout template file")),
 			mcp.WithArray("images", mcp.Description("Inline images: [{image_url, is_thumbnail, description, sort_order}]")),
+			mcp.WithArray("variants", mcp.Description(
+				"Inline variants (BigCommerce V3 best practice — creates the product AND all variants in one call; "+
+					"options are created implicitly, no pre-created options needed). "+
+					"Array of {sku (required), option_values:[{option_display_name, label}] (required), price, weight, inventory_level}. "+
+					"Example: [{\"sku\":\"TEE-S\",\"option_values\":[{\"option_display_name\":\"Size\",\"label\":\"Small\"}],\"price\":19.99}].",
+			)),
 			mcp.WithArray("channel_ids",
 				mcp.Description(
 					"MSF (optional): after the product is created, PUT /v3/catalog/products/channel-assignments "+

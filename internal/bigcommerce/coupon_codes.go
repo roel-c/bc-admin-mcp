@@ -33,9 +33,19 @@ type couponCodeSingleWire struct {
 	Data CouponCode `json:"data"`
 }
 
-// codeGenWire matches the V3 codegen response envelope.
+// CodeGenResult describes the codegen batch record BigCommerce returns from
+// POST /promotions/{id}/codegen. NOTE: this response is a single object
+// describing the generation batch — it does NOT contain the minted codes.
+// Retrieve the actual codes via GET /promotions/{id}/codes (ListCouponCodes).
+type CodeGenResult struct {
+	ID        int `json:"id,omitempty"`
+	BatchSize int `json:"batch_size,omitempty"`
+}
+
+// codeGenWire matches the V3 codegen response envelope. Data is an object
+// (the batch record), not an array of codes.
 type codeGenWire struct {
-	Data []CouponCode `json:"data"`
+	Data json.RawMessage `json:"data"`
 }
 
 // ListCouponCodes fetches one cursor-paginated page of coupon codes for a
@@ -143,7 +153,7 @@ func (c *Client) DeleteCouponCodes(ctx context.Context, promotionID int, ids []i
 //
 // We do not enforce coupon_type=BULK at the client layer — the tools layer
 // pre-flights the parent and refuses on SINGLE before the request fires.
-func (c *Client) GenerateCouponCodes(ctx context.Context, promotionID int, req CodeGenRequest) ([]CouponCode, error) {
+func (c *Client) GenerateCouponCodes(ctx context.Context, promotionID int, req CodeGenRequest) (*CodeGenResult, error) {
 	if promotionID <= 0 {
 		return nil, fmt.Errorf("promotion id must be positive")
 	}
@@ -159,7 +169,11 @@ func (c *Client) GenerateCouponCodes(ctx context.Context, promotionID int, req C
 	}
 	var env codeGenWire
 	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("parse codegen response: %w", err)
+		return nil, fmt.Errorf("parse codegen response envelope: %w", err)
 	}
-	return env.Data, nil
+	// data is an object (the batch record); decode best-effort. The codes
+	// themselves are fetched separately via ListCouponCodes.
+	res := &CodeGenResult{}
+	_ = json.Unmarshal(env.Data, res)
+	return res, nil
 }

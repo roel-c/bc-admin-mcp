@@ -277,7 +277,10 @@ func (p *Payments) handleCapture(ctx context.Context, request mcp.CallToolReques
 		return shared.ToolError("%s", err.Error()), nil
 	}
 	if !middleware.IsConfirmedFromArgs(args) {
-		current, _ := p.bc.GetOrder(ctx, orderID, bigcommerce.OrderGetParams{})
+		current, gerr := p.bc.GetOrder(ctx, orderID, bigcommerce.OrderGetParams{})
+		if gerr != nil {
+			return shared.ToolError("failed to fetch order %d for preview — resolve this before confirming a capture: %v", orderID, gerr), nil
+		}
 		preview := map[string]any{
 			"status":   "preview",
 			"action":   "capture_payment",
@@ -310,7 +313,10 @@ func (p *Payments) handleVoid(ctx context.Context, request mcp.CallToolRequest) 
 		return shared.ToolError("%s", err.Error()), nil
 	}
 	if !middleware.IsConfirmedFromArgs(args) {
-		current, _ := p.bc.GetOrder(ctx, orderID, bigcommerce.OrderGetParams{})
+		current, gerr := p.bc.GetOrder(ctx, orderID, bigcommerce.OrderGetParams{})
+		if gerr != nil {
+			return shared.ToolError("failed to fetch order %d for preview — resolve this before confirming a void: %v", orderID, gerr), nil
+		}
 		preview := map[string]any{
 			"status":   "preview",
 			"action":   "void_payment",
@@ -384,7 +390,10 @@ func (p *Payments) handleCreateRefund(ctx context.Context, request mcp.CallToolR
 		return shared.ToolError("%s", err.Error()), nil
 	}
 	if !middleware.IsConfirmedFromArgs(args) {
-		current, _ := p.bc.GetOrder(ctx, orderID, bigcommerce.OrderGetParams{})
+		current, gerr := p.bc.GetOrder(ctx, orderID, bigcommerce.OrderGetParams{})
+		if gerr != nil {
+			return shared.ToolError("failed to fetch order %d for preview — resolve this before confirming a refund: %v", orderID, gerr), nil
+		}
 		preview := map[string]any{
 			"status":   "preview",
 			"action":   "create_refund",

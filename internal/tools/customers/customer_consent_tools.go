@@ -95,6 +95,14 @@ func (c *CustomerConsentTools) handleUpdate(ctx context.Context, request mcp.Cal
 	if err := validateConsentCategories(deny); err != nil {
 		return shared.ToolError("%s", err.Error()), nil
 	}
+	// BigCommerce requires both keys present; send [] (not null) for the one
+	// the caller omitted so the PUT doesn't 422 on a missing path.
+	if allow == nil {
+		allow = []string{}
+	}
+	if deny == nil {
+		deny = []string{}
+	}
 
 	req := bigcommerce.DeclareCustomerConsentRequest{Allow: allow, Deny: deny}
 

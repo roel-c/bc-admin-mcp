@@ -80,16 +80,20 @@ func TestCreateInventoryLocationUsesV3Endpoint(t *testing.T) {
 	require.Contains(t, string(resp), `"id":7`)
 }
 
-func TestUpdateInventoryLocationUsesV3Endpoint(t *testing.T) {
+func TestUpdateInventoryLocationUsesBatchV3Endpoint(t *testing.T) {
 	c := newTestPromotionsClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		require.Equal(t, http.MethodPut, req.Method)
-		require.Equal(t, "/stores/hash/v3/inventory/locations/7", req.URL.Path)
+		// Batch endpoint (no /{id} path segment).
+		require.Equal(t, "/stores/hash/v3/inventory/locations", req.URL.Path)
 		body, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
+		// Body must be an ARRAY carrying the immutable id.
 		require.Contains(t, string(body), `"name":"Warehouse East 2"`)
+		require.Contains(t, string(body), `"id":7`)
+		require.True(t, strings.HasPrefix(strings.TrimSpace(string(body)), "["), "update body must be a JSON array")
 		return &http.Response{
 			StatusCode: 200,
-			Body:       io.NopCloser(strings.NewReader(`{"data":{"id":7,"name":"Warehouse East 2"}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":7,"name":"Warehouse East 2"}]}`)),
 			Header:     http.Header{},
 		}, nil
 	}))
@@ -99,10 +103,12 @@ func TestUpdateInventoryLocationUsesV3Endpoint(t *testing.T) {
 	require.Contains(t, string(resp), `"Warehouse East 2"`)
 }
 
-func TestDeleteInventoryLocationUsesV3Endpoint(t *testing.T) {
+func TestDeleteInventoryLocationUsesBatchV3Endpoint(t *testing.T) {
 	c := newTestPromotionsClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		require.Equal(t, http.MethodDelete, req.Method)
-		require.Equal(t, "/stores/hash/v3/inventory/locations/7", req.URL.Path)
+		// Batch delete: no /{id} path; location_id:in query param.
+		require.Equal(t, "/stores/hash/v3/inventory/locations", req.URL.Path)
+		require.Equal(t, "7", req.URL.Query().Get("location_id:in"))
 		return &http.Response{
 			StatusCode: 204,
 			Body:       io.NopCloser(strings.NewReader("")),
@@ -200,13 +206,15 @@ func TestDeleteInventoryLocationMetafieldUsesV3Endpoint(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestGetInventoryItemUsesV3Endpoint(t *testing.T) {
+func TestGetInventoryItemUsesListEndpointFilteredByVariant(t *testing.T) {
 	c := newTestPromotionsClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		require.Equal(t, http.MethodGet, req.Method)
-		require.Equal(t, "/stores/hash/v3/inventory/items/44", req.URL.Path)
+		// No single-item path exists; must use the list endpoint with a filter.
+		require.Equal(t, "/stores/hash/v3/inventory/items", req.URL.Path)
+		require.Equal(t, "44", req.URL.Query().Get("variant_id:in"))
 		return &http.Response{
 			StatusCode: 200,
-			Body:       io.NopCloser(strings.NewReader(`{"data":{"variant_id":44,"available_to_sell":7}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"data":[{"variant_id":44,"available_to_sell":7}]}`)),
 			Header:     http.Header{},
 		}, nil
 	}))

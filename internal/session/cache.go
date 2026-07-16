@@ -87,19 +87,6 @@ func (c *Cache) Set(key string, value any) {
 	}
 }
 
-func (c *Cache) SetWithTTL(key string, value any, ttl time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.evictExpiredLocked()
-	if len(c.items) >= c.maxEntries {
-		c.evictOldestLocked()
-	}
-	c.items[key] = entry{
-		value:     value,
-		expiresAt: time.Now().Add(ttl),
-	}
-}
-
 func (c *Cache) Get(key string) (any, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

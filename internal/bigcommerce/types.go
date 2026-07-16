@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -22,13 +23,96 @@ func (e *APIError) Error() string {
 }
 
 // SafeError returns a message suitable for returning to external callers
-// (LLM / end-user) without leaking internal response details.
+// (LLM / end-user). It surfaces BigCommerce's own structured validation
+// message (title / detail / field errors) — the documented way to diagnose
+// 4xx responses — plus an optional OAuth-scope hint. Raw/oversized bodies are
+// never echoed verbatim; only the parsed, length-bounded envelope fields are.
 func (e *APIError) SafeError() string {
-	hint := scopeHint(e.StatusCode, e.Method, e.Path)
-	if hint != "" {
-		return fmt.Sprintf("BigCommerce API returned status %d (%s)", e.StatusCode, hint)
+	msg := fmt.Sprintf("BigCommerce API returned status %d", e.StatusCode)
+	if detail := e.parsedDetail(); detail != "" {
+		msg += ": " + detail
 	}
-	return fmt.Sprintf("BigCommerce API returned status %d", e.StatusCode)
+	if hint := scopeHint(e.StatusCode, e.Method, e.Path); hint != "" {
+		msg += " (" + hint + ")"
+	}
+	return msg
+}
+
+// parsedDetail extracts BigCommerce's structured error message from the
+// response body. BC V3 errors use {title, detail, errors:{field:msg}}; V2 and
+// some endpoints use {message} or an array of such objects. These are the
+// API's own user-facing validation messages (safe to surface) and are the
+// documented mechanism for diagnosing 400/422 responses. The result is
+// length-bounded so an unexpected body can never blow up the message.
+func (e *APIError) parsedDetail() string {
+	if len(e.Body) == 0 {
+		return ""
+	}
+
+	// Try the V3 object envelope first.
+	var env struct {
+		Title   string          `json:"title"`
+		Detail  string          `json:"detail"`
+		Message string          `json:"message"`
+		Errors  json.RawMessage `json:"errors"`
+	}
+	parts := []string{}
+	if json.Unmarshal(e.Body, &env) == nil {
+		for _, s := range []string{env.Title, env.Detail, env.Message} {
+			if s != "" && !contains(parts, s) {
+				parts = append(parts, s)
+			}
+		}
+		parts = append(parts, fieldErrorStrings(env.Errors)...)
+	}
+
+	// Fallback: some V2 endpoints return an array of {status, message} objects.
+	if len(parts) == 0 {
+		var arr []struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(e.Body, &arr) == nil {
+			for _, item := range arr {
+				if item.Message != "" && !contains(parts, item.Message) {
+					parts = append(parts, item.Message)
+				}
+			}
+		}
+	}
+
+	msg := strings.TrimSpace(strings.Join(parts, " — "))
+	const maxLen = 500
+	if len(msg) > maxLen {
+		msg = msg[:maxLen] + "…"
+	}
+	return msg
+}
+
+// fieldErrorStrings renders a BigCommerce `errors` object ({field: message})
+// into a stable, sorted list of "field: message" strings.
+func fieldErrorStrings(raw json.RawMessage) []string {
+	if len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
+		return nil
+	}
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil || len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k, v := range m {
+		out = append(out, fmt.Sprintf("%s: %v", k, v))
+	}
+	sort.Strings(out)
+	return out
+}
+
+func contains(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 // scopeHint returns a short OAuth-scope or routing hint for common 4xx errors.
@@ -399,6 +483,13 @@ type ProductCreate struct {
 	LayoutFile string `json:"layout_file,omitempty"`
 
 	Images []ProductImageCreate `json:"images,omitempty"`
+
+	// Variants lets a product be created together with all its variants in a
+	// single POST /v3/catalog/products call (BigCommerce V3 best practice) —
+	// options are created implicitly from the variants' option_values (display
+	// defaults to rectangles). This avoids the multi-call create-product →
+	// create-option → create-variant workflow.
+	Variants []ProductVariantCreate `json:"variants,omitempty"`
 }
 
 // Variant represents a product variant (compact form used by batch listing).
@@ -598,9 +689,12 @@ type ProductModifierValue struct {
 }
 
 type ProductModifierCreate struct {
-	DisplayName  string                 `json:"display_name"`
-	Type         string                 `json:"type"`
-	Required     bool                   `json:"required,omitempty"`
+	DisplayName string `json:"display_name"`
+	Type        string `json:"type"`
+	// Required is a mandatory field on the BigCommerce modifier POST and must
+	// always be serialized — NOT omitempty, otherwise a legitimate `false`
+	// (the common case) is dropped and BC returns 422 "Please provide a required".
+	Required     bool                   `json:"required"`
 	SortOrder    int                    `json:"sort_order,omitempty"`
 	Config       json.RawMessage        `json:"config,omitempty"`
 	OptionValues []ProductModifierValue `json:"option_values,omitempty"`
@@ -719,7 +813,10 @@ type Metafield struct {
 	Description   string `json:"description,omitempty"`
 	PermissionSet string `json:"permission_set,omitempty"`
 	ResourceType  string `json:"resource_type,omitempty"`
-	ResourceID    int    `json:"resource_id,omitempty"`
+	// ResourceID is the id of the owning resource. Most resources use an int
+	// (product/variant/category/brand/customer/order id), but CARTS use a
+	// string UUID — so this is RawMessage to accept both without a type error.
+	ResourceID json.RawMessage `json:"resource_id,omitempty"`
 }
 
 // CategoryAssignment maps a single product to a single category for the
@@ -1332,8 +1429,11 @@ type CustomerConsent struct {
 
 // DeclareCustomerConsentRequest is the PUT body for customer consent.
 type DeclareCustomerConsentRequest struct {
-	Allow []string `json:"allow,omitempty"`
-	Deny  []string `json:"deny,omitempty"`
+	// BigCommerce requires BOTH allow and deny to be present in the PUT body
+	// (omitting one returns 422 "deny: error.path.missing"). No omitempty, and
+	// callers should pass non-nil slices so empties serialize as [] not null.
+	Allow []string `json:"allow"`
+	Deny  []string `json:"deny"`
 }
 
 // ValidateCustomerCredentialsRequest is POST /v3/customers/validate-credentials.
@@ -1568,19 +1668,6 @@ type PromotionListParams struct {
 	Direction      string // asc | desc
 	Page           int
 	Limit          int
-}
-
-// CountActivePromotions returns the number of ENABLED promotions matching
-// the given redemption type. Used by the automatic/create tool's soft-warn
-// gate (BC recommends < 100 active promotions per store).
-func CountActivePromotions(prs []Promotion) int {
-	n := 0
-	for _, p := range prs {
-		if p.Status == PromotionStatusEnabled {
-			n++
-		}
-	}
-	return n
 }
 
 // ---------------------------------------------------------------------------

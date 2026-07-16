@@ -84,21 +84,32 @@ func (p *Products) handleImageList(ctx context.Context, request mcp.CallToolRequ
 var validImageExtensions = []string{".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
 func validateImageURL(url string) error {
-	lower := strings.ToLower(url)
+	lower := strings.ToLower(strings.TrimSpace(url))
 	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
 		return fmt.Errorf("image_url must start with http:// or https://")
 	}
-	// Strip query params for extension check
+	// Strip query/fragment before inspecting the filename.
 	path := lower
-	if idx := strings.Index(path, "?"); idx >= 0 {
+	if idx := strings.IndexAny(path, "?#"); idx >= 0 {
 		path = path[:idx]
 	}
-	for _, ext := range validImageExtensions {
-		if strings.HasSuffix(path, ext) {
-			return nil
-		}
+	base := path
+	if slash := strings.LastIndex(base, "/"); slash >= 0 {
+		base = base[slash+1:]
 	}
-	return fmt.Errorf("image_url must end in .jpg, .jpeg, .png, .gif, or .webp")
+	// Only reject when the filename has an explicit, NON-image extension.
+	// Extension-less URLs (CDN/query-based) are allowed — BigCommerce validates
+	// the real content by MIME type when it fetches the image.
+	if dot := strings.LastIndex(base, "."); dot >= 0 {
+		ext := base[dot:]
+		for _, e := range validImageExtensions {
+			if ext == e {
+				return nil
+			}
+		}
+		return fmt.Errorf("image_url has a non-image file extension %q — use jpg/jpeg/png/gif/webp, or an extension-less URL", ext)
+	}
+	return nil
 }
 
 func (p *Products) handleImageAdd(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

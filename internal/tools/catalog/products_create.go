@@ -258,6 +258,46 @@ func parseProductCreateParams(args map[string]any) (*ProductCreateParams, error)
 		}
 	}
 
+	// Inline variants — BigCommerce V3 best practice is to create a product
+	// and all its variants in a single POST /v3/catalog/products call. Options
+	// are created implicitly from each variant's option_values (display type
+	// defaults to rectangles), so there is no need to pre-create options.
+	if v, ok := args["variants"]; ok && v != nil {
+		arr, aOk := v.([]any)
+		if !aOk {
+			return nil, fmt.Errorf("variants must be an array")
+		}
+		for i, item := range arr {
+			m, mOk := item.(map[string]any)
+			if !mOk {
+				return nil, fmt.Errorf("variants[%d] must be an object", i)
+			}
+			sku, _ := m["sku"].(string)
+			if sku == "" {
+				return nil, fmt.Errorf("variants[%d].sku is required", i)
+			}
+			optVals, err := parseVariantOptionValues(m["option_values"])
+			if err != nil {
+				return nil, fmt.Errorf("variants[%d]: %w", i, err)
+			}
+			if len(optVals) == 0 {
+				return nil, fmt.Errorf("variants[%d].option_values is required (e.g. [{\"option_display_name\":\"Size\",\"label\":\"Small\"}])", i)
+			}
+			variant := bigcommerce.ProductVariantCreate{SKU: sku, OptionValues: optVals}
+			if price, ok := m["price"].(float64); ok {
+				variant.Price = &price
+			}
+			if wt, ok := m["weight"].(float64); ok {
+				variant.Weight = &wt
+			}
+			if lvl, ok := m["inventory_level"].(float64); ok {
+				iLvl := int(lvl)
+				variant.InventoryLevel = &iLvl
+			}
+			p.Payload.Variants = append(p.Payload.Variants, variant)
+		}
+	}
+
 	if v, ok := args["channel_ids"]; ok && v != nil {
 		ids, err := parseFloat64SliceToPositiveInts(v, "channel_ids")
 		if err != nil {

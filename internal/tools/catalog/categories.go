@@ -153,8 +153,11 @@ func (c *Categories) RegisterTools(reg *discovery.Registry) {
 			"default_product_sort. Returns a preview first; pass confirmed=true to execute.",
 		Tool: mcp.NewTool("catalog_categories_bulk_update",
 			mcp.WithDescription(
-				"Bulk update categories. Provide category_ids and the fields to change. "+
-					"Returns a preview first; pass confirmed=true to execute the changes.",
+				"Bulk update categories. Provide category_ids (array) plus one or more "+
+					"set_-prefixed fields to apply to ALL of them: set_name, set_is_visible, "+
+					"set_page_title, set_meta_description, set_search_keywords, set_description, "+
+					"set_sort_order, set_default_product_sort. (Note: fields are prefixed with "+
+					"set_; there is no per-row updates array.) Preview first; pass confirmed=true.",
 			),
 			mcp.WithArray("category_ids",
 				mcp.Description("Array of category IDs to update"),
@@ -753,8 +756,12 @@ func (c *Categories) executeBulkUpdate(ctx context.Context, params *bulkCategory
 		return toolError("batch update failed: %v", err), nil
 	}
 
+	status := "executed"
+	if batchResult.Failed > 0 {
+		status = "partial_success"
+	}
 	result := map[string]any{
-		"status":    "executed",
+		"status":    status,
 		"succeeded": batchResult.Succeeded,
 		"failed":    batchResult.Failed,
 	}

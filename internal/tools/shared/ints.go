@@ -22,23 +22,6 @@ func JoinInts(ids []int) string {
 	return string(b)
 }
 
-// JoinStrings encodes a slice of strings as a comma-separated value suitable
-// for BigCommerce `*:in` query parameters using string IDs (UUIDs etc.).
-// Whitespace is trimmed and empty entries are dropped.
-func JoinStrings(ids []string) string {
-	if len(ids) == 0 {
-		return ""
-	}
-	out := make([]string, 0, len(ids))
-	for _, s := range ids {
-		s = strings.TrimSpace(s)
-		if s != "" {
-			out = append(out, s)
-		}
-	}
-	return strings.Join(out, ",")
-}
-
 // RequiredNonEmptyStringIDs reads args[key] as a JSON array of non-empty
 // strings (e.g. UUIDs). Whitespace is trimmed; empty entries are rejected so
 // the caller never silently drops an intended ID.

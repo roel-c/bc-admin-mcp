@@ -120,3 +120,29 @@ func (s *APIErrorScopeHintSuite) TestEmptyPathFallsBack() {
 	}
 	s.Contains(e.Error(), "BigCommerce API returned status 422")
 }
+
+// BigCommerce V3 structured error bodies (title + field errors) must be
+// surfaced so callers can diagnose 4xx failures.
+func (s *APIErrorScopeHintSuite) TestV3ErrorTitleAndFieldErrorsSurfaced() {
+	e := &bigcommerce.APIError{
+		StatusCode: 422,
+		Method:     http.MethodPost,
+		Path:       "catalog/products/506/modifiers",
+		Body: []byte(`{"status":422,"title":"JSON data is missing or invalid",` +
+			`"type":"https://developer.bigcommerce.com/api-docs/getting-started/api-status-codes",` +
+			`"errors":{"type":"required field is missing"}}`),
+	}
+	msg := e.SafeError()
+	s.Contains(msg, "422")
+	s.Contains(msg, "JSON data is missing or invalid")
+	s.Contains(msg, "type: required field is missing")
+}
+
+// V2-style array error bodies ([{status, message}]) must also be surfaced.
+func (s *APIErrorScopeHintSuite) TestV2ArrayErrorMessageSurfaced() {
+	e := &bigcommerce.APIError{
+		StatusCode: 400,
+		Body:       []byte(`[{"status":400,"message":"The field 'email' is invalid."}]`),
+	}
+	s.Contains(e.SafeError(), "The field 'email' is invalid.")
+}

@@ -35,7 +35,11 @@ func (s *CartToolsSuite) SetupTest() {
 	s.reg.RegisterCategory("carts", "Carts")
 	s.reg.RegisterCategory("carts/cart", "Cart CRUD")
 	s.reg.RegisterCategory("carts/cart/items", "Cart item management")
+	s.reg.RegisterCategory("carts/cart/metafields", "Cart metafields")
+	s.reg.RegisterCategory("carts/checkout", "Checkout management")
 	s.ct.RegisterTools(s.reg)
+	s.ct.RegisterMetafieldTools(s.reg)
+	s.ct.RegisterCheckoutTools(s.reg)
 }
 
 func (s *CartToolsSuite) TearDownTest() {
@@ -358,6 +362,381 @@ func (s *CartToolsSuite) TestCheckoutURLReturnsURLs() {
 
 func (s *CartToolsSuite) TestCheckoutURLRequiresCartID() {
 	res, err := s.callTool("carts/cart/checkout_url", map[string]any{})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+// --- carts/cart/metafields/list ---
+
+func (s *CartToolsSuite) TestMetafieldListReturnsMetafields() {
+	s.mockBC.EXPECT().ListCartMetafields(gomock.Any(), "abc-123").Return([]bigcommerce.Metafield{
+		{ID: 1, Namespace: "my_app", Key: "ref", Value: "pim-42"},
+	}, nil)
+
+	res, err := s.callTool("carts/cart/metafields/list", map[string]any{"cart_id": "abc-123"})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal(float64(1), data["total"])
+}
+
+func (s *CartToolsSuite) TestMetafieldListRequiresCartID() {
+	res, err := s.callTool("carts/cart/metafields/list", map[string]any{})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+// --- carts/cart/metafields/set ---
+
+func (s *CartToolsSuite) TestMetafieldSetPreviewRequiresNoAPICall() {
+	res, err := s.callTool("carts/cart/metafields/set", map[string]any{
+		"cart_id":   "abc-123",
+		"namespace": "my_app",
+		"key":       "ref",
+		"value":     "pim-42",
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+}
+
+func (s *CartToolsSuite) TestMetafieldSetConfirmedCreatesWhenNotExisting() {
+	s.mockBC.EXPECT().ListCartMetafields(gomock.Any(), "abc-123").Return(nil, nil)
+	s.mockBC.EXPECT().CreateCartMetafield(gomock.Any(), "abc-123", gomock.Any()).Return(
+		&bigcommerce.Metafield{ID: 10, Namespace: "my_app", Key: "ref", Value: "pim-42"}, nil)
+
+	res, err := s.callTool("carts/cart/metafields/set", map[string]any{
+		"cart_id":   "abc-123",
+		"namespace": "my_app",
+		"key":       "ref",
+		"value":     "pim-42",
+		"confirmed": true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("created", data["status"])
+}
+
+func (s *CartToolsSuite) TestMetafieldSetConfirmedUpdatesWhenExisting() {
+	s.mockBC.EXPECT().ListCartMetafields(gomock.Any(), "abc-123").Return([]bigcommerce.Metafield{
+		{ID: 10, Namespace: "my_app", Key: "ref", Value: "old-value"},
+	}, nil)
+	s.mockBC.EXPECT().UpdateCartMetafield(gomock.Any(), "abc-123", 10, gomock.Any()).Return(
+		&bigcommerce.Metafield{ID: 10, Namespace: "my_app", Key: "ref", Value: "new-value"}, nil)
+
+	res, err := s.callTool("carts/cart/metafields/set", map[string]any{
+		"cart_id":   "abc-123",
+		"namespace": "my_app",
+		"key":       "ref",
+		"value":     "new-value",
+		"confirmed": true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("updated", data["status"])
+}
+
+// --- carts/cart/metafields/delete ---
+
+func (s *CartToolsSuite) TestMetafieldDeletePreviewByID() {
+	res, err := s.callTool("carts/cart/metafields/delete", map[string]any{
+		"cart_id":     "abc-123",
+		"metafield_id": float64(10),
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+}
+
+func (s *CartToolsSuite) TestMetafieldDeleteConfirmedByID() {
+	s.mockBC.EXPECT().DeleteCartMetafield(gomock.Any(), "abc-123", 10).Return(nil)
+
+	res, err := s.callTool("carts/cart/metafields/delete", map[string]any{
+		"cart_id":     "abc-123",
+		"metafield_id": float64(10),
+		"confirmed":   true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("deleted", data["status"])
+}
+
+// --- carts/checkout/get ---
+
+func (s *CartToolsSuite) TestCheckoutGetReturnsView() {
+	co := &bigcommerce.Checkout{
+		ID:          "abc-123",
+		GrandTotal:  29.99,
+		SubtotalExTax: 24.99,
+		ChannelID:   1,
+	}
+	s.mockBC.EXPECT().GetCheckout(gomock.Any(), "abc-123").Return(co, nil)
+
+	res, err := s.callTool("carts/checkout/get", map[string]any{"checkout_id": "abc-123"})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	checkout := data["checkout"].(map[string]any)
+	s.Equal("abc-123", checkout["id"])
+	s.Equal(29.99, checkout["grand_total"])
+}
+
+// --- carts/checkout/coupon_apply ---
+
+func (s *CartToolsSuite) TestCouponApplyPreview() {
+	res, err := s.callTool("carts/checkout/coupon_apply", map[string]any{
+		"checkout_id": "abc-123",
+		"coupon_code": "SAVE10",
+	})
+	s.NoError(err)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+}
+
+func (s *CartToolsSuite) TestCouponApplyConfirmed() {
+	co := &bigcommerce.Checkout{ID: "abc-123", GrandTotal: 19.99}
+	s.mockBC.EXPECT().ApplyCoupon(gomock.Any(), "abc-123", "SAVE10").Return(co, nil)
+
+	res, err := s.callTool("carts/checkout/coupon_apply", map[string]any{
+		"checkout_id": "abc-123",
+		"coupon_code": "SAVE10",
+		"confirmed":   true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("coupon_applied", data["status"])
+}
+
+// --- carts/checkout/convert ---
+
+func (s *CartToolsSuite) TestCheckoutConvertPreviewFetchesCheckout() {
+	co := &bigcommerce.Checkout{
+		ID:         "abc-123",
+		GrandTotal: 29.99,
+		Cart:       sampleCart(),
+	}
+	s.mockBC.EXPECT().GetCheckout(gomock.Any(), "abc-123").Return(co, nil)
+
+	res, err := s.callTool("carts/checkout/convert", map[string]any{"checkout_id": "abc-123"})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+	s.Equal(29.99, data["grand_total"])
+}
+
+// A checkout missing both a billing address and a consignment must surface
+// BOTH warnings (previously the second overwrote the first).
+func (s *CartToolsSuite) TestCheckoutConvertPreviewCollectsAllWarnings() {
+	co := &bigcommerce.Checkout{ID: "abc-123", GrandTotal: 29.99, Cart: sampleCart()}
+	s.mockBC.EXPECT().GetCheckout(gomock.Any(), "abc-123").Return(co, nil)
+
+	res, err := s.callTool("carts/checkout/convert", map[string]any{"checkout_id": "abc-123"})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+	warnings, ok := data["warnings"].([]any)
+	s.Require().True(ok, "expected a warnings array")
+	s.GreaterOrEqual(len(warnings), 2, "missing billing + consignment should both warn")
+}
+
+func (s *CartToolsSuite) TestCheckoutConvertConfirmedCreatesOrder() {
+	co := &bigcommerce.Checkout{ID: "abc-123", GrandTotal: 29.99, Cart: sampleCart()}
+	s.mockBC.EXPECT().GetCheckout(gomock.Any(), "abc-123").Return(co, nil)
+	s.mockBC.EXPECT().ConvertCheckoutToOrder(gomock.Any(), "abc-123").Return(
+		&bigcommerce.CheckoutOrderResult{ID: 456}, nil)
+
+	res, err := s.callTool("carts/checkout/convert", map[string]any{
+		"checkout_id": "abc-123",
+		"confirmed":   true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("order_created", data["status"])
+	s.Equal(float64(456), data["order_id"])
+}
+
+// --- carts/checkout/coupon_remove ---
+
+func (s *CartToolsSuite) TestCouponRemovePreview() {
+	res, err := s.callTool("carts/checkout/coupon_remove", map[string]any{
+		"checkout_id": "abc-123",
+		"coupon_code": "SAVE10",
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+}
+
+func (s *CartToolsSuite) TestCouponRemoveConfirmed() {
+	co := &bigcommerce.Checkout{ID: "abc-123", GrandTotal: 29.99}
+	s.mockBC.EXPECT().RemoveCoupon(gomock.Any(), "abc-123", "SAVE10").Return(co, nil)
+
+	res, err := s.callTool("carts/checkout/coupon_remove", map[string]any{
+		"checkout_id": "abc-123",
+		"coupon_code": "SAVE10",
+		"confirmed":   true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("coupon_removed", data["status"])
+}
+
+func (s *CartToolsSuite) TestCouponRemoveRequiresCode() {
+	res, err := s.callTool("carts/checkout/coupon_remove", map[string]any{"checkout_id": "abc-123"})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+// --- carts/checkout/billing_address ---
+
+func (s *CartToolsSuite) TestBillingAddressPreview() {
+	res, err := s.callTool("carts/checkout/billing_address", map[string]any{
+		"checkout_id":  "abc-123",
+		"address_json": `{"first_name":"Jane","last_name":"Doe","address1":"1 Main St","city":"NYC","country_code":"US"}`,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+	s.Equal("set_billing_address", data["action"])
+}
+
+func (s *CartToolsSuite) TestBillingAddressConfirmedCreates() {
+	co := &bigcommerce.Checkout{ID: "abc-123", GrandTotal: 29.99}
+	s.mockBC.EXPECT().SetBillingAddress(gomock.Any(), "abc-123", gomock.Any()).Return(co, nil)
+
+	res, err := s.callTool("carts/checkout/billing_address", map[string]any{
+		"checkout_id":  "abc-123",
+		"address_json": `{"first_name":"Jane","last_name":"Doe","address1":"1 Main St","city":"NYC","country_code":"US"}`,
+		"confirmed":    true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("billing_address_set", data["status"])
+}
+
+func (s *CartToolsSuite) TestBillingAddressConfirmedUpdatesWhenIDProvided() {
+	co := &bigcommerce.Checkout{ID: "abc-123", GrandTotal: 29.99}
+	s.mockBC.EXPECT().UpdateBillingAddress(gomock.Any(), "abc-123", "addr-77", gomock.Any()).Return(co, nil)
+
+	res, err := s.callTool("carts/checkout/billing_address", map[string]any{
+		"checkout_id":        "abc-123",
+		"address_json":       `{"first_name":"Jane","last_name":"Doe","address1":"1 Main St","city":"NYC","country_code":"US"}`,
+		"billing_address_id": "addr-77",
+		"confirmed":          true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("billing_address_set", data["status"])
+}
+
+func (s *CartToolsSuite) TestBillingAddressRejectsMissingCountry() {
+	res, err := s.callTool("carts/checkout/billing_address", map[string]any{
+		"checkout_id":  "abc-123",
+		"address_json": `{"first_name":"Jane","last_name":"Doe","address1":"1 Main St","city":"NYC"}`,
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+func (s *CartToolsSuite) TestBillingAddressRejectsInvalidJSON() {
+	res, err := s.callTool("carts/checkout/billing_address", map[string]any{
+		"checkout_id":  "abc-123",
+		"address_json": `not-json`,
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+// --- carts/checkout/consignment_add ---
+
+func (s *CartToolsSuite) TestConsignmentAddPreview() {
+	res, err := s.callTool("carts/checkout/consignment_add", map[string]any{
+		"checkout_id":     "abc-123",
+		"address_json":    `{"first_name":"Jane","last_name":"Doe","address1":"1 Main St","city":"NYC","country_code":"US"}`,
+		"line_items_json": `[{"item_id":"item-uuid-1","quantity":2}]`,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+	s.Equal("add_consignment", data["action"])
+}
+
+func (s *CartToolsSuite) TestConsignmentAddConfirmed() {
+	co := &bigcommerce.Checkout{ID: "abc-123", GrandTotal: 29.99}
+	s.mockBC.EXPECT().AddConsignment(gomock.Any(), "abc-123", gomock.Any()).Return(co, nil)
+
+	res, err := s.callTool("carts/checkout/consignment_add", map[string]any{
+		"checkout_id":     "abc-123",
+		"address_json":    `{"first_name":"Jane","last_name":"Doe","address1":"1 Main St","city":"NYC","country_code":"US"}`,
+		"line_items_json": `[{"item_id":"item-uuid-1","quantity":2}]`,
+		"confirmed":       true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("consignment_added", data["status"])
+}
+
+func (s *CartToolsSuite) TestConsignmentAddRejectsEmptyLineItems() {
+	res, err := s.callTool("carts/checkout/consignment_add", map[string]any{
+		"checkout_id":     "abc-123",
+		"address_json":    `{"first_name":"Jane","last_name":"Doe","address1":"1 Main St","city":"NYC","country_code":"US"}`,
+		"line_items_json": `[]`,
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+// --- carts/checkout/consignment_update ---
+
+func (s *CartToolsSuite) TestConsignmentUpdatePreview() {
+	res, err := s.callTool("carts/checkout/consignment_update", map[string]any{
+		"checkout_id":        "abc-123",
+		"consignment_id":     "cons-1",
+		"shipping_option_id": "opt-1",
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+}
+
+func (s *CartToolsSuite) TestConsignmentUpdateConfirmedSelectsShippingOption() {
+	co := &bigcommerce.Checkout{ID: "abc-123", GrandTotal: 34.99}
+	s.mockBC.EXPECT().UpdateConsignment(gomock.Any(), "abc-123", "cons-1", gomock.Any()).Return(co, nil)
+
+	res, err := s.callTool("carts/checkout/consignment_update", map[string]any{
+		"checkout_id":        "abc-123",
+		"consignment_id":     "cons-1",
+		"shipping_option_id": "opt-1",
+		"confirmed":          true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("consignment_updated", data["status"])
+}
+
+func (s *CartToolsSuite) TestConsignmentUpdateRejectsNoFields() {
+	res, err := s.callTool("carts/checkout/consignment_update", map[string]any{
+		"checkout_id":    "abc-123",
+		"consignment_id": "cons-1",
+	})
 	s.NoError(err)
 	s.True(res.IsError)
 }

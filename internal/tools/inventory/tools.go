@@ -260,7 +260,10 @@ func (t *Tools) handleCreateLocation(ctx context.Context, request mcp.CallToolRe
 			"safety_note": "Creating locations changes inventory topology and may affect channel/location assignments.",
 		})
 	}
-	raw, err := json.Marshal(locationPayload)
+	// BigCommerce's POST /v3/inventory/locations is a BATCH endpoint — it
+	// expects a JSON array of location objects, not a single object (a bare
+	// object returns 422 "error.expected.jsarray"). Wrap the single location.
+	raw, err := json.Marshal([]map[string]any{locationPayload})
 	if err != nil {
 		return shared.ToolError("failed to marshal location payload: %v", err), nil
 	}
@@ -867,27 +870,30 @@ func requiredObjectPayload(args map[string]any, key string) (map[string]any, err
 }
 
 func inventoryPayloadRowCount(payload map[string]any) (int, error) {
-	if raw, ok := payload["items"]; ok {
-		arr, ok := raw.([]any)
-		if !ok {
-			return 0, fmt.Errorf("update.items must be an array when provided")
-		}
-		if len(arr) == 0 {
-			return 0, fmt.Errorf("update.items must include at least one row")
-		}
-		return len(arr), nil
+	_, hasItems := payload["items"]
+	_, hasData := payload["data"]
+	// Reject ambiguous payloads: the whole map is marshaled and sent to BC, so
+	// counting only one key while both are present would let the row cap be
+	// bypassed (e.g. items[≤10] + data[many]).
+	if hasItems && hasData {
+		return 0, fmt.Errorf("provide either update.items or update.data, not both")
 	}
-	if raw, ok := payload["data"]; ok {
-		arr, ok := raw.([]any)
-		if !ok {
-			return 0, fmt.Errorf("update.data must be an array when provided")
-		}
-		if len(arr) == 0 {
-			return 0, fmt.Errorf("update.data must include at least one row")
-		}
-		return len(arr), nil
+
+	key := "items"
+	if hasData {
+		key = "data"
+	} else if !hasItems {
+		return 0, fmt.Errorf("update payload must include items[] or data[]")
 	}
-	return 0, fmt.Errorf("update payload must include items[] or data[]")
+
+	arr, ok := payload[key].([]any)
+	if !ok {
+		return 0, fmt.Errorf("update.%s must be an array when provided", key)
+	}
+	if len(arr) == 0 {
+		return 0, fmt.Errorf("update.%s must include at least one row", key)
+	}
+	return len(arr), nil
 }
 
 func parseInventoryLocationMetafieldSetFields(args map[string]any) (namespace, key, value, description, permissionSet string, err error) {

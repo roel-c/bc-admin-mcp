@@ -399,13 +399,23 @@ func buildCrossProductVariantPlans(
 	scope string,
 	skuNeedle string,
 ) ([]crossProductVariantPlan, int, error) {
+	// Fetch variants for ALL products in one batched call (GET
+	// /v3/catalog/variants?product_id:in=…, chunked by 100 in the client)
+	// instead of one ListVariantsForProduct call per product. Group the flat
+	// result by product ID before applying the per-product scope.
+	allVariants, err := bc.ListVariantsByProductIDs(ctx, productIDs)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list variants for products: %w", err)
+	}
+	variantsByProduct := make(map[int][]bigcommerce.Variant, len(productIDs))
+	for _, v := range allVariants {
+		variantsByProduct[v.ProductID] = append(variantsByProduct[v.ProductID], v)
+	}
+
 	plans := make([]crossProductVariantPlan, 0, len(productIDs))
 	total := 0
 	for _, pid := range productIDs {
-		variants, err := bc.ListVariantsForProduct(ctx, pid)
-		if err != nil {
-			return nil, 0, fmt.Errorf("list variants for product %d: %w", pid, err)
-		}
+		variants := variantsByProduct[pid]
 		vids, err := variantIDsForScope(variants, scope, skuNeedle)
 		if err != nil {
 			return nil, 0, fmt.Errorf("product %d: %w", pid, err)
@@ -513,8 +523,12 @@ func (p *Products) handleVariantMetafieldsBulkSetProducts(ctx context.Context, r
 		}
 	}
 
+	status := "completed"
+	if failed > 0 {
+		status = "partial_success"
+	}
 	out := map[string]any{
-		"status":                   "completed",
+		"status":                   status,
 		"product_count":            len(productIDs),
 		"total_variant_operations": totalOps,
 		"succeeded":                succeeded,
@@ -628,8 +642,12 @@ func (p *Products) handleVariantMetafieldsBulkDeleteProducts(ctx context.Context
 		}
 	}
 
+	status := "completed"
+	if failed > 0 {
+		status = "partial_success"
+	}
 	out := map[string]any{
-		"status":                   "completed",
+		"status":                   status,
 		"product_count":            len(productIDs),
 		"total_variant_operations": totalOps,
 		"succeeded":                succeeded,
@@ -763,8 +781,12 @@ func (p *Products) handleVariantMetafieldsBulkSet(ctx context.Context, request m
 		})
 	}
 
+	status := "completed"
+	if failed > 0 {
+		status = "partial_success"
+	}
 	out := map[string]any{
-		"status":     "completed",
+		"status":     status,
 		"product_id": productID,
 		"total":      len(vids),
 		"succeeded":  succeeded,
@@ -892,8 +914,12 @@ func (p *Products) handleVariantMetafieldsBulkDelete(ctx context.Context, reques
 		})
 	}
 
+	status := "completed"
+	if failed > 0 {
+		status = "partial_success"
+	}
 	out := map[string]any{
-		"status":     "completed",
+		"status":     status,
 		"product_id": productID,
 		"total":      len(vids),
 		"succeeded":  succeeded,

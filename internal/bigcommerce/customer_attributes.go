@@ -11,10 +11,6 @@ import (
 // id:in query string for /v3/customers/attributes.
 const maxCustomerAttributeIDInQuery = 40
 
-// maxCustomerAttributeValueIDInQuery caps the number of ids in a single
-// id:in query string for /v3/customers/attribute-values.
-const maxCustomerAttributeValueIDInQuery = 40
-
 // maxCustomerMetafieldIDInQuery caps the number of metafield ids in a single
 // id:in query for /v3/customers/{customerId}/metafields and the batch endpoint.
 const maxCustomerMetafieldIDInQuery = 50

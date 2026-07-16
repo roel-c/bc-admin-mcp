@@ -567,8 +567,12 @@ func (p *Products) executeUpdate(ctx context.Context, params *UpdateParams) (*mc
 
 	sessionCache.Delete(key)
 
+	baseStatus := "completed"
+	if batchResult.Failed > 0 {
+		baseStatus = "partial_success"
+	}
 	resp := map[string]any{
-		"status":           "completed",
+		"status":           baseStatus,
 		"products_updated": batchResult.Succeeded,
 		"products_failed":  batchResult.Failed,
 	}

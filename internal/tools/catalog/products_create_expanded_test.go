@@ -139,6 +139,52 @@ func (s *CreateExpandedSuite) TestCreateExecuteWithExpandedFields() {
 	s.Equal("created", data["status"])
 }
 
+// Inline variants (BC V3 best practice): product + variants created in one
+// CreateProduct call, with option_values carried by name (no pre-created options).
+func (s *CreateExpandedSuite) TestCreateWithInlineVariants() {
+	var captured bigcommerce.ProductCreate
+	s.mockBC.EXPECT().CreateProduct(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, p bigcommerce.ProductCreate) (*bigcommerce.Product, error) {
+			captured = p
+			return &bigcommerce.Product{ID: 120, Name: p.Name, SKU: p.SKU}, nil
+		})
+
+	result, err := s.callTool("catalog/products/create", map[string]any{
+		"name":      "Inline Variant Tee",
+		"weight":    float64(1.0),
+		"price":     float64(19.99),
+		"type":      "physical",
+		"confirmed": true,
+		"variants": []any{
+			map[string]any{"sku": "TEE-S", "price": float64(19.99), "option_values": []any{
+				map[string]any{"option_display_name": "Size", "label": "Small"},
+			}},
+			map[string]any{"sku": "TEE-M", "price": float64(21.99), "option_values": []any{
+				map[string]any{"option_display_name": "Size", "label": "Medium"},
+			}},
+		},
+	})
+	s.NoError(err)
+	data := s.parseJSON(result)
+	s.Equal("created", data["status"])
+	s.Require().Len(captured.Variants, 2, "both variants must be sent in the single CreateProduct call")
+	s.Equal("TEE-S", captured.Variants[0].SKU)
+	s.Require().Len(captured.Variants[0].OptionValues, 1)
+	s.Equal("Small", captured.Variants[0].OptionValues[0].Label)
+}
+
+func (s *CreateExpandedSuite) TestCreateInlineVariantRejectsMissingOptionValues() {
+	result, err := s.callTool("catalog/products/create", map[string]any{
+		"name":   "Bad Variant",
+		"weight": float64(1.0),
+		"variants": []any{
+			map[string]any{"sku": "X-1"},
+		},
+	})
+	s.NoError(err)
+	s.True(result.IsError)
+}
+
 func (s *CreateExpandedSuite) TestCreateNameRequired() {
 	result, err := s.callTool("catalog/products/create", map[string]any{
 		"weight": float64(1.0),

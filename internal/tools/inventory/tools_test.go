@@ -534,3 +534,17 @@ func (s *InventoryToolsSuite) TestUpdateItemsBatchValidatesRowCap() {
 	s.True(res.IsError)
 	s.Contains(res.Content[0].(mcp.TextContent).Text, "maximum of 10 rows")
 }
+
+// A payload carrying BOTH items and data must be rejected — otherwise the row
+// cap could be bypassed by counting one key while both are marshaled to BC.
+func (s *InventoryToolsSuite) TestUpdateItemsBatchRejectsBothItemsAndData() {
+	res, err := s.callTool("inventory/items/update_batch", map[string]any{
+		"update": map[string]any{
+			"items": []any{map[string]any{"location_id": float64(1), "variant_id": float64(1)}},
+			"data":  []any{map[string]any{"location_id": float64(1), "variant_id": float64(2)}},
+		},
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+	s.Contains(res.Content[0].(mcp.TextContent).Text, "not both")
+}

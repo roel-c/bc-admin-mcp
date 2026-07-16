@@ -2,7 +2,12 @@ package catalog
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
@@ -14,6 +19,31 @@ type deleteParams struct {
 	SKU         string
 	ProductName string
 	Confirmed   bool
+}
+
+// cacheKey binds a delete preview to its matching confirm call via a stable
+// fingerprint of the targeting fields. A confirm whose targeting differs from
+// the preview misses the cache and is rejected — this prevents a confirm from
+// deleting the products resolved by a *different* preview (the failure mode
+// products/update already guards against with its own fingerprinted key).
+func (p *deleteParams) cacheKey() string {
+	var b strings.Builder
+	b.WriteString("ids:")
+	if len(p.ProductIDs) > 0 {
+		sorted := append([]int(nil), p.ProductIDs...)
+		sort.Ints(sorted)
+		for _, id := range sorted {
+			b.WriteString(strconv.Itoa(id))
+			b.WriteByte(',')
+		}
+	}
+	b.WriteString("|sku:")
+	b.WriteString(p.SKU)
+	b.WriteString("|name:")
+	b.WriteString(p.ProductName)
+
+	sum := sha256.Sum256([]byte(b.String()))
+	return cacheKeyProductDelete + ":" + hex.EncodeToString(sum[:8])
 }
 
 func parseDeleteParams(args map[string]any) (*deleteParams, error) {
@@ -78,7 +108,7 @@ func (p *Products) previewDelete(ctx context.Context, params *deleteParams) (*mc
 	}
 
 	sessionCache := p.cache.ForSession(cacheSessionID(ctx))
-	sessionCache.Set(cacheKeyProductDelete, products)
+	sessionCache.Set(params.cacheKey(), products)
 
 	type deleteSummary struct {
 		ID   int    `json:"id"`
@@ -104,9 +134,10 @@ func (p *Products) previewDelete(ctx context.Context, params *deleteParams) (*mc
 
 func (p *Products) executeDelete(ctx context.Context, params *deleteParams) (*mcp.CallToolResult, error) {
 	sessionCache := p.cache.ForSession(cacheSessionID(ctx))
-	cached, ok := sessionCache.Get(cacheKeyProductDelete)
+	key := params.cacheKey()
+	cached, ok := sessionCache.Get(key)
 	if !ok {
-		return toolError("no preview found — call without confirmed=true first to generate a preview"), nil
+		return toolError("no matching preview found — call without confirmed=true using the SAME targeting first to generate a preview"), nil
 	}
 	products, ok := cached.([]bigcommerce.Product)
 	if !ok || len(products) == 0 {
@@ -119,10 +150,16 @@ func (p *Products) executeDelete(ctx context.Context, params *deleteParams) (*mc
 	}
 
 	deleted, errs := p.bc.DeleteProducts(ctx, ids)
-	sessionCache.Delete(cacheKeyProductDelete)
+	sessionCache.Delete(key)
 
+	status := "completed"
+	if len(errs) > 0 {
+		// Some deletions failed — surface partial_success so the caller does
+		// not mistake a partial run for a full success.
+		status = "partial_success"
+	}
 	resp := map[string]any{
-		"status":           "completed",
+		"status":           status,
 		"products_deleted": len(deleted),
 		"deleted_ids":      deleted,
 	}

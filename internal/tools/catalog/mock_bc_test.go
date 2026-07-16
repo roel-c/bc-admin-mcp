@@ -324,6 +324,34 @@ func (mr *MockBigCommerceAPIMockRecorder) DeleteBrandMetafield(ctx, brandID, met
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteBrandMetafield", reflect.TypeOf((*MockBigCommerceAPI)(nil).DeleteBrandMetafield), ctx, brandID, metafieldID)
 }
 
+// DeleteBrand mocks base method.
+func (m *MockBigCommerceAPI) DeleteBrand(ctx context.Context, brandID int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteBrand", ctx, brandID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteBrand indicates an expected call of DeleteBrand.
+func (mr *MockBigCommerceAPIMockRecorder) DeleteBrand(ctx, brandID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteBrand", reflect.TypeOf((*MockBigCommerceAPI)(nil).DeleteBrand), ctx, brandID)
+}
+
+// DeleteBrandImage mocks base method.
+func (m *MockBigCommerceAPI) DeleteBrandImage(ctx context.Context, brandID int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteBrandImage", ctx, brandID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteBrandImage indicates an expected call of DeleteBrandImage.
+func (mr *MockBigCommerceAPIMockRecorder) DeleteBrandImage(ctx, brandID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteBrandImage", reflect.TypeOf((*MockBigCommerceAPI)(nil).DeleteBrandImage), ctx, brandID)
+}
+
 // DeleteCategories mocks base method.
 func (m *MockBigCommerceAPI) DeleteCategories(ctx context.Context, ids []int) error {
 	m.ctrl.T.Helper()

@@ -17,7 +17,6 @@ import (
 type MockBigCommercePromotionsAPI struct {
 	ctrl     *gomock.Controller
 	recorder *MockBigCommercePromotionsAPIMockRecorder
-	isgomock struct{}
 }
 
 // MockBigCommercePromotionsAPIMockRecorder records expected calls.
@@ -156,10 +155,10 @@ func (mr *MockBigCommercePromotionsAPIMockRecorder) DeleteCouponCodes(ctx, promo
 }
 
 // GenerateCouponCodes mocks base method.
-func (m *MockBigCommercePromotionsAPI) GenerateCouponCodes(ctx context.Context, promotionID int, req bigcommerce.CodeGenRequest) ([]bigcommerce.CouponCode, error) {
+func (m *MockBigCommercePromotionsAPI) GenerateCouponCodes(ctx context.Context, promotionID int, req bigcommerce.CodeGenRequest) (*bigcommerce.CodeGenResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GenerateCouponCodes", ctx, promotionID, req)
-	ret0, _ := ret[0].([]bigcommerce.CouponCode)
+	ret0, _ := ret[0].(*bigcommerce.CodeGenResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

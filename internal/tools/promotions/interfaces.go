@@ -28,7 +28,7 @@ type BigCommercePromotionsAPI interface {
 	ListCouponCodes(ctx context.Context, promotionID int, params bigcommerce.CouponCodeListParams) (*bigcommerce.CouponCodeListResponse, error)
 	CreateCouponCode(ctx context.Context, promotionID int, payload bigcommerce.CouponCodeCreate) (*bigcommerce.CouponCode, error)
 	DeleteCouponCodes(ctx context.Context, promotionID int, ids []int) error
-	GenerateCouponCodes(ctx context.Context, promotionID int, req bigcommerce.CodeGenRequest) ([]bigcommerce.CouponCode, error)
+	GenerateCouponCodes(ctx context.Context, promotionID int, req bigcommerce.CodeGenRequest) (*bigcommerce.CodeGenResult, error)
 
 	// Store-wide promotion settings (slice 3).
 	GetPromotionSettings(ctx context.Context) (*bigcommerce.PromotionSettings, error)

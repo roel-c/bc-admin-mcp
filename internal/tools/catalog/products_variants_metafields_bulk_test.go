@@ -244,11 +244,9 @@ func (s *CrossProductVariantMetafieldBulkSuite) parseJSON(result *mcp.CallToolRe
 }
 
 func (s *CrossProductVariantMetafieldBulkSuite) TestBulkSetProductsPreviewSKUContains() {
-	s.mockBC.EXPECT().ListVariantsForProduct(gomock.Any(), 10).Return([]bigcommerce.Variant{
+	s.mockBC.EXPECT().ListVariantsByProductIDs(gomock.Any(), []int{10, 20}).Return([]bigcommerce.Variant{
 		{ID: 100, ProductID: 10, SKU: "SKU-XYZ-1", Price: 1},
 		{ID: 101, ProductID: 10, SKU: "OTHER", Price: 2},
-	}, nil)
-	s.mockBC.EXPECT().ListVariantsForProduct(gomock.Any(), 20).Return([]bigcommerce.Variant{
 		{ID: 200, ProductID: 20, SKU: "no-match-here", Price: 1},
 	}, nil)
 
@@ -267,7 +265,7 @@ func (s *CrossProductVariantMetafieldBulkSuite) TestBulkSetProductsPreviewSKUCon
 }
 
 func (s *CrossProductVariantMetafieldBulkSuite) TestBulkSetProductsSKUContainsNoMatches() {
-	s.mockBC.EXPECT().ListVariantsForProduct(gomock.Any(), 1).Return([]bigcommerce.Variant{
+	s.mockBC.EXPECT().ListVariantsByProductIDs(gomock.Any(), []int{1}).Return([]bigcommerce.Variant{
 		{ID: 10, ProductID: 1, SKU: "AAA", Price: 1},
 	}, nil)
 
@@ -285,11 +283,9 @@ func (s *CrossProductVariantMetafieldBulkSuite) TestBulkSetProductsSKUContainsNo
 }
 
 func (s *CrossProductVariantMetafieldBulkSuite) TestBulkSetProductsPreviewAllVariants() {
-	s.mockBC.EXPECT().ListVariantsForProduct(gomock.Any(), 10).Return([]bigcommerce.Variant{
+	s.mockBC.EXPECT().ListVariantsByProductIDs(gomock.Any(), []int{10, 20}).Return([]bigcommerce.Variant{
 		{ID: 100, ProductID: 10, SKU: "A", Price: 1},
 		{ID: 101, ProductID: 10, SKU: "B", Price: 2},
-	}, nil)
-	s.mockBC.EXPECT().ListVariantsForProduct(gomock.Any(), 20).Return([]bigcommerce.Variant{
 		{ID: 200, ProductID: 20, SKU: "C", Price: 3},
 	}, nil)
 
@@ -308,7 +304,7 @@ func (s *CrossProductVariantMetafieldBulkSuite) TestBulkSetProductsPreviewAllVar
 }
 
 func (s *CrossProductVariantMetafieldBulkSuite) TestBulkSetProductsFirstVariantOnly() {
-	s.mockBC.EXPECT().ListVariantsForProduct(gomock.Any(), 5).Return([]bigcommerce.Variant{
+	s.mockBC.EXPECT().ListVariantsByProductIDs(gomock.Any(), []int{5}).Return([]bigcommerce.Variant{
 		{ID: 50, ProductID: 5, SKU: "X", Price: 1},
 		{ID: 51, ProductID: 5, SKU: "Y", Price: 2},
 	}, nil)
@@ -348,7 +344,7 @@ func (s *CrossProductVariantMetafieldBulkSuite) TestBulkSetProductsRejectsOverMa
 	for i := range many {
 		many[i] = bigcommerce.Variant{ID: i + 1, ProductID: 1, SKU: "S", Price: 1}
 	}
-	s.mockBC.EXPECT().ListVariantsForProduct(gomock.Any(), 1).Return(many, nil)
+	s.mockBC.EXPECT().ListVariantsByProductIDs(gomock.Any(), []int{1}).Return(many, nil)
 
 	result, err := s.callTool("catalog/products/variants/metafields/bulk_set_products", map[string]any{
 		"product_ids":   []any{float64(1)},
@@ -363,7 +359,7 @@ func (s *CrossProductVariantMetafieldBulkSuite) TestBulkSetProductsRejectsOverMa
 }
 
 func (s *CrossProductVariantMetafieldBulkSuite) TestBulkDeleteProductsPreview() {
-	s.mockBC.EXPECT().ListVariantsForProduct(gomock.Any(), 7).Return([]bigcommerce.Variant{
+	s.mockBC.EXPECT().ListVariantsByProductIDs(gomock.Any(), []int{7}).Return([]bigcommerce.Variant{
 		{ID: 70, ProductID: 7, SKU: "Z", Price: 1},
 	}, nil)
 

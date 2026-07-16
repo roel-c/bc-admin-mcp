@@ -34,12 +34,12 @@ func testBigCommerceConfig() config.BigCommerceConfig {
 
 func TestFullRegistrationActiveCategoriesAreNonEmptyLeaves(t *testing.T) {
 	reg := discovery.NewRegistry()
-	registerCategories(reg)
+	registerCategories(reg, false)
 	cfg := testBigCommerceConfig()
 	bc := bigcommerce.NewClient(cfg, slog.Default())
 	t.Cleanup(func() { bc.Close() })
 	cache := session.NewStore(cfg.CacheTTL)
-	registerTools(reg, bc, cache)
+	registerTools(reg, bc, nil, cache)
 
 	allowedRoots := []string{"catalog", "orders", "customers", "marketing", "inventory", "storefront", "webhooks", "carts"}
 	for _, cat := range reg.ListCategoryPaths() {
@@ -59,12 +59,12 @@ func TestFullRegistrationActiveCategoriesAreNonEmptyLeaves(t *testing.T) {
 
 func TestFullRegistrationEveryToolParentCategoryExists(t *testing.T) {
 	reg := discovery.NewRegistry()
-	registerCategories(reg)
+	registerCategories(reg, false)
 	cfg := testBigCommerceConfig()
 	bc := bigcommerce.NewClient(cfg, slog.Default())
 	t.Cleanup(func() { bc.Close() })
 	cache := session.NewStore(cfg.CacheTTL)
-	registerTools(reg, bc, cache)
+	registerTools(reg, bc, nil, cache)
 
 	for _, toolPath := range reg.ListToolPaths() {
 		parent := toolPath
@@ -81,12 +81,12 @@ func TestFullRegistrationEveryToolParentCategoryExists(t *testing.T) {
 
 func TestFullRegistrationActiveRoots(t *testing.T) {
 	reg := discovery.NewRegistry()
-	registerCategories(reg)
+	registerCategories(reg, false)
 	cfg := testBigCommerceConfig()
 	bc := bigcommerce.NewClient(cfg, slog.Default())
 	t.Cleanup(func() { bc.Close() })
 	cache := session.NewStore(cfg.CacheTTL)
-	registerTools(reg, bc, cache)
+	registerTools(reg, bc, nil, cache)
 
 	entries, err := reg.Discover("")
 	require.NoError(t, err)
@@ -101,16 +101,22 @@ func TestFullRegistrationActiveRoots(t *testing.T) {
 	require.Contains(t, roots, "customers", "customers root must be registered")
 	require.Contains(t, roots, "marketing", "marketing root must be registered")
 	require.Contains(t, roots, "inventory", "inventory root must be registered")
+	require.Contains(t, roots, "storefront", "storefront root must be registered")
+	require.Contains(t, roots, "webhooks", "webhooks root must be registered")
+	require.Contains(t, roots, "carts", "carts root must be registered")
+
+	// b2b is gated by BC_B2B_ENABLED and must NOT appear when disabled.
+	require.NotContains(t, roots, "b2b", "b2b root must stay hidden when B2B is disabled")
 }
 
 func TestFullRegistrationDiscoveryBFSCoversAllCategoriesAndTools(t *testing.T) {
 	reg := discovery.NewRegistry()
-	registerCategories(reg)
+	registerCategories(reg, false)
 	cfg := testBigCommerceConfig()
 	bc := bigcommerce.NewClient(cfg, slog.Default())
 	t.Cleanup(func() { bc.Close() })
 	cache := session.NewStore(cfg.CacheTTL)
-	registerTools(reg, bc, cache)
+	registerTools(reg, bc, nil, cache)
 
 	queue := []string{""}
 	seenCat := map[string]bool{}
@@ -146,12 +152,12 @@ func TestFullRegistrationDiscoveryBFSCoversAllCategoriesAndTools(t *testing.T) {
 
 func TestFullRegistrationR1PlusToolsExposeConfirmedParameter(t *testing.T) {
 	reg := discovery.NewRegistry()
-	registerCategories(reg)
+	registerCategories(reg, false)
 	cfg := testBigCommerceConfig()
 	bc := bigcommerce.NewClient(cfg, slog.Default())
 	t.Cleanup(func() { bc.Close() })
 	cache := session.NewStore(cfg.CacheTTL)
-	registerTools(reg, bc, cache)
+	registerTools(reg, bc, nil, cache)
 
 	for _, path := range reg.ListToolPaths() {
 		def := reg.GetTool(path)
@@ -166,12 +172,12 @@ func TestFullRegistrationR1PlusToolsExposeConfirmedParameter(t *testing.T) {
 
 func TestFullRegistrationCatalogPriceListSubtreeIsFullyRegistered(t *testing.T) {
 	reg := discovery.NewRegistry()
-	registerCategories(reg)
+	registerCategories(reg, false)
 	cfg := testBigCommerceConfig()
 	bc := bigcommerce.NewClient(cfg, slog.Default())
 	t.Cleanup(func() { bc.Close() })
 	cache := session.NewStore(cfg.CacheTTL)
-	registerTools(reg, bc, cache)
+	registerTools(reg, bc, nil, cache)
 
 	requiredCategories := []string{
 		"catalog/pricelists",
@@ -219,12 +225,12 @@ func TestFullRegistrationCatalogPriceListSubtreeIsFullyRegistered(t *testing.T) 
 
 func TestFullRegistrationOrdersInitialSubtreeIsFullyRegistered(t *testing.T) {
 	reg := discovery.NewRegistry()
-	registerCategories(reg)
+	registerCategories(reg, false)
 	cfg := testBigCommerceConfig()
 	bc := bigcommerce.NewClient(cfg, slog.Default())
 	t.Cleanup(func() { bc.Close() })
 	cache := session.NewStore(cfg.CacheTTL)
-	registerTools(reg, bc, cache)
+	registerTools(reg, bc, nil, cache)
 
 	requiredCategories := []string{
 		"orders",
@@ -294,12 +300,12 @@ const maxSummaryLen = 150
 
 func TestFullRegistrationCategorySummaryLength(t *testing.T) {
 	reg := discovery.NewRegistry()
-	registerCategories(reg)
+	registerCategories(reg, false)
 	cfg := testBigCommerceConfig()
 	bc := bigcommerce.NewClient(cfg, slog.Default())
 	t.Cleanup(func() { bc.Close() })
 	cache := session.NewStore(cfg.CacheTTL)
-	registerTools(reg, bc, cache)
+	registerTools(reg, bc, nil, cache)
 
 	for _, path := range reg.ListCategoryPaths() {
 		path := path
@@ -316,12 +322,12 @@ func TestFullRegistrationCategorySummaryLength(t *testing.T) {
 
 func TestFullRegistrationToolSummaryLength(t *testing.T) {
 	reg := discovery.NewRegistry()
-	registerCategories(reg)
+	registerCategories(reg, false)
 	cfg := testBigCommerceConfig()
 	bc := bigcommerce.NewClient(cfg, slog.Default())
 	t.Cleanup(func() { bc.Close() })
 	cache := session.NewStore(cfg.CacheTTL)
-	registerTools(reg, bc, cache)
+	registerTools(reg, bc, nil, cache)
 
 	for _, path := range reg.ListToolPaths() {
 		path := path
@@ -338,12 +344,12 @@ func TestFullRegistrationToolSummaryLength(t *testing.T) {
 
 func TestFullRegistrationInventoryInitialSubtreeIsFullyRegistered(t *testing.T) {
 	reg := discovery.NewRegistry()
-	registerCategories(reg)
+	registerCategories(reg, false)
 	cfg := testBigCommerceConfig()
 	bc := bigcommerce.NewClient(cfg, slog.Default())
 	t.Cleanup(func() { bc.Close() })
 	cache := session.NewStore(cfg.CacheTTL)
-	registerTools(reg, bc, cache)
+	registerTools(reg, bc, nil, cache)
 
 	requiredCategories := []string{
 		"inventory",
@@ -373,5 +379,153 @@ func TestFullRegistrationInventoryInitialSubtreeIsFullyRegistered(t *testing.T) 
 	for _, toolPath := range requiredTools {
 		def := reg.GetTool(toolPath)
 		require.NotNil(t, def, "missing required tool %q", toolPath)
+	}
+}
+
+func TestFullRegistrationCartsSubtreeIsFullyRegistered(t *testing.T) {
+	reg := discovery.NewRegistry()
+	registerCategories(reg, false)
+	cfg := testBigCommerceConfig()
+	bc := bigcommerce.NewClient(cfg, slog.Default())
+	t.Cleanup(func() { bc.Close() })
+	cache := session.NewStore(cfg.CacheTTL)
+	registerTools(reg, bc, nil, cache)
+
+	requiredCategories := []string{
+		"carts",
+		"carts/cart",
+		"carts/cart/items",
+		"carts/cart/metafields",
+		"carts/checkout",
+	}
+	for _, cat := range requiredCategories {
+		require.True(t, reg.HasCategory(cat), "missing required category %q", cat)
+	}
+
+	requiredTools := []string{
+		"carts/cart/create",
+		"carts/cart/get",
+		"carts/cart/update",
+		"carts/cart/delete",
+		"carts/cart/items/add",
+		"carts/cart/items/update",
+		"carts/cart/items/remove",
+		"carts/cart/checkout_url",
+		"carts/cart/metafields/list",
+		"carts/cart/metafields/set",
+		"carts/cart/metafields/delete",
+		"carts/checkout/get",
+		"carts/checkout/coupon_apply",
+		"carts/checkout/coupon_remove",
+		"carts/checkout/billing_address",
+		"carts/checkout/consignment_add",
+		"carts/checkout/consignment_update",
+		"carts/checkout/convert",
+	}
+	for _, toolPath := range requiredTools {
+		def := reg.GetTool(toolPath)
+		require.NotNil(t, def, "missing required tool %q", toolPath)
+	}
+}
+
+func TestFullRegistrationStorefrontAndWebhooksSubtreesAreFullyRegistered(t *testing.T) {
+	reg := discovery.NewRegistry()
+	registerCategories(reg, false)
+	cfg := testBigCommerceConfig()
+	bc := bigcommerce.NewClient(cfg, slog.Default())
+	t.Cleanup(func() { bc.Close() })
+	cache := session.NewStore(cfg.CacheTTL)
+	registerTools(reg, bc, nil, cache)
+
+	requiredCategories := []string{
+		"storefront",
+		"storefront/scripts",
+		"webhooks",
+	}
+	for _, cat := range requiredCategories {
+		require.True(t, reg.HasCategory(cat), "missing required category %q", cat)
+	}
+
+	requiredTools := []string{
+		"storefront/scripts/list",
+		"storefront/scripts/get",
+		"storefront/scripts/create",
+		"storefront/scripts/update",
+		"storefront/scripts/toggle",
+		"storefront/scripts/delete",
+		"webhooks/list",
+		"webhooks/get",
+		"webhooks/events",
+		"webhooks/create",
+		"webhooks/update",
+		"webhooks/delete",
+	}
+	for _, toolPath := range requiredTools {
+		def := reg.GetTool(toolPath)
+		require.NotNil(t, def, "missing required tool %q", toolPath)
+	}
+}
+
+// TestFullRegistrationB2BRootIsGatedByFlag verifies the b2b/ domain only
+// registers when B2B Edition is enabled — disabled stores must never see it,
+// and enabled stores must get the full Phase B1 subtree.
+func TestFullRegistrationB2BRootIsGatedByFlag(t *testing.T) {
+	cfg := testBigCommerceConfig()
+
+	// Disabled: no b2b category or tools.
+	disabled := discovery.NewRegistry()
+	registerCategories(disabled, false)
+	bcDisabled := bigcommerce.NewClient(cfg, slog.Default())
+	t.Cleanup(func() { bcDisabled.Close() })
+	registerTools(disabled, bcDisabled, nil, session.NewStore(cfg.CacheTTL))
+	require.False(t, disabled.HasCategory("b2b"), "b2b root must not register when disabled")
+	require.Nil(t, disabled.GetTool("b2b/companies/list"), "b2b tools must not register when disabled")
+
+	// Enabled: full subtree registers.
+	enabled := discovery.NewRegistry()
+	registerCategories(enabled, true)
+	bcEnabled := bigcommerce.NewClient(cfg, slog.Default())
+	t.Cleanup(func() { bcEnabled.Close() })
+	b2bClient := bigcommerce.NewB2BClient(cfg.StoreHash, cfg.AuthToken, cfg.MaxRetries, slog.Default())
+	t.Cleanup(func() { b2bClient.Close() })
+	registerTools(enabled, bcEnabled, b2bClient, session.NewStore(cfg.CacheTTL))
+
+	requiredCategories := []string{
+		"b2b",
+		"b2b/companies",
+		"b2b/companies/users",
+		"b2b/companies/addresses",
+	}
+	for _, cat := range requiredCategories {
+		require.True(t, enabled.HasCategory(cat), "missing required category %q when enabled", cat)
+	}
+
+	requiredTools := []string{
+		"b2b/companies/list",
+		"b2b/companies/get",
+		"b2b/companies/create",
+		"b2b/companies/update",
+		"b2b/companies/set_status",
+		"b2b/companies/delete",
+		"b2b/companies/users/list",
+		"b2b/companies/users/create",
+		"b2b/companies/users/update",
+		"b2b/companies/users/delete",
+		"b2b/companies/addresses/list",
+		"b2b/companies/addresses/create",
+		"b2b/companies/addresses/update",
+		"b2b/companies/addresses/delete",
+	}
+	for _, toolPath := range requiredTools {
+		def := enabled.GetTool(toolPath)
+		require.NotNil(t, def, "missing required tool %q when enabled", toolPath)
+	}
+
+	// The gated subtree must also satisfy the same discovery invariants:
+	// every active category returns at least one child.
+	for _, cat := range enabled.ListCategoryPaths() {
+		entries, err := enabled.Discover(cat)
+		require.NoError(t, err)
+		require.NotEmpty(t, entries, "discover_tools(%q) must not be empty", cat)
 	}
 }
