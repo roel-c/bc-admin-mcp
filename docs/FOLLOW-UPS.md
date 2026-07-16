@@ -214,6 +214,15 @@ is expected platform behavior, not an MCP bug — see the "Order lifecycle"
 section in `docs/B2B.md` for the full write-up on moving an order out of
 Incomplete and what determines B2B-panel visibility.
 
+**Correction (2026-07-16) — the "missing store shipping config" framing above
+was wrong.** FU-8 below found the store's shipping zones were configured
+correctly all along; `carts/checkout/consignment_add`/`consignment_update`/
+`carts/checkout/get` just weren't requesting
+`include=consignments.available_shipping_options`, so BigCommerce never
+returned the options that already existed. Fixed in
+`internal/bigcommerce/checkouts.go`. No store-side shipping configuration
+change is needed to unblock `convert` going forward.
+
 ---
 
 ## FU-8 — MCP-only create-data pass across all 9 domains (2026-07-16)
