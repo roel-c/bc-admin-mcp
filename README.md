@@ -511,6 +511,7 @@ The client layer implements the conservative defaults from [`docs/BC-Tool-Bounda
 
 ## Documentation
 
+- **[docs/WORKFLOW.md](./docs/WORKFLOW.md)** — Implementation workflow for adding endpoints: research → implement → build/test/lint gate → reload → live-validate with cleanup → docs → commit → CI. **Follow this for all new endpoint work.**
 - **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — Full architecture, design decisions, token analysis, security controls, known limitations, expansion roadmap, and guide for adding new tool domains
 - **[docs/discovery-registration-audit.md](./docs/discovery-registration-audit.md)** — `discover_tools` vs registration policy (active roots + non-empty categories + tool parent-chain guarantees)
 - **[docs/msf-research-outline.md](./docs/msf-research-outline.md)** — Multi-storefront / channels: API review, MSF detection heuristics, insertion points (research)

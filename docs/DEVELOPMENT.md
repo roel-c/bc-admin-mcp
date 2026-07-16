@@ -9,6 +9,8 @@ Consolidates rules from:
 
 For field-level request/response shapes see `BC-API-Reference.md` and the official Developer Center.
 
+For the **step-by-step process** of adding endpoints (research → implement → gate → reload → live-validate → docs → commit → CI), see [WORKFLOW.md](./WORKFLOW.md). This guide is the *rules*; WORKFLOW.md is the *cadence*.
+
 ---
 
 ## 1. Tool tiers (recommended)
