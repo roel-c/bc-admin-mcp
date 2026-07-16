@@ -43,6 +43,20 @@ type B2BCompanyAPI interface {
 	CreateB2BPermission(ctx context.Context, payload bigcommerce.B2BPermissionCreate) (*bigcommerce.B2BPermission, error)
 	UpdateB2BPermission(ctx context.Context, permissionID int, payload bigcommerce.B2BPermissionCreate) (*bigcommerce.B2BPermission, error)
 	DeleteB2BPermission(ctx context.Context, permissionID int) error
+	// Account hierarchies
+	ListB2BCompanySubsidiaries(ctx context.Context, companyID int, params string) ([]bigcommerce.B2BHierarchyNode, error)
+	ListB2BCompanyHierarchy(ctx context.Context, companyID int, params string) ([]bigcommerce.B2BHierarchyNode, error)
+	AttachB2BCompanyParent(ctx context.Context, companyID, parentCompanyID int) error
+	DeleteB2BCompanySubsidiary(ctx context.Context, companyID, childCompanyID int) error
+	// Channels
+	ListB2BChannels(ctx context.Context) ([]bigcommerce.B2BChannel, error)
+	GetB2BChannel(ctx context.Context, channelID int) (*bigcommerce.B2BChannel, error)
+	// Orders
+	GetB2BOrder(ctx context.Context, bcOrderID int) (map[string]any, error)
+	UpdateB2BOrder(ctx context.Context, bcOrderID int, payload bigcommerce.B2BOrderUpdate) (map[string]any, error)
+	AssignCustomerOrdersToCompany(ctx context.Context, customerID int) error
+	ReassignOrdersToCompany(ctx context.Context, customerID, bcGroupID int) error
+	ListB2BOrderExtraFields(ctx context.Context, params string) ([]bigcommerce.B2BExtraFieldDef, error)
 	// Addresses
 	ListB2BAddresses(ctx context.Context, params string) ([]bigcommerce.B2BAddress, error)
 	CreateB2BAddress(ctx context.Context, payload bigcommerce.B2BAddressCreate) (*bigcommerce.B2BAddress, error)

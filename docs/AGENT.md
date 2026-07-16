@@ -228,6 +228,9 @@ Every tool uses the same envelope:
 | `b2b/companies/attachments/list\|add\|delete` | R0/R1/R2 |
 | `b2b/companies/roles/list\|get\|create\|update\|delete` | R0/R0/R1/R1/R2 |
 | `b2b/companies/permissions/list\|create\|update\|delete` | R0/R1/R1/R2 |
+| `b2b/companies/hierarchy/get\|subsidiaries\|attach_parent\|detach_subsidiary` | R0/R0/R1/R2 |
+| `b2b/channels/list\|get` | R0/R0 |
+| `b2b/orders/get\|update\|assign_customer_orders\|reassign\|extra_fields` | R0/R1/R2/R2/R0 |
 
 **B2B Edition — scope: `B2B Edition` (requires `BC_B2B_ENABLED=true` in `.env`):**
 

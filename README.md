@@ -440,6 +440,15 @@ The `b2b/` root only registers when `BC_B2B_ENABLED=true`; it reuses the existin
 | `b2b/companies/permissions/list` | R0 | List permission definitions (discover codes) |
 | `b2b/companies/permissions/create` \| `update` | R1 | Create / update a custom permission; preview → **`confirmed`** |
 | `b2b/companies/permissions/delete` | R2 | Delete a custom permission; preview → **`confirmed`** |
+| `b2b/companies/hierarchy/get` \| `subsidiaries` | R0 | View a company's full hierarchy / its subsidiaries |
+| `b2b/companies/hierarchy/attach_parent` | R1 | Set a parent above a company; preview → **`confirmed`** |
+| `b2b/companies/hierarchy/detach_subsidiary` | R2 | Remove a subsidiary's parent link; preview → **`confirmed`** |
+| `b2b/channels/list` \| `get` | R0 | List storefront channels / get one by BigCommerce channel ID |
+| `b2b/orders/get` | R0 | B2B view of an order (PO number, company, extra fields) by BC order ID |
+| `b2b/orders/update` | R1 | Set an order's PO number / extra fields; preview → **`confirmed`** |
+| `b2b/orders/assign_customer_orders` | R2 | Attach a buyer's historical orders to their company; preview → **`confirmed`** |
+| `b2b/orders/reassign` | R2 | Reassign orders by customer group (Dependent-behavior stores only); preview → **`confirmed`** |
+| `b2b/orders/extra_fields` | R0 | List order extra-field definitions |
 
 ## Project Structure
 

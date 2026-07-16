@@ -56,6 +56,34 @@ func (mr *MockB2BCompanyAPIMockRecorder) AddB2BCompanyAttachment(ctx, companyID,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddB2BCompanyAttachment", reflect.TypeOf((*MockB2BCompanyAPI)(nil).AddB2BCompanyAttachment), ctx, companyID, fileName, data)
 }
 
+// AssignCustomerOrdersToCompany mocks base method.
+func (m *MockB2BCompanyAPI) AssignCustomerOrdersToCompany(ctx context.Context, customerID int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AssignCustomerOrdersToCompany", ctx, customerID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AssignCustomerOrdersToCompany indicates an expected call of AssignCustomerOrdersToCompany.
+func (mr *MockB2BCompanyAPIMockRecorder) AssignCustomerOrdersToCompany(ctx, customerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignCustomerOrdersToCompany", reflect.TypeOf((*MockB2BCompanyAPI)(nil).AssignCustomerOrdersToCompany), ctx, customerID)
+}
+
+// AttachB2BCompanyParent mocks base method.
+func (m *MockB2BCompanyAPI) AttachB2BCompanyParent(ctx context.Context, companyID, parentCompanyID int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AttachB2BCompanyParent", ctx, companyID, parentCompanyID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AttachB2BCompanyParent indicates an expected call of AttachB2BCompanyParent.
+func (mr *MockB2BCompanyAPIMockRecorder) AttachB2BCompanyParent(ctx, companyID, parentCompanyID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AttachB2BCompanyParent", reflect.TypeOf((*MockB2BCompanyAPI)(nil).AttachB2BCompanyParent), ctx, companyID, parentCompanyID)
+}
+
 // BulkCreateB2BUsers mocks base method.
 func (m *MockB2BCompanyAPI) BulkCreateB2BUsers(ctx context.Context, payloads []bigcommerce.B2BUserCreate) ([]bigcommerce.B2BNewUserID, error) {
 	m.ctrl.T.Helper()
@@ -188,6 +216,20 @@ func (mr *MockB2BCompanyAPIMockRecorder) DeleteB2BCompanyAttachment(ctx, company
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteB2BCompanyAttachment", reflect.TypeOf((*MockB2BCompanyAPI)(nil).DeleteB2BCompanyAttachment), ctx, companyID, attachmentID)
 }
 
+// DeleteB2BCompanySubsidiary mocks base method.
+func (m *MockB2BCompanyAPI) DeleteB2BCompanySubsidiary(ctx context.Context, companyID, childCompanyID int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteB2BCompanySubsidiary", ctx, companyID, childCompanyID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteB2BCompanySubsidiary indicates an expected call of DeleteB2BCompanySubsidiary.
+func (mr *MockB2BCompanyAPIMockRecorder) DeleteB2BCompanySubsidiary(ctx, companyID, childCompanyID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteB2BCompanySubsidiary", reflect.TypeOf((*MockB2BCompanyAPI)(nil).DeleteB2BCompanySubsidiary), ctx, companyID, childCompanyID)
+}
+
 // DeleteB2BPermission mocks base method.
 func (m *MockB2BCompanyAPI) DeleteB2BPermission(ctx context.Context, permissionID int) error {
 	m.ctrl.T.Helper()
@@ -230,6 +272,21 @@ func (mr *MockB2BCompanyAPIMockRecorder) DeleteB2BUser(ctx, userID any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteB2BUser", reflect.TypeOf((*MockB2BCompanyAPI)(nil).DeleteB2BUser), ctx, userID)
 }
 
+// GetB2BChannel mocks base method.
+func (m *MockB2BCompanyAPI) GetB2BChannel(ctx context.Context, channelID int) (*bigcommerce.B2BChannel, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetB2BChannel", ctx, channelID)
+	ret0, _ := ret[0].(*bigcommerce.B2BChannel)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetB2BChannel indicates an expected call of GetB2BChannel.
+func (mr *MockB2BCompanyAPIMockRecorder) GetB2BChannel(ctx, channelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetB2BChannel", reflect.TypeOf((*MockB2BCompanyAPI)(nil).GetB2BChannel), ctx, channelID)
+}
+
 // GetB2BCompany mocks base method.
 func (m *MockB2BCompanyAPI) GetB2BCompany(ctx context.Context, companyID int) (*bigcommerce.B2BCompany, error) {
 	m.ctrl.T.Helper()
@@ -243,6 +300,21 @@ func (m *MockB2BCompanyAPI) GetB2BCompany(ctx context.Context, companyID int) (*
 func (mr *MockB2BCompanyAPIMockRecorder) GetB2BCompany(ctx, companyID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetB2BCompany", reflect.TypeOf((*MockB2BCompanyAPI)(nil).GetB2BCompany), ctx, companyID)
+}
+
+// GetB2BOrder mocks base method.
+func (m *MockB2BCompanyAPI) GetB2BOrder(ctx context.Context, bcOrderID int) (map[string]any, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetB2BOrder", ctx, bcOrderID)
+	ret0, _ := ret[0].(map[string]any)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetB2BOrder indicates an expected call of GetB2BOrder.
+func (mr *MockB2BCompanyAPIMockRecorder) GetB2BOrder(ctx, bcOrderID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetB2BOrder", reflect.TypeOf((*MockB2BCompanyAPI)(nil).GetB2BOrder), ctx, bcOrderID)
 }
 
 // GetB2BRole mocks base method.
@@ -305,6 +377,21 @@ func (mr *MockB2BCompanyAPIMockRecorder) ListB2BAddresses(ctx, params any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListB2BAddresses", reflect.TypeOf((*MockB2BCompanyAPI)(nil).ListB2BAddresses), ctx, params)
 }
 
+// ListB2BChannels mocks base method.
+func (m *MockB2BCompanyAPI) ListB2BChannels(ctx context.Context) ([]bigcommerce.B2BChannel, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListB2BChannels", ctx)
+	ret0, _ := ret[0].([]bigcommerce.B2BChannel)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListB2BChannels indicates an expected call of ListB2BChannels.
+func (mr *MockB2BCompanyAPIMockRecorder) ListB2BChannels(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListB2BChannels", reflect.TypeOf((*MockB2BCompanyAPI)(nil).ListB2BChannels), ctx)
+}
+
 // ListB2BCompanies mocks base method.
 func (m *MockB2BCompanyAPI) ListB2BCompanies(ctx context.Context, params string) ([]bigcommerce.B2BCompany, error) {
 	m.ctrl.T.Helper()
@@ -348,6 +435,51 @@ func (m *MockB2BCompanyAPI) ListB2BCompanyExtraFields(ctx context.Context, param
 func (mr *MockB2BCompanyAPIMockRecorder) ListB2BCompanyExtraFields(ctx, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListB2BCompanyExtraFields", reflect.TypeOf((*MockB2BCompanyAPI)(nil).ListB2BCompanyExtraFields), ctx, params)
+}
+
+// ListB2BCompanyHierarchy mocks base method.
+func (m *MockB2BCompanyAPI) ListB2BCompanyHierarchy(ctx context.Context, companyID int, params string) ([]bigcommerce.B2BHierarchyNode, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListB2BCompanyHierarchy", ctx, companyID, params)
+	ret0, _ := ret[0].([]bigcommerce.B2BHierarchyNode)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListB2BCompanyHierarchy indicates an expected call of ListB2BCompanyHierarchy.
+func (mr *MockB2BCompanyAPIMockRecorder) ListB2BCompanyHierarchy(ctx, companyID, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListB2BCompanyHierarchy", reflect.TypeOf((*MockB2BCompanyAPI)(nil).ListB2BCompanyHierarchy), ctx, companyID, params)
+}
+
+// ListB2BCompanySubsidiaries mocks base method.
+func (m *MockB2BCompanyAPI) ListB2BCompanySubsidiaries(ctx context.Context, companyID int, params string) ([]bigcommerce.B2BHierarchyNode, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListB2BCompanySubsidiaries", ctx, companyID, params)
+	ret0, _ := ret[0].([]bigcommerce.B2BHierarchyNode)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListB2BCompanySubsidiaries indicates an expected call of ListB2BCompanySubsidiaries.
+func (mr *MockB2BCompanyAPIMockRecorder) ListB2BCompanySubsidiaries(ctx, companyID, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListB2BCompanySubsidiaries", reflect.TypeOf((*MockB2BCompanyAPI)(nil).ListB2BCompanySubsidiaries), ctx, companyID, params)
+}
+
+// ListB2BOrderExtraFields mocks base method.
+func (m *MockB2BCompanyAPI) ListB2BOrderExtraFields(ctx context.Context, params string) ([]bigcommerce.B2BExtraFieldDef, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListB2BOrderExtraFields", ctx, params)
+	ret0, _ := ret[0].([]bigcommerce.B2BExtraFieldDef)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListB2BOrderExtraFields indicates an expected call of ListB2BOrderExtraFields.
+func (mr *MockB2BCompanyAPIMockRecorder) ListB2BOrderExtraFields(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListB2BOrderExtraFields", reflect.TypeOf((*MockB2BCompanyAPI)(nil).ListB2BOrderExtraFields), ctx, params)
 }
 
 // ListB2BPermissions mocks base method.
@@ -410,6 +542,20 @@ func (mr *MockB2BCompanyAPIMockRecorder) ListB2BUsers(ctx, params any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListB2BUsers", reflect.TypeOf((*MockB2BCompanyAPI)(nil).ListB2BUsers), ctx, params)
 }
 
+// ReassignOrdersToCompany mocks base method.
+func (m *MockB2BCompanyAPI) ReassignOrdersToCompany(ctx context.Context, customerID, bcGroupID int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReassignOrdersToCompany", ctx, customerID, bcGroupID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReassignOrdersToCompany indicates an expected call of ReassignOrdersToCompany.
+func (mr *MockB2BCompanyAPIMockRecorder) ReassignOrdersToCompany(ctx, customerID, bcGroupID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReassignOrdersToCompany", reflect.TypeOf((*MockB2BCompanyAPI)(nil).ReassignOrdersToCompany), ctx, customerID, bcGroupID)
+}
+
 // SetB2BCompanyStatus mocks base method.
 func (m *MockB2BCompanyAPI) SetB2BCompanyStatus(ctx context.Context, companyID int, action string) (*bigcommerce.B2BCompany, error) {
 	m.ctrl.T.Helper()
@@ -467,6 +613,21 @@ func (m *MockB2BCompanyAPI) UpdateB2BCompanyCatalog(ctx context.Context, company
 func (mr *MockB2BCompanyAPIMockRecorder) UpdateB2BCompanyCatalog(ctx, companyID, catalogID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateB2BCompanyCatalog", reflect.TypeOf((*MockB2BCompanyAPI)(nil).UpdateB2BCompanyCatalog), ctx, companyID, catalogID)
+}
+
+// UpdateB2BOrder mocks base method.
+func (m *MockB2BCompanyAPI) UpdateB2BOrder(ctx context.Context, bcOrderID int, payload bigcommerce.B2BOrderUpdate) (map[string]any, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateB2BOrder", ctx, bcOrderID, payload)
+	ret0, _ := ret[0].(map[string]any)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateB2BOrder indicates an expected call of UpdateB2BOrder.
+func (mr *MockB2BCompanyAPIMockRecorder) UpdateB2BOrder(ctx, bcOrderID, payload any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateB2BOrder", reflect.TypeOf((*MockB2BCompanyAPI)(nil).UpdateB2BOrder), ctx, bcOrderID, payload)
 }
 
 // UpdateB2BPermission mocks base method.

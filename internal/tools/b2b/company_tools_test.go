@@ -44,6 +44,9 @@ func (s *B2BCompanyToolsSuite) SetupTest() {
 	s.reg.RegisterCategory("b2b/companies/attachments", "Company attachments")
 	s.reg.RegisterCategory("b2b/companies/roles", "Company roles")
 	s.reg.RegisterCategory("b2b/companies/permissions", "Company permissions")
+	s.reg.RegisterCategory("b2b/companies/hierarchy", "Account hierarchy")
+	s.reg.RegisterCategory("b2b/channels", "B2B channels")
+	s.reg.RegisterCategory("b2b/orders", "B2B orders")
 	s.ct.RegisterTools(s.reg)
 }
 

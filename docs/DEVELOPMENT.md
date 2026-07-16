@@ -208,6 +208,10 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `b2b/companies/attachments/list` / `add` / `delete` | R0 / **R1** / **R2**; `add` uploads a local file (≤10MB, multipart) to the Attachments tab | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/roles/*` | R0 reads; **R1** create/update; **R2** delete; custom roles only (predefined are read-only); `permissions_json` sets `{code, permissionLevel}` | `internal/tools/b2b/role_tools.go` |
 | `b2b/companies/permissions/*` | R0 list; **R1** create/update; **R2** delete; custom company permissions | `internal/tools/b2b/role_tools.go` |
+| `b2b/companies/hierarchy/*` | R0 get/subsidiaries; **R1** attach_parent; **R2** detach_subsidiary; requires Account Hierarchy enabled on the store | `internal/tools/b2b/hierarchy_tools.go` |
+| `b2b/channels/list` / `get` | R0; storefront channels as seen by B2B Edition (`id` ≠ `channelId`) | `internal/tools/b2b/channel_order_tools.go` |
+| `b2b/orders/get` / `extra_fields` | R0; B2B order view by BC order ID; order extra-field configs | `internal/tools/b2b/channel_order_tools.go` |
+| `b2b/orders/update` / `assign_customer_orders` / `reassign` | **R1** / **R2** / **R2**; PO+extra fields; attach historical orders; reassign by group (Dependent-behavior only) | `internal/tools/b2b/channel_order_tools.go` |
 
 ---
 

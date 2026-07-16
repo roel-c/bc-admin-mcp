@@ -39,6 +39,9 @@ func (ct *CompanyTools) RegisterTools(reg *discovery.Registry) {
 	ct.registerAddressTools(reg)
 	ct.registerRoleTools(reg)
 	ct.registerPermissionTools(reg)
+	ct.registerHierarchyTools(reg)
+	ct.registerChannelTools(reg)
+	ct.registerOrderTools(reg)
 }
 
 // ============================================================

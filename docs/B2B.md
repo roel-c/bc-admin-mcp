@@ -108,6 +108,32 @@ BigCommerce documents 11 server-to-server resource families:
 | `b2b/companies/permissions/update` | R1 | Update a custom permission |
 | `b2b/companies/permissions/delete` | R2 | Delete a custom permission |
 
+**Account hierarchy** (requires Account Hierarchy enabled on the store)
+
+| Tool | Tier | Description |
+|------|------|-------------|
+| `b2b/companies/hierarchy/get` | R0 | Full hierarchy (parents + nested subsidiaries) for a company |
+| `b2b/companies/hierarchy/subsidiaries` | R0 | List subsidiary accounts beneath a company |
+| `b2b/companies/hierarchy/attach_parent` | R1 | Set a parent above a company |
+| `b2b/companies/hierarchy/detach_subsidiary` | R2 | Remove a subsidiary's parent link |
+
+**Channels**
+
+| Tool | Tier | Description |
+|------|------|-------------|
+| `b2b/channels/list` | R0 | List storefront channels seen by B2B Edition |
+| `b2b/channels/get` | R0 | Get a channel by BigCommerce channel ID |
+
+**Orders** (B2B order metadata; `bc_order_id` = BigCommerce order ID)
+
+| Tool | Tier | Description |
+|------|------|-------------|
+| `b2b/orders/get` | R0 | Get the B2B view of an order (PO number, company, extra fields) |
+| `b2b/orders/update` | R1 | Set an order's PO number and/or extra fields |
+| `b2b/orders/assign_customer_orders` | R2 | Attach a buyer's historical orders to their company |
+| `b2b/orders/reassign` | R2 | Reassign orders by customer group — **Dependent-behavior stores only** |
+| `b2b/orders/extra_fields` | R0 | List order extra-field definitions |
+
 **Company status codes:** 0=pending, 1=approved, 2=rejected, 3=inactive
 
 **User role codes:** 0=admin, 1=senior buyer, 2=junior buyer
@@ -116,7 +142,7 @@ BigCommerce documents 11 server-to-server resource families:
 
 **Extra fields:** Stores can require custom fields on companies/users. Use the `extra_fields` tools to discover definitions, and pass `extra_fields_json` (`[{"fieldName","fieldValue"}]`) on create/update.
 
-**Deferred (management API, needs a focused pass):** bulk-create companies (unusual `data.errors`+`meta[]` envelope), batch update `PUT /companies` (redundant with per-id update), convert customer-group→company (legacy Dependent-behavior migration), account hierarchies, channels, and B2B orders.
+**Deferred (management API, needs a focused pass):** bulk-create companies (unusual `data.errors`+`meta[]` envelope), batch update `PUT /companies` (redundant with per-id update), and convert customer-group→company (legacy Dependent-behavior migration).
 
 ---
 

@@ -145,6 +145,9 @@ func registerCategories(reg *discovery.Registry, b2bEnabled bool) {
 		reg.RegisterCategory("b2b/companies/attachments", "Company file attachments: list and delete.")
 		reg.RegisterCategory("b2b/companies/roles", "Company user roles: list/get/create/update/delete custom roles with permissions.")
 		reg.RegisterCategory("b2b/companies/permissions", "Company permission definitions: list plus custom permission CRUD.")
+		reg.RegisterCategory("b2b/companies/hierarchy", "Account hierarchy: view parents/subsidiaries, attach parent, detach subsidiary.")
+		reg.RegisterCategory("b2b/channels", "Storefront channels as seen by B2B Edition: list and get.")
+		reg.RegisterCategory("b2b/orders", "B2B order metadata: get/update PO+extra fields, assign/reassign orders to companies.")
 	}
 
 	// store/* remains omitted until tools exist to avoid empty discover_tools leaves.

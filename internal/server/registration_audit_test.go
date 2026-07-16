@@ -498,6 +498,9 @@ func TestFullRegistrationB2BRootIsGatedByFlag(t *testing.T) {
 		"b2b/companies/attachments",
 		"b2b/companies/roles",
 		"b2b/companies/permissions",
+		"b2b/companies/hierarchy",
+		"b2b/channels",
+		"b2b/orders",
 	}
 	for _, cat := range requiredCategories {
 		require.True(t, enabled.HasCategory(cat), "missing required category %q when enabled", cat)
@@ -536,6 +539,17 @@ func TestFullRegistrationB2BRootIsGatedByFlag(t *testing.T) {
 		"b2b/companies/permissions/create",
 		"b2b/companies/permissions/update",
 		"b2b/companies/permissions/delete",
+		"b2b/companies/hierarchy/get",
+		"b2b/companies/hierarchy/subsidiaries",
+		"b2b/companies/hierarchy/attach_parent",
+		"b2b/companies/hierarchy/detach_subsidiary",
+		"b2b/channels/list",
+		"b2b/channels/get",
+		"b2b/orders/get",
+		"b2b/orders/update",
+		"b2b/orders/assign_customer_orders",
+		"b2b/orders/reassign",
+		"b2b/orders/extra_fields",
 	}
 	for _, toolPath := range requiredTools {
 		def := enabled.GetTool(toolPath)
