@@ -681,9 +681,9 @@ b2b/                        — (Gated by BC_B2B_ENABLED) B2B Edition via api-b2
 
 ## 7. Expansion Roadmap
 
-### Catalog completion gate (before other domains)
+### Adding a new domain
 
-Work through **[`catalog-completion-checklist.md`](./catalog-completion-checklist.md)** so catalog discovery matches implemented tools, intentional stubs (e.g. reserved `catalog/variants` for global variant API) are documented, and patterns (tiers, preview/confirm, bulk caps, metafields) remain stable as we layer **orders**, **carts**, **inventory**, and the rest of the roadmap below.
+Follow **[`WORKFLOW.md`](./WORKFLOW.md)** — the research → implement → build/test/lint gate → reload → live-validate-with-cleanup → docs → commit → CI cadence used to build every domain shipped so far (catalog, orders, customers, marketing, inventory, storefront, webhooks, carts/checkout, and B2B). §8 below covers the code-level registration mechanics.
 
 Multi-storefront / channel work: see **[`MSF.md`](./MSF.md)** for API inventory, MSF detection heuristics, shipped tools, and open follow-ups.
 
@@ -1001,6 +1001,7 @@ A comprehensive line-by-line security audit was performed across all source file
 
 ## References
 
+- [WORKFLOW.md](./WORKFLOW.md) — Implementation workflow for adding new endpoints/domains
 - [SECURITY.md](./SECURITY.md) — Security review findings, threat model, and remediation details
 - [DEVELOPMENT.md](./DEVELOPMENT.md) — Tool tiers (R0–R4), numeric caps, concurrency policy, OAuth scopes, and channel assignment model
 - [AGENT.md](./AGENT.md) — Agent system prompt: tool tables, workflow, safety rules, and response format
@@ -1008,7 +1009,7 @@ A comprehensive line-by-line security audit was performed across all source file
 - [B2B.md](./B2B.md) — B2B Edition API research, unified auth, and phased implementation plan
 - [BC-API-Reference.md](./BC-API-Reference.md) — Full BigCommerce REST API endpoint map with batch sizes, concurrency limits, and pagination patterns
 - [BC-API-SPECIFICITY.md](./BC-API-SPECIFICITY.md) — Field-level API quirks, undocumented behaviors, and response shape differences
-- [catalog-completion-checklist.md](./catalog-completion-checklist.md) — Catalog completeness gate and implementation reference
+- [FOLLOW-UPS.md](./FOLLOW-UPS.md) — Tracked technical debt and deferred fixes from architecture/live-test audits
 - [MCP Specification](https://modelcontextprotocol.io/specification/latest) — Protocol reference
 - [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) — SDK documentation
 - [Progressive Disclosure MCP: 85x Token Savings](https://matthewkruczek.ai/blog/progressive-disclosure-mcp-servers.html) — Research on the lazy loading pattern

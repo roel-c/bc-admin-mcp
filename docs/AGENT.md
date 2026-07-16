@@ -342,6 +342,8 @@ BigCommerce API errors are surfaced as tool results (not exceptions):
 - `docs/DEVELOPMENT.md` — Tool tiers (R0–R4), numeric caps, concurrency policy, OAuth scope grouping, and channel assignment model
 - `docs/BC-API-SPECIFICITY.md` — Field-level API quirks and undocumented behaviors
 - `docs/MSF.md` — Multi-storefront research and phased delivery record
-- `docs/catalog-completion-checklist.md` — Catalog completeness gate before adding new tool domains
+- `docs/B2B.md` — B2B Edition API research and phased implementation plan
+- `docs/WORKFLOW.md` — Implementation workflow for adding new endpoints/domains
+- `docs/FOLLOW-UPS.md` — Tracked technical debt and deferred fixes
 - `README.md` — Setup instructions, build commands, and transport configuration
 - `.env.example` — Template for required environment variable names

@@ -43,9 +43,9 @@ b2b/         — (Gated) Company accounts, buyer users, and company addresses vi
 
 **Variants:** use **`catalog/products/variants`** for product-scoped CRUD, options-linked creates, and variant metafields. Use **`catalog/variants`** for **global** `GET /v3/catalog/variants` list/search and **`PUT /v3/catalog/variants`** batch updates (IMS-style); see tool table rows below.
 
-**Before implementing remaining domains (carts, inventory, store, etc.):** work through the catalog hardening and scope checklist in [`docs/catalog-completion-checklist.md`](docs/catalog-completion-checklist.md) so discovery matches reality and patterns (tiers, bulk, metafields) stay consistent when those domains are added.
+**Adding a new tool domain?** Follow [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) — the research → implement → gate → reload → live-validate → docs → commit cadence used to build every domain in this table.
 
-### Tool Tiers (from [docs/BC-Tool-Boundaries.md](./docs/BC-Tool-Boundaries.md))
+### Tool Tiers (from [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md))
 
 | Tier | Intent | Confirmation |
 |------|--------|-------------|
@@ -172,10 +172,10 @@ Use **`confirmed: true`** on the second call after reviewing the preview.
 
 ### Operator references
 
-- **[Channel assignments vs listings](./docs/channel-assignments-vs-listings.md)** — how catalog channel assignments relate to per-channel listings, and when to use **`catalog/products/channel_summary`**.
-- **[MCP discovery and preview drills](./docs/mcp-operator-drill.md)** — how to exercise **`discover_tools`** / **`execute_tool`** and preview-then-confirm (includes automated regression tests you can run in CI).
+- **[Channel assignments vs listings](./docs/DEVELOPMENT.md#9-channel-assignments-vs-channel-listings)** — how catalog channel assignments relate to per-channel listings, and when to use **`catalog/products/channel_summary`**.
+- **[MCP discovery and preview drills](./docs/ARCHITECTURE.md#9-testing-strategy)** — how to exercise **`discover_tools`** / **`execute_tool`** and preview-then-confirm (includes automated regression tests you can run in CI).
 
-**Full agent copy-paste reference:** **[docs/bc_system_prompt.md](./docs/bc_system_prompt.md)** — includes the universal `execute_tool` envelope, catalog examples, and operating constraints used across domains. Using that structure reduces malformed MCP calls and speeds up correct previews.
+**Full agent copy-paste reference:** **[docs/AGENT.md](./docs/AGENT.md)** — includes the universal `execute_tool` envelope, catalog examples, and operating constraints used across domains. Using that structure reduces malformed MCP calls and speeds up correct previews.
 
 ## Implemented Tools
 
@@ -501,7 +501,7 @@ For the full security review with findings, threat model, and remaining recommen
 
 ## Rate Limiting
 
-The client layer implements the conservative defaults from [`docs/BC-Tool-Boundaries.md`](./docs/BC-Tool-Boundaries.md):
+The client layer implements the conservative defaults from [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md):
 
 - 2 requests/second global throttle
 - Pauses when `X-Rate-Limit-Requests-Left` drops below 25
@@ -512,14 +512,12 @@ The client layer implements the conservative defaults from [`docs/BC-Tool-Bounda
 ## Documentation
 
 - **[docs/WORKFLOW.md](./docs/WORKFLOW.md)** — Implementation workflow for adding endpoints: research → implement → build/test/lint gate → reload → live-validate with cleanup → docs → commit → CI. **Follow this for all new endpoint work.**
-- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — Full architecture, design decisions, token analysis, security controls, known limitations, expansion roadmap, and guide for adding new tool domains
-- **[docs/discovery-registration-audit.md](./docs/discovery-registration-audit.md)** — `discover_tools` vs registration policy (active roots + non-empty categories + tool parent-chain guarantees)
-- **[docs/msf-research-outline.md](./docs/msf-research-outline.md)** — Multi-storefront / channels: API review, MSF detection heuristics, insertion points (research)
-- **[docs/channels-msf-implementation-roadmap.md](./docs/channels-msf-implementation-roadmap.md)** — Phased MSF MCP features (channels, trees, assignments, listings)
+- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — Full architecture, design decisions, token analysis, security controls, known limitations, expansion roadmap, registration policy (§8), and testing strategy incl. manual discovery/preview drills (§9)
+- **[docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)** — Tool tiers, numeric caps, OAuth scopes, concurrency policy, and the channel assignments vs listings model
+- **[docs/AGENT.md](./docs/AGENT.md)** — Agent operating guidelines: tool tables, the universal `execute_tool` envelope, and response format
+- **[docs/MSF.md](./docs/MSF.md)** — Multi-storefront / channels: API research, shipped tools by phase, and open follow-ups
+- **[docs/B2B.md](./docs/B2B.md)** — B2B Edition API research, unified auth, and phased implementation plan
 - **[docs/SECURITY.md](./docs/SECURITY.md)** — Security review findings (S1–S9 remediated, S10–S12 documented), threat model, and remaining recommendations
 - [docs/BC-API-Reference.md](./docs/BC-API-Reference.md) — Full BigCommerce API endpoint map
 - [docs/BC-API-SPECIFICITY.md](./docs/BC-API-SPECIFICITY.md) — Field-level API quirks, undocumented behaviors, and response shape differences discovered during development
-- [docs/BC-Tool-Boundaries.md](./docs/BC-Tool-Boundaries.md) — Tool tiers, caps, and safety rules
-- [docs/bc_system_prompt.md](./docs/bc_system_prompt.md) — Agent operating guidelines
-- [docs/catalog-completion-checklist.md](./docs/catalog-completion-checklist.md) — Catalog completeness gate before adding new tool domains
-- [docs/architecture-executive-summary.md](./docs/architecture-executive-summary.md) — Executive-level architecture summary
+- [docs/FOLLOW-UPS.md](./docs/FOLLOW-UPS.md) — Tracked technical debt and deferred fixes from architecture/live-test audits
