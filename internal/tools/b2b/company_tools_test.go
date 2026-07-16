@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +41,9 @@ func (s *B2BCompanyToolsSuite) SetupTest() {
 	s.reg.RegisterCategory("b2b/companies", "Company management")
 	s.reg.RegisterCategory("b2b/companies/users", "Company users")
 	s.reg.RegisterCategory("b2b/companies/addresses", "Company addresses")
+	s.reg.RegisterCategory("b2b/companies/attachments", "Company attachments")
+	s.reg.RegisterCategory("b2b/companies/roles", "Company roles")
+	s.reg.RegisterCategory("b2b/companies/permissions", "Company permissions")
 	s.ct.RegisterTools(s.reg)
 }
 
@@ -397,6 +402,201 @@ func (s *B2BCompanyToolsSuite) TestUserCreateConfirmed() {
 	s.False(res.IsError)
 	data := s.parseJSON(res)
 	s.Equal("created", data["status"])
+}
+
+// --- b2b/companies/extra_fields + update_catalog + attachments ---
+
+func (s *B2BCompanyToolsSuite) TestCompanyExtraFieldsList() {
+	s.mockBC.EXPECT().ListB2BCompanyExtraFields(gomock.Any(), gomock.Any()).Return([]bigcommerce.B2BExtraFieldDef{
+		{FieldName: "License No", FieldType: "2", IsRequired: true},
+	}, nil)
+
+	res, err := s.callTool("b2b/companies/extra_fields", map[string]any{})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal(float64(1), data["total"])
+}
+
+func (s *B2BCompanyToolsSuite) TestCompanyCreateWithExtraFieldsPreview() {
+	res, err := s.callTool("b2b/companies/create", map[string]any{
+		"company_name":      "Acme Corp",
+		"company_email":     "info@acme.com",
+		"company_phone":     "5555550100",
+		"company_country":   "US",
+		"admin_email":       "admin@acme.com",
+		"admin_first_name":  "Admin",
+		"admin_last_name":   "User",
+		"extra_fields_json": `[{"fieldName":"License No","fieldValue":"12345"}]`,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+}
+
+func (s *B2BCompanyToolsSuite) TestCompanyUpdateCatalogConfirmed() {
+	s.mockBC.EXPECT().UpdateB2BCompanyCatalog(gomock.Any(), 42, "7").Return(nil)
+
+	res, err := s.callTool("b2b/companies/update_catalog", map[string]any{
+		"company_id": float64(42),
+		"catalog_id": "7",
+		"confirmed":  true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("updated", data["status"])
+}
+
+func (s *B2BCompanyToolsSuite) TestAttachmentListReturnsAttachments() {
+	s.mockBC.EXPECT().ListB2BCompanyAttachments(gomock.Any(), 42).Return([]bigcommerce.B2BAttachment{
+		{ID: "abc-uuid", AttachmentFile: "https://cdn.example.com/file.pdf"},
+	}, nil)
+
+	res, err := s.callTool("b2b/companies/attachments/list", map[string]any{"company_id": float64(42)})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal(float64(1), data["total"])
+}
+
+func (s *B2BCompanyToolsSuite) TestAttachmentAddPreviewThenUpload() {
+	// Write a small temp file to upload.
+	dir := s.T().TempDir()
+	fp := dir + "/purchase_order.pdf"
+	s.Require().NoError(os.WriteFile(fp, []byte("%PDF-1.7 test"), 0o600))
+
+	// Preview (no confirm) must not call the API.
+	prev, err := s.callTool("b2b/companies/attachments/add", map[string]any{
+		"company_id": float64(42),
+		"file_path":  fp,
+	})
+	s.NoError(err)
+	pd := s.parseJSON(prev)
+	s.Equal("preview", pd["status"])
+	s.Equal("purchase_order.pdf", pd["file_name"])
+
+	// Confirm → uploads.
+	s.mockBC.EXPECT().AddB2BCompanyAttachment(gomock.Any(), 42, "purchase_order.pdf", gomock.Any()).
+		Return(&bigcommerce.B2BAttachment{ID: "att-uuid", AttachmentFile: "https://cdn.example.com/po.pdf"}, nil)
+	res, err := s.callTool("b2b/companies/attachments/add", map[string]any{
+		"company_id": float64(42),
+		"file_path":  fp,
+		"confirmed":  true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	s.Equal("uploaded", s.parseJSON(res)["status"])
+}
+
+func (s *B2BCompanyToolsSuite) TestAttachmentAddRejectsMissingFile() {
+	res, err := s.callTool("b2b/companies/attachments/add", map[string]any{
+		"company_id": float64(42),
+		"file_path":  "/no/such/file-xyz.pdf",
+		"confirmed":  true,
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+func (s *B2BCompanyToolsSuite) TestAttachmentDeleteConfirmed() {
+	s.mockBC.EXPECT().DeleteB2BCompanyAttachment(gomock.Any(), 42, "abc-uuid").Return(nil)
+
+	res, err := s.callTool("b2b/companies/attachments/delete", map[string]any{
+		"company_id":    float64(42),
+		"attachment_id": "abc-uuid",
+		"confirmed":     true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("deleted", data["status"])
+}
+
+// --- b2b/companies/users/get + get_by_customer ---
+
+func (s *B2BCompanyToolsSuite) TestUserGetReturnsUser() {
+	u := bigcommerce.B2BUser{ID: 7, CompanyID: 42, Email: "buyer@acme.com", Role: 1,
+		ExtraFields: []bigcommerce.B2BExtraField{{FieldName: "PO", FieldValue: "123"}}}
+	s.mockBC.EXPECT().GetB2BUser(gomock.Any(), 7).Return(&u, nil)
+
+	res, err := s.callTool("b2b/companies/users/get", map[string]any{"user_id": float64(7)})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	user := data["user"].(map[string]any)
+	s.Equal("buyer@acme.com", user["email"])
+	s.NotNil(user["extra_fields"])
+}
+
+func (s *B2BCompanyToolsSuite) TestUserGetByCustomerReturnsUser() {
+	u := bigcommerce.B2BUser{ID: 7, CompanyID: 42, Email: "buyer@acme.com", Role: 1, BCCustomerID: 51}
+	s.mockBC.EXPECT().GetB2BUserByCustomerID(gomock.Any(), 51).Return(&u, nil)
+
+	res, err := s.callTool("b2b/companies/users/get_by_customer", map[string]any{"bc_customer_id": float64(51)})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	user := data["user"].(map[string]any)
+	s.Equal(float64(51), user["bc_customer_id"])
+}
+
+// --- b2b/companies/users/bulk_create ---
+
+func (s *B2BCompanyToolsSuite) TestUserBulkCreatePreview() {
+	res, err := s.callTool("b2b/companies/users/bulk_create", map[string]any{
+		"users_json": `[{"company_id":42,"email":"a@acme.com","first_name":"A","last_name":"One","role":1},{"company_id":42,"email":"b@acme.com","first_name":"B","last_name":"Two","role":2}]`,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+	s.Equal(float64(2), data["count"])
+}
+
+func (s *B2BCompanyToolsSuite) TestUserBulkCreateConfirmed() {
+	s.mockBC.EXPECT().BulkCreateB2BUsers(gomock.Any(), gomock.Any()).Return([]bigcommerce.B2BNewUserID{
+		{UserID: 1, BCID: 101},
+		{UserID: 2, BCID: 102},
+	}, nil)
+
+	res, err := s.callTool("b2b/companies/users/bulk_create", map[string]any{
+		"users_json": `[{"company_id":42,"email":"a@acme.com","first_name":"A","last_name":"One","role":1},{"company_id":42,"email":"b@acme.com","first_name":"B","last_name":"Two","role":2}]`,
+		"confirmed":  true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("created", data["status"])
+	s.Equal(float64(2), data["count"])
+}
+
+func (s *B2BCompanyToolsSuite) TestUserBulkCreateRejectsOverTen() {
+	rows := make([]string, 11)
+	for i := range rows {
+		rows[i] = `{"company_id":42,"email":"x@acme.com","first_name":"X","last_name":"Y","role":2}`
+	}
+	res, err := s.callTool("b2b/companies/users/bulk_create", map[string]any{
+		"users_json": "[" + strings.Join(rows, ",") + "]",
+		"confirmed":  true,
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+// --- b2b/companies/users/extra_fields ---
+
+func (s *B2BCompanyToolsSuite) TestUserExtraFieldsList() {
+	s.mockBC.EXPECT().ListB2BUserExtraFields(gomock.Any(), gomock.Any()).Return([]bigcommerce.B2BExtraFieldDef{
+		{FieldName: "PO Number", FieldType: "0", IsRequired: true},
+	}, nil)
+
+	res, err := s.callTool("b2b/companies/users/extra_fields", map[string]any{})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal(float64(1), data["total"])
 }
 
 // --- b2b/companies/addresses/list ---

@@ -45,32 +45,78 @@ BigCommerce documents 11 server-to-server resource families:
 
 ## Phased Implementation Plan
 
-### Phase B1 — Company & User Management ✅ Shipped
+### Phase B1 — Company Administration ✅ Shipped
 
-**Discovery tree:** `b2b/` → `b2b/companies/` + `b2b/companies/users/` + `b2b/companies/addresses/`
+**Discovery tree:** `b2b/` → `b2b/companies/` with sub-trees `users/`, `addresses/`, `attachments/`, `roles/`, `permissions/`.
 
 **Activation:** Set `BC_B2B_ENABLED=true` in `.env`.
+
+**Companies**
 
 | Tool | Tier | Description |
 |------|------|-------------|
 | `b2b/companies/list` | R0 | List companies; filter by status/name/email |
 | `b2b/companies/get` | R0 | Get company details by ID |
-| `b2b/companies/create` | R1 | Create company + initial admin user |
-| `b2b/companies/update` | R1 | Update profile fields |
+| `b2b/companies/create` | R1 | Create company + initial admin user (supports `extra_fields_json`) |
+| `b2b/companies/update` | R1 | Update profile fields (supports `extra_fields_json`) |
 | `b2b/companies/set_status` | R2 | Approve, reject, deactivate |
 | `b2b/companies/delete` | R3 | Permanently delete company + all users; also deletes the users' linked BC customer accounts by default (`delete_bc_customers=false` to keep) |
+| `b2b/companies/extra_fields` | R0 | List company extra-field (custom field) definitions |
+| `b2b/companies/update_catalog` | R2 | Assign a price list/catalog (read-only on Independent-behavior stores) |
+
+**Users**
+
+| Tool | Tier | Description |
+|------|------|-------------|
 | `b2b/companies/users/list` | R0 | List users; filter by company/role/email |
-| `b2b/companies/users/create` | R1 | Create buyer portal user (0=admin, 1=senior, 2=junior) |
+| `b2b/companies/users/get` | R0 | Get one user by B2B user ID (includes extra fields) |
+| `b2b/companies/users/get_by_customer` | R0 | Resolve the B2B user from a BigCommerce customer ID |
+| `b2b/companies/users/create` | R1 | Create buyer portal user (supports `extra_fields_json`) |
+| `b2b/companies/users/bulk_create` | R1 | Create up to 10 users in one call (`users_json`) |
 | `b2b/companies/users/update` | R1 | Update name, phone, role |
 | `b2b/companies/users/delete` | R2 | Remove from buyer portal (BC customer preserved) |
+| `b2b/companies/users/extra_fields` | R0 | List user extra-field definitions |
+
+**Addresses**
+
+| Tool | Tier | Description |
+|------|------|-------------|
 | `b2b/companies/addresses/list` | R0 | List addresses; filter by company/billing/shipping/country |
 | `b2b/companies/addresses/create` | R1 | Add address to a company |
 | `b2b/companies/addresses/update` | R1 | Full PUT update of an address |
 | `b2b/companies/addresses/delete` | R2 | Remove address (existing orders/quotes unaffected) |
 
+**Attachments**
+
+| Tool | Tier | Description |
+|------|------|-------------|
+| `b2b/companies/attachments/list` | R0 | List a company's file attachments |
+| `b2b/companies/attachments/add` | R1 | Upload a local file (≤10MB) to the company's Attachments tab |
+| `b2b/companies/attachments/delete` | R2 | Delete an attachment by ID |
+
+**Roles & permissions**
+
+| Tool | Tier | Description |
+|------|------|-------------|
+| `b2b/companies/roles/list` | R0 | List roles (predefined + custom) |
+| `b2b/companies/roles/get` | R0 | Get a role and its permissions |
+| `b2b/companies/roles/create` | R1 | Create a custom role (`permissions_json`) |
+| `b2b/companies/roles/update` | R1 | Replace a custom role's name + full permission set |
+| `b2b/companies/roles/delete` | R2 | Delete a custom role |
+| `b2b/companies/permissions/list` | R0 | List permission definitions (discover codes) |
+| `b2b/companies/permissions/create` | R1 | Create a custom permission |
+| `b2b/companies/permissions/update` | R1 | Update a custom permission |
+| `b2b/companies/permissions/delete` | R2 | Delete a custom permission |
+
 **Company status codes:** 0=pending, 1=approved, 2=rejected, 3=inactive
 
 **User role codes:** 0=admin, 1=senior buyer, 2=junior buyer
+
+**Permission levels:** 1=user, 2=company, 3=company and subsidiaries
+
+**Extra fields:** Stores can require custom fields on companies/users. Use the `extra_fields` tools to discover definitions, and pass `extra_fields_json` (`[{"fieldName","fieldValue"}]`) on create/update.
+
+**Deferred (management API, needs a focused pass):** bulk-create companies (unusual `data.errors`+`meta[]` envelope), batch update `PUT /companies` (redundant with per-id update), convert customer-group→company (legacy Dependent-behavior migration), account hierarchies, channels, and B2B orders.
 
 ---
 

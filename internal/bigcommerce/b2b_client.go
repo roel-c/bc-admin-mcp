@@ -8,9 +8,18 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
+	"path/filepath"
+	"strings"
 	"time"
 )
+
+// multipartQuoteEscaper matches the escaping mime/multipart applies to
+// Content-Disposition field/file names.
+var multipartQuoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
 
 // b2bBaseURL is the B2B Edition Management REST API base. All paths are
 // appended directly: e.g. "companies", "users?companyId=42".
@@ -201,6 +210,93 @@ func (c *B2BClient) B2BDelete(ctx context.Context, path string) ([]byte, error) 
 	return c.Do(ctx, http.MethodDelete, c.url(path), nil)
 }
 
+// B2BPostMultipart POSTs a single file to a B2B Edition path as
+// multipart/form-data. Used for file-upload endpoints (e.g. company
+// attachments) that do not accept JSON bodies. Applies the same throttling and
+// retry policy as Do.
+func (c *B2BClient) B2BPostMultipart(ctx context.Context, path, fieldName, fileName string, fileData []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	// The B2B API rejects the default application/octet-stream part type with a
+	// 422, so set an explicit Content-Type derived from the file extension
+	// (falling back to content sniffing).
+	fileContentType := mime.TypeByExtension(filepath.Ext(fileName))
+	if fileContentType == "" {
+		fileContentType = http.DetectContentType(fileData)
+	}
+	partHeader := make(textproto.MIMEHeader)
+	partHeader.Set("Content-Disposition",
+		fmt.Sprintf(`form-data; name="%s"; filename="%s"`,
+			multipartQuoteEscaper.Replace(fieldName), multipartQuoteEscaper.Replace(fileName)))
+	partHeader.Set("Content-Type", fileContentType)
+	fw, err := w.CreatePart(partHeader)
+	if err != nil {
+		return nil, fmt.Errorf("create multipart field: %w", err)
+	}
+	if _, err := fw.Write(fileData); err != nil {
+		return nil, fmt.Errorf("write multipart file: %w", err)
+	}
+	contentType := w.FormDataContentType()
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("close multipart writer: %w", err)
+	}
+	bodyBytes := buf.Bytes()
+
+	reqURL := c.url(path)
+	var lastErr error
+	for attempt := range c.maxRetries {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-c.throttle:
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(bodyBytes))
+		if err != nil {
+			return nil, fmt.Errorf("create B2B multipart request: %w", err)
+		}
+		req.Header.Set("X-Auth-Token", c.authToken)
+		req.Header.Set("X-Store-Hash", c.storeHash)
+		req.Header.Set("Content-Type", contentType)
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("B2B multipart request failed: %w", err)
+			c.backoff(ctx, attempt)
+			continue
+		}
+
+		respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("read B2B response: %w", err)
+			continue
+		}
+
+		switch {
+		case resp.StatusCode >= 200 && resp.StatusCode < 300:
+			return respBody, nil
+		case resp.StatusCode == 429:
+			c.logger.Warn("B2B rate limited", "attempt", attempt+1)
+			c.backoff(ctx, attempt)
+			lastErr = fmt.Errorf("B2B rate limited (429)")
+		case resp.StatusCode >= 500:
+			lastErr = fmt.Errorf("B2B server error %d: %s", resp.StatusCode, string(respBody))
+			c.logger.Warn("B2B server error", "status", resp.StatusCode, "attempt", attempt+1)
+			c.backoff(ctx, attempt)
+		default:
+			return nil, &APIError{
+				StatusCode: resp.StatusCode,
+				Body:       respBody,
+				Path:       reqURL,
+				Method:     http.MethodPost,
+			}
+		}
+	}
+	return nil, fmt.Errorf("B2B max retries (%d) exceeded: %w", c.maxRetries, lastErr)
+}
+
 // B2BGetAll fetches all pages of a B2B Edition list endpoint using the
 // offset-based pagination format: data.list + data.pagination.totalCount.
 func (c *B2BClient) B2BGetAll(ctx context.Context, path string) ([]json.RawMessage, error) {
@@ -248,6 +344,23 @@ func b2bUnmarshalSingle(body []byte, dest any, op string) error {
 	}
 	if len(resp.Data) == 0 || string(resp.Data) == "null" {
 		return fmt.Errorf("%s: response missing data", op)
+	}
+	if err := json.Unmarshal(resp.Data, dest); err != nil {
+		return fmt.Errorf("%s: unmarshal: %w", op, err)
+	}
+	return nil
+}
+
+// b2bUnmarshalList parses a B2B response whose `data` field is a JSON array
+// (e.g. bulk-create endpoints) and unmarshals it into dest. A null or missing
+// data field yields an empty result rather than an error.
+func b2bUnmarshalList(body []byte, dest any, op string) error {
+	var resp B2BSingleResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("%s: parse response: %w", op, err)
+	}
+	if len(resp.Data) == 0 || string(resp.Data) == "null" {
+		return nil
 	}
 	if err := json.Unmarshal(resp.Data, dest); err != nil {
 		return fmt.Errorf("%s: unmarshal: %w", op, err)

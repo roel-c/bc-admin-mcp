@@ -417,14 +417,29 @@ The `b2b/` root only registers when `BC_B2B_ENABLED=true`; it reuses the existin
 | `b2b/companies/update` | R1 | Update company profile fields; preview → **`confirmed`** |
 | `b2b/companies/set_status` | R2 | Approve, reject, or deactivate a company; preview → **`confirmed`** |
 | `b2b/companies/delete` | R3 | Permanently delete company, all users, and (by default) their linked BC customer accounts (`delete_bc_customers=false` to keep); preview → **`confirmed`** |
+| `b2b/companies/extra_fields` | R0 | List company extra-field (custom field) definitions |
+| `b2b/companies/update_catalog` | R2 | Assign a price list/catalog to a company; preview → **`confirmed`** |
 | `b2b/companies/users/list` | R0 | List buyer users; filter by company/role/email |
+| `b2b/companies/users/get` | R0 | Get one user by B2B user ID (includes extra fields) |
+| `b2b/companies/users/get_by_customer` | R0 | Resolve the B2B user from a BigCommerce customer ID |
 | `b2b/companies/users/create` | R1 | Create buyer user (0=admin, 1=senior, 2=junior); preview → **`confirmed`** |
+| `b2b/companies/users/bulk_create` | R1 | Create up to 10 users in one call; preview → **`confirmed`** |
 | `b2b/companies/users/update` | R1 | Update user name, phone, or role; preview → **`confirmed`** |
 | `b2b/companies/users/delete` | R2 | Remove user from the buyer portal; preview → **`confirmed`** |
+| `b2b/companies/users/extra_fields` | R0 | List user extra-field definitions |
 | `b2b/companies/addresses/list` | R0 | List company addresses; filter by billing/shipping/country |
 | `b2b/companies/addresses/create` | R1 | Add an address to a company; preview → **`confirmed`** |
 | `b2b/companies/addresses/update` | R1 | Full PUT update of a company address; preview → **`confirmed`** |
 | `b2b/companies/addresses/delete` | R2 | Remove a company address; preview → **`confirmed`** |
+| `b2b/companies/attachments/list` | R0 | List a company's file attachments |
+| `b2b/companies/attachments/add` | R1 | Upload a local file (≤10MB) to the company; preview → **`confirmed`** |
+| `b2b/companies/attachments/delete` | R2 | Delete an attachment by ID; preview → **`confirmed`** |
+| `b2b/companies/roles/list` \| `get` | R0 | List roles / get a role and its permissions |
+| `b2b/companies/roles/create` \| `update` | R1 | Create / replace a custom role's permissions; preview → **`confirmed`** |
+| `b2b/companies/roles/delete` | R2 | Delete a custom role; preview → **`confirmed`** |
+| `b2b/companies/permissions/list` | R0 | List permission definitions (discover codes) |
+| `b2b/companies/permissions/create` \| `update` | R1 | Create / update a custom permission; preview → **`confirmed`** |
+| `b2b/companies/permissions/delete` | R2 | Delete a custom permission; preview → **`confirmed`** |
 
 ## Project Structure
 

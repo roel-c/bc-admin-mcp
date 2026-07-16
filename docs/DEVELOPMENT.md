@@ -199,10 +199,15 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `b2b/companies/create` / `update` | **R1**; preview then confirm; create also provisions the initial admin user | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/set_status` | **R2**; approve / reject / deactivate (status 0–3) | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/delete` | **R3 destructive**; deletes the company, all its users, and (by default) the users' linked BC customer accounts — resolved by `bcCustomerId` or email fallback; `delete_bc_customers=false` keeps them | `internal/tools/b2b/company_tools.go` |
-| `b2b/companies/users/list` / `create` / `update` | R0 / **R1** / **R1**; roles 0=admin, 1=senior, 2=junior | `internal/tools/b2b/company_tools.go` |
-| `b2b/companies/users/delete` | **R2**; removes the buyer-portal user (underlying BC customer preserved) | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/extra_fields` / `update_catalog` | R0 / **R2**; extra-field config discovery; catalog assign (read-only on Independent-behavior stores) | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/users/list` / `get` / `get_by_customer` | R0; single get includes extra fields; `get_by_customer` maps a BC customer ID → B2B user | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/users/create` / `bulk_create` / `update` | **R1**; roles 0=admin, 1=senior, 2=junior; bulk ≤10; `extra_fields_json` supported | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/users/delete` / `extra_fields` | **R2** / R0; delete preserves the underlying BC customer; extra-field config listing | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/addresses/list` / `create` / `update` | R0 / **R1** / **R1**; company billing/shipping addresses | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/addresses/delete` | **R2**; removes an address (existing orders/quotes unaffected) | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/attachments/list` / `add` / `delete` | R0 / **R1** / **R2**; `add` uploads a local file (≤10MB, multipart) to the Attachments tab | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/roles/*` | R0 reads; **R1** create/update; **R2** delete; custom roles only (predefined are read-only); `permissions_json` sets `{code, permissionLevel}` | `internal/tools/b2b/role_tools.go` |
+| `b2b/companies/permissions/*` | R0 list; **R1** create/update; **R2** delete; custom company permissions | `internal/tools/b2b/role_tools.go` |
 
 ---
 

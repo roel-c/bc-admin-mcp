@@ -222,8 +222,12 @@ Every tool uses the same envelope:
 | `carts/checkout/billing_address\|consignment_add\|consignment_update` | R1 |
 | `carts/checkout/convert` | R2 |
 | `b2b/companies/list\|get\|create\|update\|set_status\|delete` | R0/R0/R1/R1/R2/R3 |
-| `b2b/companies/users/list\|create\|update\|delete` | R0/R1/R1/R2 |
+| `b2b/companies/extra_fields\|update_catalog` | R0/R2 |
+| `b2b/companies/users/list\|get\|get_by_customer\|create\|bulk_create\|update\|delete\|extra_fields` | R0/R0/R0/R1/R1/R1/R2/R0 |
 | `b2b/companies/addresses/list\|create\|update\|delete` | R0/R1/R1/R2 |
+| `b2b/companies/attachments/list\|add\|delete` | R0/R1/R2 |
+| `b2b/companies/roles/list\|get\|create\|update\|delete` | R0/R0/R1/R1/R2 |
+| `b2b/companies/permissions/list\|create\|update\|delete` | R0/R1/R1/R2 |
 
 **B2B Edition — scope: `B2B Edition` (requires `BC_B2B_ENABLED=true` in `.env`):**
 

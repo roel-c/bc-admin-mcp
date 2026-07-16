@@ -71,7 +71,8 @@ type B2BCompanyCreate struct {
 	AdminPhone     string `json:"adminPhone,omitempty"`
 	// BCCustomerID links an existing BC customer as the company admin instead
 	// of creating a new user.
-	BCCustomerID int `json:"bcCustomerId,omitempty"`
+	BCCustomerID int             `json:"bcCustomerId,omitempty"`
+	ExtraFields  []B2BExtraField `json:"extraFields,omitempty"`
 }
 
 // B2BCompanyUpdate is the request body for PUT /companies/{companyId}.
@@ -86,7 +87,16 @@ type B2BCompanyUpdate struct {
 	State        string `json:"state,omitempty"`
 	Country      string `json:"country,omitempty"`
 	ZipCode      string `json:"zipCode,omitempty"`
-	Description  string `json:"description,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	ExtraFields  []B2BExtraField `json:"extraFields,omitempty"`
+}
+
+// B2BAttachment is a file attached to a company account. List responses use
+// attachmentFile; the upload (POST) response uses attachmentUrl.
+type B2BAttachment struct {
+	ID             string `json:"id"`
+	AttachmentFile string `json:"attachmentFile,omitempty"`
+	AttachmentURL  string `json:"attachmentUrl,omitempty"`
 }
 
 // B2BCompanyStatusUpdate is the request body for PUT /companies/{companyId}/status.
@@ -106,6 +116,33 @@ var B2BStatusFromAction = map[string]int{
 	"pending":  0,
 }
 
+// ---- Extra field types ----
+
+// B2BExtraField is a name/value pair for a B2B Edition custom (extra) field,
+// used on company, user, address, order, and invoice records.
+type B2BExtraField struct {
+	FieldName  string `json:"fieldName"`
+	FieldValue string `json:"fieldValue"`
+}
+
+// B2BExtraFieldDef describes an extra-field configuration (definition) for a
+// B2B resource. fieldType: 0=text, 1=multiline, 2=number, 3=dropdown.
+// configType: 1=built-in, 2=user-defined.
+type B2BExtraFieldDef struct {
+	ID            json.Number `json:"id,omitempty"`
+	UUID          string      `json:"uuid,omitempty"`
+	FieldName     string      `json:"fieldName"`
+	FieldType     string      `json:"fieldType,omitempty"`
+	ConfigType    string      `json:"configType,omitempty"`
+	IsRequired    bool        `json:"isRequired"`
+	DefaultValue  string      `json:"defaultValue,omitempty"`
+	Maximum       *float64    `json:"maximumValue,omitempty"`
+	MaximumLength *int        `json:"maximumLength,omitempty"`
+	ListOfValue   []string    `json:"listOfValue,omitempty"`
+	VisibleToEnd  bool        `json:"visibleToEnandUser,omitempty"`
+	IsBuiltIn     bool        `json:"isBuiltIn,omitempty"`
+}
+
 // ---- User types ----
 
 // B2BUser represents a B2B Edition buyer portal user.
@@ -117,13 +154,14 @@ type B2BUser struct {
 	LastName     string `json:"lastName"`
 	PhoneNumber  string `json:"phoneNumber,omitempty"`
 	// Role: 0=company admin, 1=senior buyer, 2=junior buyer
-	Role         int    `json:"role"`
-	BCCustomerID int    `json:"bcCustomerId,omitempty"`
-	CreatedAt    int64  `json:"createdAt,omitempty"`
-	UpdatedAt    int64  `json:"updatedAt,omitempty"`
+	Role         int             `json:"role"`
+	BCCustomerID int             `json:"bcCustomerId,omitempty"`
+	ExtraFields  []B2BExtraField `json:"extraFields,omitempty"`
+	CreatedAt    int64           `json:"createdAt,omitempty"`
+	UpdatedAt    int64           `json:"updatedAt,omitempty"`
 }
 
-// B2BUserCreate is the request body for POST /users.
+// B2BUserCreate is the request body for POST /users and POST /users/bulk.
 type B2BUserCreate struct {
 	CompanyID   int    `json:"companyId"`
 	Email       string `json:"email"`
@@ -133,7 +171,8 @@ type B2BUserCreate struct {
 	// Role: 0=company admin, 1=senior buyer, 2=junior buyer
 	Role        int `json:"role"`
 	// BCCustomerID links an existing BC customer instead of creating a new one.
-	BCCustomerID int `json:"bcCustomerId,omitempty"`
+	BCCustomerID int             `json:"bcCustomerId,omitempty"`
+	ExtraFields  []B2BExtraField `json:"extraFields,omitempty"`
 }
 
 // B2BUserUpdate is the request body for PUT /users/{userId}.
@@ -290,6 +329,99 @@ func (c *B2BClient) DeleteB2BCompany(ctx context.Context, companyID int) error {
 	return nil
 }
 
+// ListB2BCompanyExtraFields returns the extra-field definitions configured for
+// companies. Optional params support offset/limit pagination.
+func (c *B2BClient) ListB2BCompanyExtraFields(ctx context.Context, params string) ([]B2BExtraFieldDef, error) {
+	path := "companies/extra-fields"
+	if params != "" {
+		path += "?" + params
+	}
+	raw, err := c.B2BGetAll(ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("list B2B company extra fields: %w", err)
+	}
+	out := make([]B2BExtraFieldDef, 0, len(raw))
+	for _, r := range raw {
+		var f B2BExtraFieldDef
+		if err := json.Unmarshal(r, &f); err != nil {
+			return nil, fmt.Errorf("unmarshal B2B company extra field: %w", err)
+		}
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+// UpdateB2BCompanyCatalog assigns a price list / catalog to a company via
+// PUT /companies/{companyId}/catalog. Note: this field is read-only for stores
+// using Independent Companies behavior and the API will reject the change there.
+func (c *B2BClient) UpdateB2BCompanyCatalog(ctx context.Context, companyID int, catalogID string) error {
+	body := map[string]string{"catalogId": catalogID}
+	_, err := c.B2BPut(ctx, fmt.Sprintf("companies/%d/catalog", companyID), body)
+	if err != nil {
+		return fmt.Errorf("update B2B company %d catalog: %w", companyID, err)
+	}
+	return nil
+}
+
+// ListB2BCompanyAttachments returns files attached to a company account. The
+// endpoint's data field may be a single object or an array depending on the
+// store; both forms are handled.
+func (c *B2BClient) ListB2BCompanyAttachments(ctx context.Context, companyID int) ([]B2BAttachment, error) {
+	body, err := c.B2BGet(ctx, fmt.Sprintf("companies/%d/attachments", companyID))
+	if err != nil {
+		return nil, fmt.Errorf("list B2B company %d attachments: %w", companyID, err)
+	}
+	var resp B2BSingleResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parse B2B attachments response: %w", err)
+	}
+	if len(resp.Data) == 0 || string(resp.Data) == "null" {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(string(resp.Data))
+	if strings.HasPrefix(trimmed, "[") {
+		var arr []B2BAttachment
+		if err := json.Unmarshal(resp.Data, &arr); err != nil {
+			return nil, fmt.Errorf("unmarshal B2B attachments: %w", err)
+		}
+		return arr, nil
+	}
+	var one B2BAttachment
+	if err := json.Unmarshal(resp.Data, &one); err != nil {
+		return nil, fmt.Errorf("unmarshal B2B attachment: %w", err)
+	}
+	if one.ID == "" && one.AttachmentFile == "" {
+		return nil, nil
+	}
+	return []B2BAttachment{one}, nil
+}
+
+// AddB2BCompanyAttachment uploads a file (multipart) to a company account,
+// making it visible in the Attachments tab of the company's backend record.
+// The B2B API rejects files larger than 10MB.
+func (c *B2BClient) AddB2BCompanyAttachment(ctx context.Context, companyID int, fileName string, data []byte) (*B2BAttachment, error) {
+	body, err := c.B2BPostMultipart(ctx, fmt.Sprintf("companies/%d/attachments", companyID), "attachmentFile", fileName, data)
+	if err != nil {
+		return nil, fmt.Errorf("add B2B company %d attachment: %w", companyID, err)
+	}
+	var a B2BAttachment
+	if err := b2bUnmarshalSingle(body, &a, "add B2B company attachment"); err != nil {
+		// The upload succeeded (2xx); some stores return a minimal body whose
+		// shape does not map cleanly. Treat that as success with no detail.
+		return &B2BAttachment{}, nil //nolint:nilerr // response body shape varies
+	}
+	return &a, nil
+}
+
+// DeleteB2BCompanyAttachment removes an attachment from a company account.
+func (c *B2BClient) DeleteB2BCompanyAttachment(ctx context.Context, companyID int, attachmentID string) error {
+	_, err := c.B2BDelete(ctx, fmt.Sprintf("companies/%d/attachments/%s", companyID, attachmentID))
+	if err != nil {
+		return fmt.Errorf("delete B2B company %d attachment %s: %w", companyID, attachmentID, err)
+	}
+	return nil
+}
+
 // ---- User client methods ----
 
 // ListB2BUsers returns users matching optional params (e.g. "companyId=42&role=2").
@@ -346,6 +478,77 @@ func (c *B2BClient) DeleteB2BUser(ctx context.Context, userID int) error {
 		return fmt.Errorf("delete B2B user %d: %w", userID, err)
 	}
 	return nil
+}
+
+// GetB2BUser fetches a single user by B2B Edition user ID. This endpoint
+// includes the user's extra fields by default.
+func (c *B2BClient) GetB2BUser(ctx context.Context, userID int) (*B2BUser, error) {
+	body, err := c.B2BGet(ctx, fmt.Sprintf("users/%d", userID))
+	if err != nil {
+		return nil, fmt.Errorf("get B2B user %d: %w", userID, err)
+	}
+	var u B2BUser
+	if err := b2bUnmarshalSingle(body, &u, "get B2B user"); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// GetB2BUserByCustomerID fetches the B2B user linked to a BigCommerce customer
+// ID. Returns a 404 (surfaced as an error) if no B2B user is linked.
+func (c *B2BClient) GetB2BUserByCustomerID(ctx context.Context, customerID int) (*B2BUser, error) {
+	body, err := c.B2BGet(ctx, fmt.Sprintf("users/customer/%d", customerID))
+	if err != nil {
+		return nil, fmt.Errorf("get B2B user by customer %d: %w", customerID, err)
+	}
+	var u B2BUser
+	if err := b2bUnmarshalSingle(body, &u, "get B2B user by customer"); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// B2BNewUserID is a single entry in the Bulk Create Users response: the new
+// B2B user ID plus the corresponding BigCommerce customer ID.
+type B2BNewUserID struct {
+	UserID int `json:"userId"`
+	BCID   int `json:"bcId"`
+}
+
+// BulkCreateB2BUsers creates up to 10 users in one call via POST /users/bulk.
+// The response returns only the new {userId, bcId} pairs, not full records.
+func (c *B2BClient) BulkCreateB2BUsers(ctx context.Context, payloads []B2BUserCreate) ([]B2BNewUserID, error) {
+	body, err := c.B2BPost(ctx, "users/bulk", payloads)
+	if err != nil {
+		return nil, fmt.Errorf("bulk create B2B users: %w", err)
+	}
+	var out []B2BNewUserID
+	if err := b2bUnmarshalList(body, &out, "bulk create B2B users"); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListB2BUserExtraFields returns the extra-field definitions configured for
+// users. Optional params support offset/limit pagination.
+func (c *B2BClient) ListB2BUserExtraFields(ctx context.Context, params string) ([]B2BExtraFieldDef, error) {
+	path := "users/extra-fields"
+	if params != "" {
+		path += "?" + params
+	}
+	raw, err := c.B2BGetAll(ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("list B2B user extra fields: %w", err)
+	}
+	out := make([]B2BExtraFieldDef, 0, len(raw))
+	for _, r := range raw {
+		var f B2BExtraFieldDef
+		if err := json.Unmarshal(r, &f); err != nil {
+			return nil, fmt.Errorf("unmarshal B2B user extra field: %w", err)
+		}
+		out = append(out, f)
+	}
+	return out, nil
 }
 
 // ---- Address client methods ----

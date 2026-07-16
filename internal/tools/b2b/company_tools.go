@@ -2,8 +2,11 @@ package b2b
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -34,6 +37,8 @@ func (ct *CompanyTools) RegisterTools(reg *discovery.Registry) {
 	ct.registerCompanyTools(reg)
 	ct.registerUserTools(reg)
 	ct.registerAddressTools(reg)
+	ct.registerRoleTools(reg)
+	ct.registerPermissionTools(reg)
 }
 
 // ============================================================
@@ -83,6 +88,7 @@ func (ct *CompanyTools) registerCompanyTools(reg *discovery.Registry) {
 			mcp.WithString("admin_first_name", mcp.Description("Admin first name."), mcp.Required()),
 			mcp.WithString("admin_last_name", mcp.Description("Admin last name."), mcp.Required()),
 			mcp.WithNumber("bc_customer_id", mcp.Description("Link existing BC customer as admin instead of creating a new user.")),
+			mcp.WithString("extra_fields_json", mcp.Description(`Optional JSON array of custom fields: [{"fieldName":"License No","fieldValue":"12345"}]. Use b2b/companies/extra_fields to discover required fields.`)),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create the company.")),
 		),
 		Handler: ct.handleCompanyCreate,
@@ -104,6 +110,7 @@ func (ct *CompanyTools) registerCompanyTools(reg *discovery.Registry) {
 			mcp.WithString("company_country", mcp.Description("New country.")),
 			mcp.WithString("company_zip", mcp.Description("New zip code.")),
 			mcp.WithString("description", mcp.Description("Company description.")),
+			mcp.WithString("extra_fields_json", mcp.Description(`Optional JSON array of custom fields: [{"fieldName":"License No","fieldValue":"12345"}].`)),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to apply.")),
 		),
 		Handler: ct.handleCompanyUpdate,
@@ -135,6 +142,68 @@ func (ct *CompanyTools) registerCompanyTools(reg *discovery.Registry) {
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to delete permanently.")),
 		),
 		Handler: ct.handleCompanyDelete,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/companies/extra_fields",
+		Tier:    middleware.TierR0,
+		Summary: "List extra-field definitions configured for companies",
+		Tool: mcp.NewTool("b2b_companies_extra_fields",
+			mcp.WithDescription("List the extra-field (custom field) definitions configured for B2B Edition companies. Use this to discover required fields before creating companies. fieldType: 0=text, 1=multiline, 2=number, 3=dropdown."),
+			mcp.WithNumber("limit", mcp.Description("Max results (default 10).")),
+			mcp.WithNumber("offset", mcp.Description("Results to skip (default 0).")),
+		),
+		Handler: ct.handleCompanyExtraFields,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/companies/update_catalog",
+		Tier:    middleware.TierR2,
+		Summary: "Assign a price list / catalog to a company",
+		Tool: mcp.NewTool("b2b_companies_update_catalog",
+			mcp.WithDescription("Assign a price list / catalog to a company (PUT /companies/{id}/catalog). Note: this is read-only for stores using Independent Companies behavior and will be rejected there. Preview → confirm."),
+			mcp.WithNumber("company_id", mcp.Description("Company ID"), mcp.Required()),
+			mcp.WithString("catalog_id", mcp.Description("Catalog / price list ID to assign."), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Pass true to apply.")),
+		),
+		Handler: ct.handleCompanyUpdateCatalog,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/companies/attachments/list",
+		Tier:    middleware.TierR0,
+		Summary: "List files attached to a company account",
+		Tool: mcp.NewTool("b2b_companies_attachments_list",
+			mcp.WithDescription("List file attachments on a B2B Edition company account."),
+			mcp.WithNumber("company_id", mcp.Description("Company ID"), mcp.Required()),
+		),
+		Handler: ct.handleAttachmentList,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/companies/attachments/add",
+		Tier:    middleware.TierR1,
+		Summary: "Upload a local file as an attachment on a company account",
+		Tool: mcp.NewTool("b2b_companies_attachments_add",
+			mcp.WithDescription("Upload a local file to a B2B Edition company account. The file appears in the Attachments tab of the company's backend record. Max 10MB. Preview → confirm."),
+			mcp.WithNumber("company_id", mcp.Description("Company ID"), mcp.Required()),
+			mcp.WithString("file_path", mcp.Description("Absolute path to the local file to upload (e.g. /Users/me/Downloads/purchase_order.pdf)."), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Pass true to upload.")),
+		),
+		Handler: ct.handleAttachmentAdd,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/companies/attachments/delete",
+		Tier:    middleware.TierR2,
+		Summary: "Delete a file attachment from a company account",
+		Tool: mcp.NewTool("b2b_companies_attachments_delete",
+			mcp.WithDescription("Delete a file attachment from a B2B Edition company account. Preview → confirm."),
+			mcp.WithNumber("company_id", mcp.Description("Company ID"), mcp.Required()),
+			mcp.WithString("attachment_id", mcp.Description("Attachment ID (UUID) from attachments/list"), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Pass true to delete.")),
+		),
+		Handler: ct.handleAttachmentDelete,
 	})
 }
 
@@ -197,6 +266,11 @@ func (ct *CompanyTools) handleCompanyCreate(ctx context.Context, request mcp.Cal
 	if v, ok := args["admin_first_name"].(string); ok { payload.AdminFirstName = v }
 	if v, ok := args["admin_last_name"].(string); ok { payload.AdminLastName = v }
 	if v, ok := args["bc_customer_id"].(float64); ok && v > 0 { payload.BCCustomerID = int(v) }
+	if ef, eerr := parseB2BExtraFieldsJSON(args, "extra_fields_json"); eerr != nil {
+		return shared.ToolError("%s", eerr.Error()), nil
+	} else {
+		payload.ExtraFields = ef
+	}
 
 	// Required fields per the BigCommerce B2B Edition API (POST /companies):
 	// companyName, companyEmail, companyPhone, country, adminFirstName,
@@ -261,6 +335,12 @@ func (ct *CompanyTools) handleCompanyUpdate(ctx context.Context, request mcp.Cal
 	if v, ok := args["company_country"].(string); ok && v != "" { patch.Country = v; hasField = true }
 	if v, ok := args["company_zip"].(string); ok && v != "" { patch.ZipCode = v; hasField = true }
 	if v, ok := args["description"].(string); ok && v != "" { patch.Description = v; hasField = true }
+	if ef, eerr := parseB2BExtraFieldsJSON(args, "extra_fields_json"); eerr != nil {
+		return shared.ToolError("%s", eerr.Error()), nil
+	} else if len(ef) > 0 {
+		patch.ExtraFields = ef
+		hasField = true
+	}
 	if !hasField {
 		return shared.ToolError("at least one field must be provided"), nil
 	}
@@ -458,6 +538,142 @@ func (ct *CompanyTools) handleCompanyDelete(ctx context.Context, request mcp.Cal
 	return shared.ToolJSON(result)
 }
 
+func (ct *CompanyTools) handleCompanyExtraFields(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	params := url.Values{}
+	if v, ok := args["limit"].(float64); ok && v > 0 {
+		params.Set("limit", fmt.Sprintf("%d", int(v)))
+	}
+	if v, ok := args["offset"].(float64); ok && v >= 0 {
+		params.Set("offset", fmt.Sprintf("%d", int(v)))
+	}
+	defs, err := ct.bc.ListB2BCompanyExtraFields(ctx, params.Encode())
+	if err != nil {
+		return shared.ToolError("failed to list B2B company extra fields: %v", err), nil
+	}
+	return shared.ToolJSON(map[string]any{"total": len(defs), "extra_fields": defs})
+}
+
+func (ct *CompanyTools) handleCompanyUpdateCatalog(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	id, err := shared.ReadPositiveInt(args, "company_id")
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	catalogID, _ := args["catalog_id"].(string)
+	if strings.TrimSpace(catalogID) == "" {
+		return shared.ToolError("catalog_id is required"), nil
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return shared.ToolJSON(map[string]any{
+			"status":     "preview",
+			"action":     "update_b2b_company_catalog",
+			"company_id": id,
+			"catalog_id": catalogID,
+			"message":    fmt.Sprintf("Will assign catalog %q to company %d. (Rejected on Independent Companies behavior stores.) Pass confirmed=true.", catalogID, id),
+		})
+	}
+
+	if err := ct.bc.UpdateB2BCompanyCatalog(ctx, id, catalogID); err != nil {
+		return shared.ToolError("failed to update company %d catalog: %v", id, err), nil
+	}
+	return shared.ToolJSON(map[string]any{"status": "updated", "company_id": id, "catalog_id": catalogID})
+}
+
+func (ct *CompanyTools) handleAttachmentList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	id, err := shared.ReadPositiveInt(args, "company_id")
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	attachments, err := ct.bc.ListB2BCompanyAttachments(ctx, id)
+	if err != nil {
+		return shared.ToolError("failed to list company %d attachments: %v", id, err), nil
+	}
+	return shared.ToolJSON(map[string]any{"total": len(attachments), "attachments": attachments})
+}
+
+// maxB2BAttachmentBytes is the B2B Edition attachment upload limit (10MB).
+const maxB2BAttachmentBytes = 10 * 1024 * 1024
+
+func (ct *CompanyTools) handleAttachmentAdd(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	id, err := shared.ReadPositiveInt(args, "company_id")
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	filePath, _ := args["file_path"].(string)
+	if strings.TrimSpace(filePath) == "" {
+		return shared.ToolError("file_path is required"), nil
+	}
+
+	info, statErr := os.Stat(filePath)
+	if statErr != nil {
+		return shared.ToolError("cannot access file %q: %v", filePath, statErr), nil
+	}
+	if info.IsDir() {
+		return shared.ToolError("file_path %q is a directory, not a file", filePath), nil
+	}
+	if info.Size() > maxB2BAttachmentBytes {
+		return shared.ToolError("file is %d bytes; the B2B attachment limit is 10MB", info.Size()), nil
+	}
+	fileName := filepath.Base(filePath)
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return shared.ToolJSON(map[string]any{
+			"status":     "preview",
+			"action":     "add_b2b_company_attachment",
+			"company_id": id,
+			"file_name":  fileName,
+			"size_bytes": info.Size(),
+			"message":    fmt.Sprintf("Will upload %q (%d bytes) to company %d's attachments. Pass confirmed=true.", fileName, info.Size(), id),
+		})
+	}
+
+	data, readErr := os.ReadFile(filePath)
+	if readErr != nil {
+		return shared.ToolError("failed to read file %q: %v", filePath, readErr), nil
+	}
+	a, err := ct.bc.AddB2BCompanyAttachment(ctx, id, fileName, data)
+	if err != nil {
+		return shared.ToolError("failed to upload attachment to company %d: %v", id, err), nil
+	}
+	return shared.ToolJSON(map[string]any{
+		"status":     "uploaded",
+		"company_id": id,
+		"file_name":  fileName,
+		"attachment": a,
+	})
+}
+
+func (ct *CompanyTools) handleAttachmentDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	id, err := shared.ReadPositiveInt(args, "company_id")
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	attachmentID, _ := args["attachment_id"].(string)
+	if strings.TrimSpace(attachmentID) == "" {
+		return shared.ToolError("attachment_id is required"), nil
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return shared.ToolJSON(map[string]any{
+			"status":        "preview",
+			"action":        "delete_b2b_company_attachment",
+			"company_id":    id,
+			"attachment_id": attachmentID,
+			"message":       fmt.Sprintf("Will delete attachment %s from company %d. Pass confirmed=true.", attachmentID, id),
+		})
+	}
+
+	if err := ct.bc.DeleteB2BCompanyAttachment(ctx, id, attachmentID); err != nil {
+		return shared.ToolError("failed to delete attachment %s: %v", attachmentID, err), nil
+	}
+	return shared.ToolJSON(map[string]any{"status": "deleted", "company_id": id, "attachment_id": attachmentID})
+}
+
 // ============================================================
 // User tools
 // ============================================================
@@ -489,6 +705,7 @@ func (ct *CompanyTools) registerUserTools(reg *discovery.Registry) {
 			mcp.WithNumber("role", mcp.Description("Role: 0=admin, 1=senior buyer, 2=junior buyer"), mcp.Required()),
 			mcp.WithString("phone", mcp.Description("Phone number.")),
 			mcp.WithNumber("bc_customer_id", mcp.Description("Link an existing BC customer ID instead of creating a new account.")),
+			mcp.WithString("extra_fields_json", mcp.Description(`Optional JSON array of custom fields: [{"fieldName":"PO Number","fieldValue":"123"}]. Use b2b/companies/users/extra_fields to discover required fields.`)),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create the user.")),
 		),
 		Handler: ct.handleUserCreate,
@@ -520,6 +737,52 @@ func (ct *CompanyTools) registerUserTools(reg *discovery.Registry) {
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to remove the user.")),
 		),
 		Handler: ct.handleUserDelete,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/companies/users/get",
+		Tier:    middleware.TierR0,
+		Summary: "Get a single buyer portal user by B2B user ID (includes extra fields)",
+		Tool: mcp.NewTool("b2b_companies_users_get",
+			mcp.WithDescription("Get a B2B Edition user by their B2B userId. Unlike list, this includes the user's extra fields."),
+			mcp.WithNumber("user_id", mcp.Description("B2B user ID"), mcp.Required()),
+		),
+		Handler: ct.handleUserGet,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/companies/users/get_by_customer",
+		Tier:    middleware.TierR0,
+		Summary: "Get the buyer portal user linked to a BigCommerce customer ID",
+		Tool: mcp.NewTool("b2b_companies_users_get_by_customer",
+			mcp.WithDescription("Get the B2B Edition user linked to a BigCommerce customer ID. Useful to resolve the B2B user (and its company) from a core BC customer. Returns not-found if no B2B user is linked."),
+			mcp.WithNumber("bc_customer_id", mcp.Description("BigCommerce customer ID (not the B2B userId)"), mcp.Required()),
+		),
+		Handler: ct.handleUserGetByCustomer,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/companies/users/bulk_create",
+		Tier:    middleware.TierR1,
+		Summary: "Create up to 10 buyer portal users in one call",
+		Tool: mcp.NewTool("b2b_companies_users_bulk_create",
+			mcp.WithDescription("Create up to 10 B2B Edition users at once. Provide users_json: a JSON array of user objects, each with company_id, email, first_name, last_name, role (0=admin,1=senior,2=junior), and optional phone, bc_customer_id, extra_fields. Preview → confirm."),
+			mcp.WithString("users_json", mcp.Description(`JSON array (max 10): [{"company_id":1,"email":"a@b.com","first_name":"A","last_name":"B","role":1,"phone":"","bc_customer_id":0,"extra_fields":[{"fieldName":"PO","fieldValue":"123"}]}]`), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create the users.")),
+		),
+		Handler: ct.handleUserBulkCreate,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/companies/users/extra_fields",
+		Tier:    middleware.TierR0,
+		Summary: "List extra-field definitions configured for company users",
+		Tool: mcp.NewTool("b2b_companies_users_extra_fields",
+			mcp.WithDescription("List the extra-field (custom field) definitions configured for B2B Edition users. Use this to discover required fields before creating users. fieldType: 0=text, 1=multiline, 2=number, 3=dropdown."),
+			mcp.WithNumber("limit", mcp.Description("Max results (default 10).")),
+			mcp.WithNumber("offset", mcp.Description("Results to skip (default 0).")),
+		),
+		Handler: ct.handleUserExtraFields,
 	})
 }
 
@@ -569,6 +832,11 @@ func (ct *CompanyTools) handleUserCreate(ctx context.Context, request mcp.CallTo
 	}
 	if v, ok := args["phone"].(string); ok { payload.PhoneNumber = v }
 	if v, ok := args["bc_customer_id"].(float64); ok && v > 0 { payload.BCCustomerID = int(v) }
+	extraFields, err := parseB2BExtraFieldsJSON(args, "extra_fields_json")
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	payload.ExtraFields = extraFields
 
 	if !middleware.IsConfirmedFromArgs(args) {
 		return shared.ToolJSON(map[string]any{
@@ -644,6 +912,100 @@ func (ct *CompanyTools) handleUserDelete(ctx context.Context, request mcp.CallTo
 		return shared.ToolError("failed to delete B2B user %d: %v", uid, err), nil
 	}
 	return shared.ToolJSON(map[string]any{"status": "deleted", "user_id": uid})
+}
+
+func (ct *CompanyTools) handleUserGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	uid, err := shared.ReadPositiveInt(args, "user_id")
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	u, err := ct.bc.GetB2BUser(ctx, uid)
+	if err != nil {
+		return shared.ToolError("failed to get B2B user %d: %v", uid, err), nil
+	}
+	return shared.ToolJSON(map[string]any{"user": userView(*u)})
+}
+
+func (ct *CompanyTools) handleUserGetByCustomer(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	cid, err := shared.ReadPositiveInt(args, "bc_customer_id")
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	u, err := ct.bc.GetB2BUserByCustomerID(ctx, cid)
+	if err != nil {
+		return shared.ToolError("failed to get B2B user for BC customer %d: %v", cid, err), nil
+	}
+	return shared.ToolJSON(map[string]any{"user": userView(*u)})
+}
+
+func (ct *CompanyTools) handleUserBulkCreate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	raw, _ := args["users_json"].(string)
+	if strings.TrimSpace(raw) == "" {
+		return shared.ToolError("users_json is required (a JSON array of user objects)"), nil
+	}
+	payloads, err := parseB2BUserBatch(raw)
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	if len(payloads) == 0 {
+		return shared.ToolError("users_json must contain at least one user"), nil
+	}
+	if len(payloads) > 10 {
+		return shared.ToolError("users_json exceeds the B2B API max of 10 users per call (got %d)", len(payloads)), nil
+	}
+	for i, p := range payloads {
+		if p.CompanyID <= 0 {
+			return shared.ToolError("users_json[%d]: company_id is required", i), nil
+		}
+		if strings.TrimSpace(p.Email) == "" {
+			return shared.ToolError("users_json[%d]: email is required", i), nil
+		}
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return shared.ToolJSON(map[string]any{
+			"status":  "preview",
+			"action":  "bulk_create_b2b_users",
+			"count":   len(payloads),
+			"payload": payloads,
+			"message": fmt.Sprintf("Will create %d B2B user(s). Pass confirmed=true.", len(payloads)),
+		})
+	}
+
+	created, err := ct.bc.BulkCreateB2BUsers(ctx, payloads)
+	if err != nil {
+		return shared.ToolError("failed to bulk create B2B users: %v", err), nil
+	}
+	// The bulk endpoint returns only {userId, bcId} pairs, so echo the emails
+	// from the request alongside the new IDs for a useful confirmation.
+	views := make([]map[string]any, 0, len(created))
+	for i, c := range created {
+		v := map[string]any{"user_id": c.UserID, "bc_customer_id": c.BCID}
+		if i < len(payloads) {
+			v["email"] = payloads[i].Email
+		}
+		views = append(views, v)
+	}
+	return shared.ToolJSON(map[string]any{"status": "created", "count": len(views), "created": views})
+}
+
+func (ct *CompanyTools) handleUserExtraFields(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	params := url.Values{}
+	if v, ok := args["limit"].(float64); ok && v > 0 {
+		params.Set("limit", fmt.Sprintf("%d", int(v)))
+	}
+	if v, ok := args["offset"].(float64); ok && v >= 0 {
+		params.Set("offset", fmt.Sprintf("%d", int(v)))
+	}
+	defs, err := ct.bc.ListB2BUserExtraFields(ctx, params.Encode())
+	if err != nil {
+		return shared.ToolError("failed to list B2B user extra fields: %v", err), nil
+	}
+	return shared.ToolJSON(map[string]any{"total": len(defs), "extra_fields": defs})
 }
 
 // ============================================================
@@ -910,7 +1272,7 @@ func companyView(co bigcommerce.B2BCompany) map[string]any {
 
 func userView(u bigcommerce.B2BUser) map[string]any {
 	roleLabel := map[int]string{0: "admin", 1: "senior_buyer", 2: "junior_buyer"}
-	return map[string]any{
+	v := map[string]any{
 		"id":             u.ID,
 		"company_id":     u.CompanyID,
 		"email":          u.Email,
@@ -922,6 +1284,58 @@ func userView(u bigcommerce.B2BUser) map[string]any {
 		"bc_customer_id": u.BCCustomerID,
 		"created_at":     u.CreatedAt,
 	}
+	if len(u.ExtraFields) > 0 {
+		v["extra_fields"] = u.ExtraFields
+	}
+	return v
+}
+
+// b2bUserBatchItem is the per-row shape accepted by users_json in
+// b2b/companies/users/bulk_create.
+type b2bUserBatchItem struct {
+	CompanyID    int                         `json:"company_id"`
+	Email        string                      `json:"email"`
+	FirstName    string                      `json:"first_name"`
+	LastName     string                      `json:"last_name"`
+	Phone        string                      `json:"phone"`
+	Role         int                         `json:"role"`
+	BCCustomerID int                         `json:"bc_customer_id"`
+	ExtraFields  []bigcommerce.B2BExtraField `json:"extra_fields"`
+}
+
+func parseB2BUserBatch(raw string) ([]bigcommerce.B2BUserCreate, error) {
+	var items []b2bUserBatchItem
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil, fmt.Errorf("invalid users_json: %v", err)
+	}
+	out := make([]bigcommerce.B2BUserCreate, len(items))
+	for i, it := range items {
+		out[i] = bigcommerce.B2BUserCreate{
+			CompanyID:    it.CompanyID,
+			Email:        it.Email,
+			FirstName:    it.FirstName,
+			LastName:     it.LastName,
+			PhoneNumber:  it.Phone,
+			Role:         it.Role,
+			BCCustomerID: it.BCCustomerID,
+			ExtraFields:  it.ExtraFields,
+		}
+	}
+	return out, nil
+}
+
+// parseB2BExtraFieldsJSON parses an extra_fields_json argument (a JSON array of
+// {"fieldName","fieldValue"} objects) into extra-field values.
+func parseB2BExtraFieldsJSON(args map[string]any, key string) ([]bigcommerce.B2BExtraField, error) {
+	raw, ok := args[key].(string)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var fields []bigcommerce.B2BExtraField
+	if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+		return nil, fmt.Errorf("invalid %s: %v", key, err)
+	}
+	return fields, nil
 }
 
 func addressView(a bigcommerce.B2BAddress) map[string]any {

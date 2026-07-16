@@ -495,6 +495,9 @@ func TestFullRegistrationB2BRootIsGatedByFlag(t *testing.T) {
 		"b2b/companies",
 		"b2b/companies/users",
 		"b2b/companies/addresses",
+		"b2b/companies/attachments",
+		"b2b/companies/roles",
+		"b2b/companies/permissions",
 	}
 	for _, cat := range requiredCategories {
 		require.True(t, enabled.HasCategory(cat), "missing required category %q when enabled", cat)
@@ -507,14 +510,32 @@ func TestFullRegistrationB2BRootIsGatedByFlag(t *testing.T) {
 		"b2b/companies/update",
 		"b2b/companies/set_status",
 		"b2b/companies/delete",
+		"b2b/companies/extra_fields",
+		"b2b/companies/update_catalog",
+		"b2b/companies/attachments/list",
+		"b2b/companies/attachments/add",
+		"b2b/companies/attachments/delete",
 		"b2b/companies/users/list",
 		"b2b/companies/users/create",
 		"b2b/companies/users/update",
 		"b2b/companies/users/delete",
+		"b2b/companies/users/get",
+		"b2b/companies/users/get_by_customer",
+		"b2b/companies/users/bulk_create",
+		"b2b/companies/users/extra_fields",
 		"b2b/companies/addresses/list",
 		"b2b/companies/addresses/create",
 		"b2b/companies/addresses/update",
 		"b2b/companies/addresses/delete",
+		"b2b/companies/roles/list",
+		"b2b/companies/roles/get",
+		"b2b/companies/roles/create",
+		"b2b/companies/roles/update",
+		"b2b/companies/roles/delete",
+		"b2b/companies/permissions/list",
+		"b2b/companies/permissions/create",
+		"b2b/companies/permissions/update",
+		"b2b/companies/permissions/delete",
 	}
 	for _, toolPath := range requiredTools {
 		def := enabled.GetTool(toolPath)
