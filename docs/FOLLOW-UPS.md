@@ -144,18 +144,13 @@ Discovered during the same pass.
 Surfaced while shipping B2B Management API Phase B (Quotes; Invoices/Receipts;
 Payments/Credit/Net Terms) and live-validating against a POC store.
 
-**Deferred by product decision (financial writes, read-only-first):**
-- `PUT /companies/{id}/payments` — update which payment methods are enabled
-  for a company.
-- `PUT /companies/{id}/credit` — update a company's credit settings.
-- `PUT /companies/{id}/payment-terms` — update a company's net-terms config.
-- `POST /invoices`, `POST /orders/{id}/invoices`, `PUT /invoices/{id}`,
-  `DELETE /invoices/{id}` — invoice generation/update/delete.
-- `POST /payments/offline`, `PUT /payments/offline/{id}`,
-  `POST /payments/{id}/operations`, `PUT /payments/{id}/processing-status`,
-  `DELETE /payments/{id}` — logging/managing payments against invoices.
-- `DELETE /receipts/{id}`, `DELETE /receipts/{id}/lines/{lineId}` — receipt
-  and receipt-line deletion.
+- ✅ **SHIPPED (FW1–FW4, 2026-07-15/16) — all previously-deferred financial
+  writes.** Company payment methods/credit/payment-terms updates; invoice
+  create/create-from-order/update/delete; payment-record reads + offline
+  create/update/operations/processing-status/delete; receipt and
+  receipt-line deletion. See `docs/B2B.md` Phase B3 for the full tool table
+  and live-confirmed API quirks (in particular, `create_from_order` needing
+  B2B Edition's internal order ID rather than the BC order ID).
 
 **Open — quote `productList` write shape is underdocumented.** The OpenAPI
 schema for `POST /rfq` and `PUT /rfq/{id}` only documents `options` on
@@ -206,7 +201,15 @@ attributes, orders, promotions + coupon codes, inventory, storefront scripts,
 webhooks, carts/checkout, B2B companies/users/addresses) and tearing it down
 after each domain. Findings and fixes are captured in FU-5 (shipped) and FU-6
 (open). Every domain's write path works except: inventory location
-update/delete (FU-6, batch-shape 403), and checkout convert-to-order (blocked by
-store shipping config, not the MCP). Remaining opportunity: extend
+update/delete (FU-6, batch-shape 403). Remaining opportunity: extend
 `scripts/smoke_all_domains.sh` with the storefront/webhooks/carts/b2b R0 reads
 exercised here, and add a guarded write-path smoke.
+
+**Addendum (2026-07-15/16) — checkout convert-to-order status.** Earlier
+runs saw `carts/checkout/convert` blocked by missing store shipping config;
+once that was resolved, live testing surfaced the real, permanent behavior:
+BigCommerce's `POST /checkouts/{id}/orders` always creates the order in
+**Incomplete** status by design (no payment is taken by that endpoint). This
+is expected platform behavior, not an MCP bug — see the "Order lifecycle"
+section in `docs/B2B.md` for the full write-up on moving an order out of
+Incomplete and what determines B2B-panel visibility.

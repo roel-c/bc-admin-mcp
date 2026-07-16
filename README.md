@@ -459,12 +459,18 @@ The `b2b/` root only registers when `BC_B2B_ENABLED=true`; it reuses the existin
 | `b2b/quotes/shipping/select` | R1 | Assign a shipping rate to a quote; preview → **`confirmed`** |
 | `b2b/quotes/shipping/remove` | R2 | Clear a quote's shipping rate; preview → **`confirmed`** |
 | `b2b/invoices/list` \| `get` \| `download_pdf` \| `extra_fields` | R0 | Invoice reads (served from a distinct `/ip` base URL) |
+| `b2b/invoices/create` \| `create_from_order` \| `update` | R2 | Create from raw JSON / from an existing order / update; preview → **`confirmed`** |
+| `b2b/invoices/delete` | R3 | Permanently delete an invoice; preview → **`confirmed`** |
 | `b2b/receipts/list` \| `get` | R0 | Payment receipt reads |
 | `b2b/receipts/lines/list_all` \| `list_for_receipt` \| `get` | R0 | Receipt line-item reads |
+| `b2b/receipts/delete` \| `lines/delete` | R3 / R2 | Permanently delete a receipt / a single receipt line; preview → **`confirmed`** |
+| `b2b/payment_records/list` \| `get` \| `transactions` \| `operations` | R0 | Reads for payments logged against invoices (`/ip` base URL) |
+| `b2b/payment_records/create_offline` \| `update_offline` \| `perform_operation` \| `update_processing_status` | R2 | Log/update an offline payment, run an operation, or set processing status; preview → **`confirmed`** |
+| `b2b/payment_records/delete` | R3 | Permanently delete a payment record; preview → **`confirmed`** |
 | `b2b/payments/list` \| `active_methods` | R0 | Store-wide payment method definitions / cross-company active methods |
-| `b2b/companies/payments/list` | R0 | A company's payment methods and enabled state |
-| `b2b/companies/credit/get` | R0 | A company's credit settings |
-| `b2b/companies/payment_terms/get` | R0 | A company's net-terms configuration |
+| `b2b/companies/payments/list` \| `update` | R0 / R2 | A company's payment methods and enabled state / enable-disable; preview → **`confirmed`** |
+| `b2b/companies/credit/get` \| `update` | R0 / R2 | A company's credit settings / update; preview → **`confirmed`** |
+| `b2b/companies/payment_terms/get` \| `update` | R0 / R2 | A company's net-terms configuration / update; preview → **`confirmed`** |
 | `b2b/sales_staff/list` \| `get` | R0 | List/get B2B users with a Sales Staff role and their company assignments |
 | `b2b/sales_staff/update_assignments` | R1 | Assign/unassign companies (non-destructive); preview → **`confirmed`** |
 | `b2b/super_admins/list` \| `companies_overview` \| `get` \| `companies` | R0 | List Super Admins / companies-overview / get one / its assigned companies |

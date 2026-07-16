@@ -372,21 +372,32 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 |------|-------|---------|
 | `cmd/server/main.go` | ~65 | Entry point: config load, server wire, transport start, auth middleware |
 | `internal/config/config.go` | ~160 | Environment-based config with comprehensive validation |
-| `internal/server/server.go` | ~90 | MCP server wiring, category registration, tool registration |
+| `internal/server/server.go` | ~280 | MCP server wiring, category registration (all domains incl. full B2B subtree), tool registration |
 | `internal/discovery/registry.go` | ~310 | Progressive disclosure: hierarchy, meta-tools, registration-time validation |
 | `internal/middleware/tiers.go` | ~80 | R0-R4 tier enforcement, `IsConfirmed` check, `CheckConfirmation` utility |
 | `internal/middleware/logging.go` | ~50 | Structured slog middleware wrapping all tool calls |
 | `internal/middleware/auth.go` | ~40 | Bearer token HTTP middleware with constant-time comparison |
 | `internal/session/cache.go` | ~230 | Per-session TTL cache with size limits and eviction. Exports `SessionIDFromContext` (MCP session ID from context, `"default"` fallback), `Store.ForContext` (session cache for the current request context), and `CacheOrFetch[T]` (canonical preview→confirm cache helper — checks cache, calls fetch on miss, stores result) |
 | `internal/bigcommerce/client.go` | ~370 | HTTP client: throttle, retry, rate-limit headers, GetAll (with ceiling), BatchPut |
-| `internal/bigcommerce/types.go` | ~725 | Domain types: Product, ProductUpdate, ProductCreate, Category/Tree types, Brand types, Variant types, Image/Option/Modifier types, Metafield, CategoryAssignment, ChannelAssignment, ChannelListing, CustomURL, API envelopes, `APIError` with `SafeError()` and OAuth-scope hints |
+| `internal/bigcommerce/types.go` | ~1,820 | Domain types: Product, ProductUpdate, ProductCreate, Category/Tree types, Brand types, Variant types, Image/Option/Modifier types, Metafield, CategoryAssignment, ChannelAssignment, ChannelListing, CustomURL, API envelopes, `APIError` with `SafeError()` (core BC + B2B error-envelope parsing) and OAuth-scope hints |
 | `internal/bigcommerce/products.go` | ~375 | Domain methods: product/category search, batch product updates, product CRUD, tree CRUD, tree ID resolution; `categoryBatchSize = 50` for `BatchUpdateCategories` |
 | `internal/bigcommerce/channels.go` | ~95 | `ListStoreChannels`, `GetStoreChannel`, `UpdateStoreChannel` — GET/PUT /v3/channels (Management API); `StoreChannelUpdate` type |
 | `internal/bigcommerce/webhooks.go` | ~130 | `ListWebhooks`, `GetWebhook`, `GetWebhookEvents`, `CreateWebhook`, `UpdateWebhook`, `DeleteWebhook` — full CRUD for GET/POST/PUT/DELETE /v3/hooks; `Webhook`, `WebhookEvent`, `WebhookCreate`, `WebhookUpdate` types |
-| `internal/bigcommerce/carts.go` | ~200 | Cart client: create/get/update/delete, item add/update/remove, redirect URLs, cart metafields; `Cart`, `CartCreate`, `CartUpdate`, line-item types |
-| `internal/bigcommerce/checkouts.go` | ~180 | Checkout client: get, coupon apply/remove, billing address set/update, consignment add/update, convert-to-order; `Checkout`, `CheckoutAddressInput`, consignment types |
-| `internal/bigcommerce/b2b_client.go` | ~260 | `B2BClient` for api-b2b.bigcommerce.com (unified `X-Auth-Token` + `X-Store-Hash`); throttle, retry, offset pagination |
-| `internal/bigcommerce/b2b_companies.go` | ~300 | B2B company/user/address types and CRUD methods (Phase B1) |
+| `internal/bigcommerce/carts.go` | ~330 | Cart client: create/get/update/delete, item add/update/remove, redirect URLs, cart metafields; `Cart`, `CartCreate`, `CartUpdate`, line-item types |
+| `internal/bigcommerce/checkouts.go` | ~220 | Checkout client: get, coupon apply/remove, billing address set/update, consignment add/update, convert-to-order; `Checkout`, `CheckoutAddressInput`, consignment types |
+| `internal/bigcommerce/b2b_client.go` | ~370 | `B2BClient` for api-b2b.bigcommerce.com (unified `X-Auth-Token` + `X-Store-Hash`); throttle, retry, offset pagination; `b2bUnmarshalSingle`/`b2bUnmarshalList` envelope helpers; `B2BPostMultipart` for file uploads |
+| `internal/bigcommerce/b2b_companies.go` | ~610 | B2B company/user/address/attachment types and CRUD methods, extra-field configs, catalog assignment (Phase B1) |
+| `internal/bigcommerce/b2b_roles.go` | ~200 | Company roles + custom permissions CRUD; `flexString` (tolerant string/number JSON unmarshaler for `roleType`/`permissionLevel`) |
+| `internal/bigcommerce/b2b_hierarchy.go` | ~90 | Account hierarchy: subsidiaries list, full hierarchy tree, attach/detach parent |
+| `internal/bigcommerce/b2b_channels.go` | ~50 | Storefront channels as seen by B2B Edition: list, get |
+| `internal/bigcommerce/b2b_orders.go` | ~90 | B2B order metadata: get/update PO+extra fields, assign/reassign historical orders to a company |
+| `internal/bigcommerce/b2b_quotes.go` | ~215 | Quote lifecycle CRUD, checkout, assign-to-order, PDF export, shipping rates/select/remove/custom-methods |
+| `internal/bigcommerce/b2b_invoices.go` | ~245 | Invoices + receipts + receipt-lines; served from the distinct `/ip` base URL; invoice create/create-from-order/update/delete, receipt(-line) delete |
+| `internal/bigcommerce/b2b_payments.go` | ~170 | Store-wide + per-company payment methods, company credit, company payment terms (reads + updates) |
+| `internal/bigcommerce/b2b_payment_records.go` | ~165 | Payment records logged against invoices: reads, offline create/update, lifecycle operations, processing status, delete; also `/ip` base |
+| `internal/bigcommerce/b2b_sales_staff.go` | ~60 | Sales Staff company-assignment list/get/update |
+| `internal/bigcommerce/b2b_super_admins.go` | ~190 | Super Admin CRUD, bulk create, company assignments (both super-admin- and company-perspective) |
+| `internal/bigcommerce/b2b_shopping_lists.go` | ~140 | Shopping list CRUD + item removal |
 | `internal/bigcommerce/category_trees.go` | ~65 | `ListCategoryTrees`, `GetTreeIDForChannel` (`GET /v3/catalog/trees`) |
 | `internal/bigcommerce/channel_assignments.go` | ~100 | `ListProductChannelAssignments`, `UpsertProductChannelAssignments`, `DeleteProductChannelAssignments` |
 | `internal/bigcommerce/channel_listings.go` | ~120 | `ListChannelListings`, `CreateChannelListings`, `UpdateChannelListings` |
@@ -431,8 +442,18 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/tools/carts/cart_metafields_tools.go` | ~210 | `carts/cart/metafields/*` handlers (list/set/delete) |
 | `internal/tools/carts/checkout_tools.go` | ~525 | `carts/checkout/*` handlers: get, coupon apply/remove, billing address, consignment add/update, convert |
 | `internal/tools/carts/interfaces.go` | ~40 | `CartAPI` consumer-side interface (cart + checkout methods) + compile-time check |
-| `internal/tools/b2b/company_tools.go` | ~630 | `b2b/companies/**` handlers: company/user/address CRUD + status (Phase B1) |
-| `internal/tools/b2b/interfaces.go` | ~30 | `B2BCompanyAPI` consumer-side interface + compile-time check |
+| `internal/tools/b2b/company_tools.go` | ~1,370 | `b2b/companies/**` handlers: company/user/address/attachment CRUD + status, extra fields, catalog assignment; cascades to linked BC customers on company delete |
+| `internal/tools/b2b/role_tools.go` | ~400 | `b2b/companies/roles/**` and `b2b/companies/permissions/**` handlers |
+| `internal/tools/b2b/hierarchy_tools.go` | ~165 | `b2b/companies/hierarchy/**` handlers |
+| `internal/tools/b2b/channel_order_tools.go` | ~245 | `b2b/channels/**` and `b2b/orders/**` handlers |
+| `internal/tools/b2b/quote_tools.go` | ~495 | `b2b/quotes/**` handlers including the `shipping/*` sub-tree |
+| `internal/tools/b2b/invoice_tools.go` | ~580 | `b2b/invoices/**` and `b2b/receipts/**` handlers; `create_from_order` resolves the BC order ID to B2B Edition's internal order ID via `GetB2BOrder` before calling the invoice endpoint |
+| `internal/tools/b2b/payment_tools.go` | ~310 | `b2b/payments/**` and `b2b/companies/payments\|credit\|payment_terms/**` handlers |
+| `internal/tools/b2b/payment_record_tools.go` | ~380 | `b2b/payment_records/**` handlers |
+| `internal/tools/b2b/sales_staff_tools.go` | ~140 | `b2b/sales_staff/**` handlers |
+| `internal/tools/b2b/super_admin_tools.go` | ~490 | `b2b/super_admins/**` and `b2b/companies/super_admins/**` handlers |
+| `internal/tools/b2b/shopping_list_tools.go` | ~345 | `b2b/shopping_lists/**` handlers |
+| `internal/tools/b2b/interfaces.go` | ~150 | `B2BCompanyAPI` consumer-side interface (all Phase A/B methods) + compile-time check |
 | `internal/tools/shared/` | ~40 | Shared `ToolError` / `ToolJSON` response builders used across newer domains |
 | `internal/tools/catalog/channel_listings_tools.go` | ~370 | `catalog/channels/listings/list`, `create`, `update` (GET/POST/PUT listings) |
 | `internal/tools/catalog/pricelists_tools.go` | ~1,080 | `catalog/pricelists/*`, `catalog/pricelists/records/*`, `catalog/pricelists/assignments/*` handlers (preview→confirm for R1+) |
@@ -450,7 +471,7 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/config/config_test.go` | ~170 | Config validation |
 | `internal/discovery/registry_test.go` | ~185 | Registry confirmed-param validation, tool discovery |
 | `internal/discovery/metatool_test.go` | ~235 | `discover_tools` / `execute_tool` meta-tool flows |
-| `internal/server/registration_audit_test.go` | ~530 | Locks discovery shape: eight always-on roots (`catalog`, `orders`, `customers`, `marketing`, `inventory`, `storefront`, `webhooks`, `carts`); every active category has children; every tool's parent path exists; R1+ tools expose `confirmed`; BFS reachability; pricelist, orders, inventory, **carts/checkout**, storefront/webhooks subtrees; **b2b/ gating** (hidden when disabled, full subtree when enabled); and `TestFullRegistration{Category,Tool}SummaryLength` enforce ≤150 chars on every summary to prevent discovery token bloat |
+| `internal/server/registration_audit_test.go` | ~645 | Locks discovery shape: eight always-on roots (`catalog`, `orders`, `customers`, `marketing`, `inventory`, `storefront`, `webhooks`, `carts`); every active category has children; every tool's parent path exists; R1+ tools expose `confirmed`; BFS reachability; pricelist, orders, inventory, **carts/checkout**, storefront/webhooks subtrees; **b2b/ gating** (hidden when disabled, full subtree when enabled); and `TestFullRegistration{Category,Tool}SummaryLength` enforce ≤150 chars on every summary to prevent discovery token bloat |
 | `docs/SECURITY.md` | — | Security review findings, threat model, and remediation details |
 | `.gitignore` | — | Prevents `.env` and binaries from being committed |
 
@@ -462,95 +483,25 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 
 ### Implemented Tools
 
-| Tool Path | Tier | Description |
-|-----------|------|-------------|
-| `catalog/products/search` | R0 | Declarative filter search (name, SKU, price range, category, brand, visibility, keyword, MSF `channel_ids` → `channel_id:in`), server-side pagination |
-| `catalog/products/get` | R0 | Single product with variant pricing detection and `calculated_price` |
-| `catalog/products/create` | R1 | Create a product with all writable fields, optional inline images, categories; optional MSF **`channel_ids`** triggers additive post-create PUT to `/v3/catalog/products/channel-assignments`; preview→confirm |
-| `catalog/products/update` | R1 | **Unified update**: any writable field on one or more products; target by product_ids, sku, product_name, or category_id; optional MSF **`channel_ids`** triggers additive post-update assignment when all targets succeed; `partial_success` if any catalog write fails; **≤ 500** product×channel pairs per call; preview→confirm |
-| `catalog/products/delete` | R3 | Permanently delete products; preview with warnings; requires confirmation |
-| `catalog/products/assign_categories` | R1 | Additive product-to-category assignment via dedicated BC endpoint; caps **product_ids ≤ 100**, **category_ids ≤ 50**, **product×category pairs ≤ 500** |
-| `catalog/products/unassign_categories` | R2 | Filter-based `DELETE /v3/catalog/products/category-assignments` (`product_id:in` × `category_id:in`); preview→confirm; preserves other category links |
-| `catalog/products/channel_summary` | R0 | Aggregated MSF snapshot per product: combines `GET /v3/channels`, `GET /v3/catalog/products/channel-assignments`, and `GET /v3/channels/{id}/listings` for each assigned channel; flags assignments-without-listings and listings-without-assignments; max 5 products / 25 channels per call |
-| `catalog/products/channel_assignments/list` | R0 | `GET /v3/catalog/products/channel-assignments` — requires `product_ids` and/or `channel_ids` filters (caps in tool) |
-| `catalog/products/channel_assignments/assign` | R1 | `PUT` — cartesian product×channel pairs; preview→confirm; max 500 pairs; chunked `ProductBatchSize` |
-| `catalog/products/channel_assignments/remove` | R2 | `DELETE` — `product_ids` required, optional `channel_ids`; preview→confirm |
-| `catalog/products/images/list` | R0 | List all images for a product |
-| `catalog/products/images/add` | R1 | Add image by URL (JPEG, PNG, GIF, WebP); preview→confirm |
-| `catalog/products/images/delete` | R2 | Delete a product image; preview→confirm |
-| `catalog/products/options/list` | R0 | List variant-generating options with values |
-| `catalog/products/options/create` | R1 | Create option with values; preview→confirm |
-| `catalog/products/options/update` | R1 | Update option name, sort order, or values; preview→confirm |
-| `catalog/products/options/delete` | R2 | Delete option (removes variants); preview→confirm |
-| `catalog/products/variants/list` | R0 | List all variants with full details |
-| `catalog/products/variants/create` | R1 | Create variant with option values; preview→confirm |
-| `catalog/products/variants/update` | R1 | Update variant fields; preview→confirm |
-| `catalog/products/variants/delete` | R2 | Delete variant; preview→confirm |
-| `catalog/products/variants/metafields/list` | R0 | List variant metafields (resolve product + variant; variant by `variant_id` or `variant_sku`) |
-| `catalog/products/variants/metafields/set` | R1 | Upsert variant metafield; create default **`app_only`** unless `permission_set`; preview→confirm |
-| `catalog/products/variants/metafields/delete` | R1 | Delete by metafield id or namespace+key; preview→confirm |
-| `catalog/products/variants/metafields/bulk_set` | R1 | Upsert on up to 50 variants: `variant_ids` or `variant_sku_contains` (case-insensitive substring); preview→confirm |
-| `catalog/products/variants/metafields/bulk_delete` | R1 | Delete by namespace+key; same targeting as bulk_set; skips missing; preview→confirm |
-| `catalog/products/variants/metafields/bulk_set_products` | R1 | Cross-product: up to 50 `product_ids`, variant_scope all_variants | first_variant_only | sku_contains (+ variant_sku_contains); max 500 writes/call; preview→confirm |
-| `catalog/products/variants/metafields/bulk_delete_products` | R1 | Cross-product delete by namespace+key; same caps and scopes as bulk_set_products |
-| `catalog/products/custom_fields/list` | R0 | List product custom fields |
-| `catalog/products/custom_fields/set` | R1 | Upsert custom field by name; preview→confirm |
-| `catalog/products/custom_fields/delete` | R2 | Delete custom field; preview→confirm |
-| `catalog/products/modifiers/list` | R0 | List product modifiers |
-| `catalog/products/modifiers/create` | R1 | Create modifier; preview→confirm |
-| `catalog/products/modifiers/delete` | R2 | Delete modifier; preview→confirm |
-| `catalog/products/metafields/list` | R0 | List product metafields (resolve product by id, exact SKU, or exact name) |
-| `catalog/products/metafields/set` | R1 | Upsert metafield; optional `permission_set` (create default **`app_only`** unless set; Storefront via `read_and_sf_access` / `write_and_sf_access`); preview→confirm |
-| `catalog/products/metafields/delete` | R1 | Delete by metafield id or namespace+key; preview→confirm |
-| `catalog/products/metafields/bulk_set` | R1 | Upsert same namespace+key+value on up to 50 `product_ids` (sequential); preview→confirm |
-| `catalog/products/metafields/bulk_delete` | R1 | Delete namespace+key across up to 50 products; skips missing; preview→confirm |
-| `catalog/categories/list` | R0 | Declarative filter search (name, keyword, parent_id, tree_id, visibility) with `list_all` mode; optional MSF **`channel_id`** resolves to `tree_id` server-side |
-| `catalog/categories/get` | R0 | Single category by ID |
-| `catalog/categories/create` | R1 | Create categories with `parent_name` resolution (name→ID); handles `tree_id` inheritance for subcategories; optional MSF **`channel_id`** or explicit **`tree_id`** |
-| `catalog/categories/bulk_update` | R1 | Preview→confirm batch update of category fields (name, description, SEO, visibility, sort order) |
-| `catalog/categories/products` | R0 | List products in a category (by ID or name) with price/SKU/category summaries |
-| `catalog/categories/seo_audit` | R0 | Scan categories for missing SEO fields (page_title, meta_description, search_keywords) |
-| `catalog/categories/move` | R2 | Reparent a category with cycle detection, subtree preview, and descendant count |
-| `catalog/categories/reorder` | R1 | Reorder sibling categories by providing them in desired display order |
-| `catalog/categories/metafields/list` | R0 | List all metafields on a category |
-| `catalog/categories/metafields/set` | R1 | Create or update a metafield (upsert by namespace+key) |
-| `catalog/categories/metafields/delete` | R1 | Delete a metafield by ID or namespace+key |
-| `catalog/categories/delete` | R3 | Single category deletion; child detection → `include_children` safety gate; products remain in store |
-| `catalog/categories/bulk_delete` | R3 | Multi-category deletion; same child safeguard as single delete |
-| `catalog/brands/list` | R0 | Brand list/search with `list_all` or BC filters (name, keyword, page_title, id, sort) |
-| `catalog/brands/get` | R0 | Single brand by ID |
-| `catalog/brands/create` | R1 | POST brand; preview→confirm |
-| `catalog/brands/update` | R1 | PUT brand; partial fields; preview→confirm |
-| `catalog/brands/metafields/list` | R0 | List metafields; target by `brand_id` or exact `brand_name` |
-| `catalog/brands/metafields/set` | R1 | Upsert namespace+key; default permission **write**; preview→confirm |
-| `catalog/brands/metafields/delete` | R1 | Delete by id or namespace+key; preview→confirm |
-| `catalog/variants/list` | R0 | Global `GET /v3/catalog/variants` with filters or `list_all` |
-| `catalog/variants/bulk_update` | R2 | Global batch `PUT /v3/catalog/variants` (≤200 rows/call, chunk 10); preview→confirm |
-| `catalog/channels/list` | R0 | `GET /v3/channels` — channels for the connected store; optional `type` / `status`; includes `multi_storefront_likely` heuristic (requires `store_channel_settings` scope) |
-| `catalog/channels/get` | R0 | `GET /v3/channels/{id}` — single channel by ID; name, platform, type, status, timestamps; scope `store_channel_settings_read_only` |
-| `catalog/channels/update` | R2 | `PUT /v3/channels/{id}` — update `name` and/or `status`; statuses: active/inactive/connected/disconnected/prelaunch; preview→confirm; scope `store_channel_settings` |
-| `catalog/channels/category_trees` | R0 | `GET /v3/catalog/trees` — MSF: list trees, optional `channel_id` filter; Products OAuth scope |
-| `catalog/channels/listings/list` | R0 | `GET .../channels/{id}/listings` — cursor pagination; optional `product_ids`; cap 2000 rows |
-| `catalog/channels/listings/create` | R1 | `POST` — `listings_json` array (max 10); preview→confirm; **store_channel_listings** |
-| `catalog/channels/listings/update` | R2 | `PUT` — same JSON limits; requires **listing_id** per row; preview→confirm |
-| `catalog/pricelists/list` | R0 | `GET /v3/pricelists` with id/name/date filters plus offset/cursor pagination |
-| `catalog/pricelists/get` | R0 | `GET /v3/pricelists/{price_list_id}` |
-| `catalog/pricelists/create` | R1 | `POST /v3/pricelists` (`name`, optional `active`); preview→confirm |
-| `catalog/pricelists/update` | R1 | Fetch current then merge/`PUT /v3/pricelists/{price_list_id}`; preview→confirm |
-| `catalog/pricelists/delete` | R3 | Destructive `DELETE /v3/pricelists/{price_list_id}`; preview→confirm |
-| `catalog/pricelists/records/list` | R0 | `GET /v3/pricelists/{price_list_id}/records` with variant/product/SKU/currency filters and offset/cursor pagination |
-| `catalog/pricelists/records/upsert` | R2 | `PUT /v3/pricelists/{price_list_id}/records`; tool cap **100** rows/call; preview→confirm; serial policy |
-| `catalog/pricelists/records/delete` | R2 | Selector-based `DELETE /v3/pricelists/{price_list_id}/records`; requires `variant_ids` or `skus`; preview→confirm |
-| `catalog/pricelists/assignments/list` | R0 | `GET /v3/pricelists/assignments` with id/price_list/customer_group/channel filters + offset/cursor pagination |
-| `catalog/pricelists/assignments/create_batch` | R2 | `POST /v3/pricelists/assignments`; tool cap **25** rows/call; preview→confirm |
-| `catalog/pricelists/assignments/upsert` | R2 | `PUT /v3/pricelists/{price_list_id}/assignments` for one customer-group + channel tuple; preview→confirm |
-| `catalog/pricelists/assignments/delete` | R2 | Filter-based `DELETE /v3/pricelists/assignments`; at least one filter required; preview→confirm |
-| `webhooks/list` | R0 | `GET /v3/hooks` — list all webhook registrations; optional `scope`, `is_active`, `channel_id` filters; scope `store_v2_information_read_only` |
-| `webhooks/get` | R0 | `GET /v3/hooks/{id}` — full webhook details (scope, destination, is_active, channel_id, headers) |
-| `webhooks/events` | R0 | `GET /v3/hooks/{id}/events` — recent delivery attempts |
-| `webhooks/create` | R1 | `POST /v3/hooks`; HTTPS destination required (validated client-side); optional `channel_id`; optional `headers_json`; preview→confirm; serial write policy |
-| `webhooks/update` | R1 | Fetch-merge-`PUT /v3/hooks/{id}`; at least one mutable field; `channel_id` immutable; preview→confirm |
-| `webhooks/delete` | R3 | `DELETE /v3/hooks/{id}`; preview shows scope + destination; permanently removes the registration |
+> **Canonical, current list:** [README.md](../README.md#implemented-tools) and
+> [`docs/AGENT.md`](./AGENT.md#implemented-tools) — this section intentionally
+> does **not** duplicate the full per-tool table (a full duplicate here drifted
+> out of sync with reality more than once; see git history). Below is a
+> domain-level summary of what exists today, for architectural orientation.
+
+| Domain | Representative tools | Full detail |
+|--------|----------------------|--------------|
+| `catalog/**` | products (CRUD, images, options, variants, modifiers, custom fields, metafields incl. bulk), categories, brands, global variants, channels + listings, price lists | README.md, this doc §4 file table |
+| `orders/**` | management CRUD, fulfillment shipments, payment actions/transactions/capture/void, refunds | README.md |
+| `customers/**` | records, groups, addresses, attributes + values, metafields, settings, consent, stored instruments, credential validation, segments, shopper profiles | README.md |
+| `marketing/**` | automatic + coupon promotions, coupon codes, promotion settings | README.md |
+| `inventory/**` | locations (+ metafields), items, absolute/relative adjustments | README.md |
+| `storefront/**` | Script Manager scripts (list/get/create/update/toggle/delete) | README.md |
+| `webhooks/**` | registrations (list/get/events/create/update/delete) | README.md |
+| `carts/**` | cart CRUD + items + metafields; checkout (coupons, billing address, consignments, convert to order) | README.md, `docs/DEVELOPMENT.md` |
+| `b2b/**` (gated) | companies/users/addresses/attachments/roles/permissions/hierarchy, channels, orders, quotes (+shipping), invoices/receipts/payment records, payments/credit/payment-terms, sales staff, super admins, shopping lists | `docs/B2B.md`, README.md |
+
+Each domain's tools follow the same tier + preview/confirm conventions described in [§3.5](#35-confirm-before-execute-pattern) and [DEVELOPMENT.md](./DEVELOPMENT.md).
 
 ### Registered Category Hierarchy
 
@@ -606,9 +557,29 @@ carts/                      — Server-side cart + checkout lifecycle via /v3/ca
     carts/cart/metafields/  — Cart metafield CRUD: list, set, delete
   carts/checkout/           — Checkout: get, coupon apply/remove, billing address, consignments, convert to order
 b2b/                        — (Gated by BC_B2B_ENABLED) B2B Edition via api-b2b.bigcommerce.com
-  b2b/companies/            — Company account CRUD + status lifecycle
+  b2b/companies/            — Company account CRUD + status lifecycle, extra fields, catalog assignment
     b2b/companies/users/    — Buyer portal user CRUD (admin/senior/junior roles)
     b2b/companies/addresses/ — Company billing/shipping address CRUD
+    b2b/companies/attachments/ — Company file attachments: list, add, delete
+    b2b/companies/roles/    — Custom company roles: list/get/create/update/delete
+    b2b/companies/permissions/ — Custom company permissions: list/create/update/delete
+    b2b/companies/hierarchy/ — Account hierarchy: get/subsidiaries/attach_parent/detach_subsidiary
+    b2b/companies/payments/ — Per-company payment method availability: list/update
+    b2b/companies/credit/   — Per-company credit settings: get/update
+    b2b/companies/payment_terms/ — Per-company net-terms settings: get/update
+    b2b/companies/super_admins/ — Company-perspective Super Admin assignments: list/update
+  b2b/channels/             — Storefront channels as seen by B2B Edition: list, get
+  b2b/orders/               — B2B order metadata: get/update, assign/reassign to companies, extra fields
+  b2b/quotes/               — Sales quote lifecycle: list/get/create/update/delete/checkout/assign_to_order/pdf_export/extra_fields
+    b2b/quotes/shipping/    — Quote shipping rates: list/select/remove/custom_methods
+  b2b/invoices/             — Invoices (distinct /ip base URL): list/get/download_pdf/extra_fields/create/create_from_order/update/delete
+  b2b/receipts/             — Payment receipts (same /ip base): list/get/delete
+    b2b/receipts/lines/     — Receipt line items: list_all/list_for_receipt/get/delete
+  b2b/payment_records/      — Payments logged against invoices (same /ip base): reads + offline create/update/operations/processing_status/delete
+  b2b/payments/             — Store-wide payment method definitions + cross-company active methods (read-only)
+  b2b/sales_staff/          — Backend sales rep company assignment: list/get/update_assignments
+  b2b/super_admins/         — Frontend sales rep / masquerade accounts: CRUD + company assignments
+  b2b/shopping_lists/       — Repeat-purchase lists: list/get/create/update/delete/items/remove
 ```
 
 ---
@@ -732,7 +703,7 @@ Core customer and promotions surfaces are now shipped under `customers/**` and `
 | `store/shipping/zones` | List shipping zones | GET /v2/shipping/zones | R0 | Planned |
 | `carts/cart/*` | Server-side cart lifecycle, items, metafields, checkout URL | /v3/carts | R0/R1/R2/R3 | **Implemented** — see `internal/tools/carts/` |
 | `carts/checkout/*` | Checkout: coupons, billing address, consignments, convert to order | /v3/checkouts | R0/R1/R2 | **Implemented** — see `internal/tools/carts/checkout_tools.go` |
-| `b2b/companies/**` | B2B Edition companies, users, addresses (Phase B1) | api-b2b.bigcommerce.com | R0/R1/R2/R3 | **Implemented** — gated by `BC_B2B_ENABLED`; see `docs/B2B.md` |
+| `b2b/**` | Full B2B Management API: companies/users/addresses/attachments/roles/permissions/hierarchy, channels, orders, quotes, invoices/receipts/payment records, payments/credit/payment-terms, sales staff, super admins, shopping lists | api-b2b.bigcommerce.com | R0/R1/R2/R3 | **Implemented** — gated by `BC_B2B_ENABLED`; see `docs/B2B.md` |
 
 ### Priority 4 — Advanced / Low Frequency
 

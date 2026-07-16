@@ -233,9 +233,12 @@ Every tool uses the same envelope:
 | `b2b/orders/get\|update\|assign_customer_orders\|reassign\|extra_fields` | R0/R1/R2/R2/R0 |
 | `b2b/quotes/list\|get\|create\|update\|delete\|checkout\|assign_to_order\|pdf_export\|extra_fields` | R0/R0/R1/R1/R3/R1/R2/R0/R0 |
 | `b2b/quotes/shipping/rates\|select\|remove\|custom_methods` | R0/R1/R2/R0 |
-| `b2b/invoices/list\|get\|download_pdf\|extra_fields` | R0 (all; `/ip` base URL) |
+| `b2b/invoices/list\|get\|download_pdf\|extra_fields\|create\|create_from_order\|update\|delete` | R0/R0/R0/R0/R2/R2/R2/R3 (`/ip` base URL) |
 | `b2b/receipts/list\|get` \| `b2b/receipts/lines/list_all\|list_for_receipt\|get` | R0 (all) |
-| `b2b/payments/list\|active_methods` \| `b2b/companies/payments/list\|credit/get\|payment_terms/get` | R0 (all; read-only) |
+| `b2b/receipts/delete` \| `b2b/receipts/lines/delete` | R3/R2 |
+| `b2b/payment_records/list\|get\|transactions\|operations\|create_offline\|update_offline\|perform_operation\|update_processing_status\|delete` | R0/R0/R0/R0/R2/R2/R2/R2/R3 (`/ip` base URL) |
+| `b2b/payments/list\|active_methods` \| `b2b/companies/payments/list\|credit/get\|payment_terms/get` | R0 (all) |
+| `b2b/companies/payments/update\|credit/update\|payment_terms/update` | R2/R2/R2 |
 | `b2b/sales_staff/list\|get\|update_assignments` | R0/R0/R1 |
 | `b2b/super_admins/list\|companies_overview\|get\|companies\|create\|bulk_create\|update\|update_assignments` | R0/R0/R0/R0/R1/R1/R1/R1 |
 | `b2b/companies/super_admins/list\|update_assignments` | R0/R1 |

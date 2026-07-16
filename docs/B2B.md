@@ -179,11 +179,9 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 
 ---
 
-### Phase B3 — Invoices, Receipts, Payments, Credit & Net Terms ✅ Shipped (read-only)
+### Phase B3 — Invoices, Receipts, Payments, Credit & Net Terms ✅ Shipped (read + write)
 
-Read-only per product decision — write operations (create/update invoices, log payments, update company payment methods/credit/terms) are deferred; see Follow-ups.
-
-**Discovery tree:** `b2b/invoices/`, `b2b/receipts/` (+ `lines/`), `b2b/payments/`, `b2b/companies/payments/`, `b2b/companies/credit/`, `b2b/companies/payment_terms/`.
+**Discovery tree:** `b2b/invoices/`, `b2b/receipts/` (+ `lines/`), `b2b/payment_records/`, `b2b/payments/`, `b2b/companies/payments/`, `b2b/companies/credit/`, `b2b/companies/payment_terms/`.
 
 **Invoices** (served from the `/ip` base — see Authentication)
 
@@ -193,6 +191,10 @@ Read-only per product decision — write operations (create/update invoices, log
 | `b2b/invoices/get` | R0 | Full detail: line items, tax, billing address, balance |
 | `b2b/invoices/download_pdf` | R0 | Download link for the invoice PDF |
 | `b2b/invoices/extra_fields` | R0 | List invoice extra-field definitions |
+| `b2b/invoices/create` | R2 | Create an invoice from a raw JSON body (`invoice_json`) |
+| `b2b/invoices/create_from_order` | R2 | Generate an invoice from an existing order's data (`order_id` = BigCommerce order ID; the tool resolves B2B Edition's own internal order ID internally — see quirk below) |
+| `b2b/invoices/update` | R2 | Update an invoice from a raw JSON body; `details` fully replaces rather than merging |
+| `b2b/invoices/delete` | R3 | Permanently delete an invoice |
 
 **Receipts** (same `/ip` base)
 
@@ -203,6 +205,22 @@ Read-only per product decision — write operations (create/update invoices, log
 | `b2b/receipts/lines/list_all` | R0 | List line items across all receipts |
 | `b2b/receipts/lines/list_for_receipt` | R0 | List line items on one receipt |
 | `b2b/receipts/lines/get` | R0 | Get a single receipt line |
+| `b2b/receipts/delete` | R3 | Permanently delete a receipt |
+| `b2b/receipts/lines/delete` | R2 | Permanently delete a single receipt line |
+
+**Payment records** (money logged against invoices; same `/ip` base)
+
+| Tool | Tier | Description |
+|------|------|-------------|
+| `b2b/payment_records/list` | R0 | List payment records logged against invoices |
+| `b2b/payment_records/get` | R0 | Get a payment record's detail |
+| `b2b/payment_records/transactions` | R0 | List a payment record's transaction history |
+| `b2b/payment_records/operations` | R0 | Get the operations currently allowed on a payment record |
+| `b2b/payment_records/create_offline` | R2 | Log a new offline payment against one or more invoices |
+| `b2b/payment_records/update_offline` | R2 | Update an existing offline payment record |
+| `b2b/payment_records/perform_operation` | R2 | Perform a lifecycle operation (e.g. void) on a payment record |
+| `b2b/payment_records/update_processing_status` | R2 | Directly set a payment record's processing status |
+| `b2b/payment_records/delete` | R3 | Permanently delete a payment record |
 
 **Payments, credit, and net terms** (standard base, not `/ip`)
 
@@ -213,8 +231,27 @@ Read-only per product decision — write operations (create/update invoices, log
 | `b2b/companies/payments/list` | R0 | A company's payment methods + enabled state |
 | `b2b/companies/credit/get` | R0 | Credit settings (fails if the store's Company Credit feature is off) |
 | `b2b/companies/payment_terms/get` | R0 | Net-terms configuration (e.g. Net 45) |
+| `b2b/companies/payments/update` | R2 | Enable or disable payment methods for a company |
+| `b2b/companies/credit/update` | R2 | Update a company's credit settings |
+| `b2b/companies/payment_terms/update` | R2 | Update a company's net-terms settings |
 
-**API quirks confirmed live:** invoice/receipt/receipt-line IDs are **strings**; global `/payments` uses `id`/`paymentCode` while `/companies/{id}/payments` uses `paymentId`/`code` for the same concepts — different field names for the same data, not a documentation error.
+**API quirks confirmed live:**
+- Invoice/receipt/receipt-line/payment-record IDs are **strings**; global `/payments` uses `id`/`paymentCode` while `/companies/{id}/payments` uses `paymentId`/`code` for the same concepts — different field names for the same data, not a documentation error.
+- **`POST /orders/{orderId}/invoices` (`create_from_order`) takes B2B Edition's own internal order ID, not the BigCommerce order ID** — they are different numbers (`GetB2BOrder`'s `id` field vs. its `bcOrderId` field). Passing the BC order ID returns a 404 "Order does not exist" even for a real, existing order. The tool resolves this automatically via a `b2b/orders/get`-equivalent lookup before calling the endpoint, so callers only ever need to supply the familiar BC order ID.
+
+---
+
+### Order lifecycle: from checkout to an invoiceable B2B order
+
+Confirmed live against a POC store while validating the quote → order → invoice pipeline. This is platform behavior, not specific to this MCP, but it's easy to trip over:
+
+1. **`carts/checkout/convert`** (`POST /v3/checkouts/{id}/orders`) always creates the order in **Incomplete** status by BigCommerce design — this endpoint takes no payment. Incomplete orders sit in a "limbo" state: hidden from both the native Orders dashboard and the B2B Orders panel unless explicitly filtered to show Incomplete orders.
+2. A **real payment method must be applied** to move the order out of Incomplete:
+   - **Offline methods** (e.g. "Submit for invoicing") cannot be selected via any REST API — BigCommerce's Payments API explicitly does not support offline methods; only a real storefront checkout session can choose one. The resulting order lands in **Awaiting Payment**.
+   - **Gateway methods** (credit card) *can* be processed via API using a Payment Access Token against the separate `payments.bigcommerce.com` server — a materially different, more involved flow than anything in this MCP today.
+   - The practical path for orders created through `carts/checkout/convert` is to move them out of Incomplete via `orders/management/update_status` (mirrors what a merchant does manually in the admin panel).
+3. **B2B-panel visibility is driven by the cart/order's `customer_id`.** If the checkout's customer belongs to a B2B company user, the resulting order gets a `companyId` (after a short async indexing delay — seen up to ~25s) and appears in **both** the native BigCommerce Orders dashboard and the B2B Admin Panel's Orders section. Orders placed with `customer_id: 0` (guest) only ever appear in the native dashboard, never in the B2B panel — confirmed by comparing a guest order, a guest-but-company-linked order, and a real admin-buyer order side by side.
+4. Once an order has both a real status (not Incomplete) and, for B2B invoicing, a `companyId`, `b2b/invoices/create_from_order` succeeds.
 
 ---
 
