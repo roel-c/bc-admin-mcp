@@ -271,17 +271,27 @@ open to partially-paid).
   existing B2B Control Panel system user." Omit the field when creating a
   quote on behalf of a buyer without assigning a specific sales rep; the
   tool description doesn't currently warn about this. (OPEN — doc fix)
-- **Cart/checkout shipping options vs. quote shipping rates disagreed for
-  the same address.** `carts/checkout/consignment_add` reported
-  `available_shipping_option_count: 0` for a Texas/US address on the
-  default channel (`channel_id` omitted → 0/1), while
-  `b2b/quotes/shipping/rates` returned 2 flat-rate options for the same
-  store and a similar US address under channel `1741970` (MSF-B2BE). This
-  suggests the store's shipping zone/method may be scoped to a specific
-  channel rather than globally absent, which would revise the earlier FU-3
-  addendum's framing ("missing store shipping config"). Re-test
-  `carts/cart/create` with an explicit `channel_id` matching the configured
-  zone before concluding shipping is unconfigured store-wide. (OPEN)
+- ✅ **FIXED (2026-07-16) — `carts/checkout/consignment_add` always reported
+  `available_shipping_option_count: 0`, even though the store has two
+  correctly-configured flat-rate shipping zones/methods ("Flat rate",
+  "Copy of Flat rate").** Root cause: BigCommerce's Checkout API only
+  populates `consignments[].available_shipping_options` when the request
+  includes `?include=consignments.available_shipping_options` — without it,
+  BC silently omits the field rather than returning an empty array, and
+  every other part of the response (address, totals) still looks correctly
+  populated, making "0 options" easy to mistake for "no shipping configured"
+  instead of "we didn't ask for them." Confirmed against BigCommerce's own
+  headless-checkout REST tutorial, which appends this exact param.
+  `GetCheckout`, `AddConsignment`, and `UpdateConsignment`
+  (`internal/bigcommerce/checkouts.go`) now all send it. Live-verified after
+  the fix: the same checkout/address that previously showed 0 options now
+  correctly returns both flat-rate methods, selecting one and converting to
+  an order correctly carries `shipping_method: "Flat rate"` and the matching
+  cost through to the order's shipping address. (Supersedes the earlier
+  "channel-scoping" theory below — the channel was never the issue.)
+  Nothing is hardcoded on the MCP side; the options are still evaluated
+  dynamically per-request from the address, exactly as intended — the fix
+  was purely about requesting the field BC already computes.
 - **`b2b/companies/addresses/create` returns a sparse body** (only
   `address_id` populated; every other field empty/default) — extends the
   existing FU-6 note about sparse B2B create responses (previously observed

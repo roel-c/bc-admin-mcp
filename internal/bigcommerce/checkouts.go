@@ -133,9 +133,19 @@ func (c *Client) unmarshalCheckout(body []byte, op string) (*Checkout, error) {
 	return &co, nil
 }
 
+// includeAvailableShippingOptions is the BigCommerce Checkout API's opt-in
+// query param for returning consignments[].available_shipping_options.
+// Without it, BC omits the field entirely (not an empty array) — the
+// checkout otherwise looks correctly populated (address, totals, etc.) which
+// makes the missing options easy to mistake for "no shipping methods
+// configured" rather than "we didn't ask for them." Confirmed against
+// BigCommerce's own headless-checkout tutorial, which appends this exact
+// param to both the consignment-add and checkout-get calls.
+const includeAvailableShippingOptions = "include=consignments.available_shipping_options"
+
 // GetCheckout fetches the checkout for a cart UUID via GET /v3/checkouts/{id}.
 func (c *Client) GetCheckout(ctx context.Context, checkoutID string) (*Checkout, error) {
-	body, err := c.Get(ctx, fmt.Sprintf("checkouts/%s", checkoutID))
+	body, err := c.Get(ctx, fmt.Sprintf("checkouts/%s?%s", checkoutID, includeAvailableShippingOptions))
 	if err != nil {
 		return nil, fmt.Errorf("get checkout %s: %w", checkoutID, err)
 	}
@@ -184,8 +194,13 @@ func (c *Client) UpdateBillingAddress(ctx context.Context, checkoutID, addrID st
 }
 
 // AddConsignment adds a shipping consignment via POST /v3/checkouts/{id}/consignments.
+// Appends include=consignments.available_shipping_options so the response
+// carries the shipping options actually valid for the consignment's address
+// — BigCommerce computes these dynamically per-request from the store's
+// configured shipping zones/methods; nothing here is hardcoded.
 func (c *Client) AddConsignment(ctx context.Context, checkoutID string, consignment CheckoutConsignmentInput) (*Checkout, error) {
-	body, err := c.Post(ctx, fmt.Sprintf("checkouts/%s/consignments", checkoutID), []CheckoutConsignmentInput{consignment})
+	path := fmt.Sprintf("checkouts/%s/consignments?%s", checkoutID, includeAvailableShippingOptions)
+	body, err := c.Post(ctx, path, []CheckoutConsignmentInput{consignment})
 	if err != nil {
 		return nil, fmt.Errorf("add consignment to checkout %s: %w", checkoutID, err)
 	}
@@ -193,9 +208,12 @@ func (c *Client) AddConsignment(ctx context.Context, checkoutID string, consignm
 }
 
 // UpdateConsignment updates a consignment (e.g. select shipping option)
-// via PUT /v3/checkouts/{id}/consignments/{consign_id}.
+// via PUT /v3/checkouts/{id}/consignments/{consign_id}. Also requests
+// available_shipping_options so a re-fetched address/line-item change still
+// surfaces the current valid options in the same response.
 func (c *Client) UpdateConsignment(ctx context.Context, checkoutID, consignID string, update CheckoutConsignmentUpdate) (*Checkout, error) {
-	body, err := c.Put(ctx, fmt.Sprintf("checkouts/%s/consignments/%s", checkoutID, consignID), update)
+	path := fmt.Sprintf("checkouts/%s/consignments/%s?%s", checkoutID, consignID, includeAvailableShippingOptions)
+	body, err := c.Put(ctx, path, update)
 	if err != nil {
 		return nil, fmt.Errorf("update consignment %s on checkout %s: %w", consignID, checkoutID, err)
 	}
