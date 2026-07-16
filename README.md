@@ -465,6 +465,16 @@ The `b2b/` root only registers when `BC_B2B_ENABLED=true`; it reuses the existin
 | `b2b/companies/payments/list` | R0 | A company's payment methods and enabled state |
 | `b2b/companies/credit/get` | R0 | A company's credit settings |
 | `b2b/companies/payment_terms/get` | R0 | A company's net-terms configuration |
+| `b2b/sales_staff/list` \| `get` | R0 | List/get B2B users with a Sales Staff role and their company assignments |
+| `b2b/sales_staff/update_assignments` | R1 | Assign/unassign companies (non-destructive); preview → **`confirmed`** |
+| `b2b/super_admins/list` \| `companies_overview` \| `get` \| `companies` | R0 | List Super Admins / companies-overview / get one / its assigned companies |
+| `b2b/super_admins/create` \| `bulk_create` \| `update` | R1 | Create (or convert a BC customer) / bulk create / update details; preview → **`confirmed`** |
+| `b2b/super_admins/update_assignments` | R1 | Assign/unassign companies for a Super Admin (non-destructive); preview → **`confirmed`** |
+| `b2b/companies/super_admins/list` \| `update_assignments` | R0 / R1 | Company-perspective view/assignment of Super Admins; preview → **`confirmed`** |
+| `b2b/shopping_lists/list` \| `get` | R0 | List lists visible to a buyer (`user_id` xor `customer_id`) / full detail |
+| `b2b/shopping_lists/create` \| `update` | R1 | Create (optional `items_json`) / partial update (item `quantity=0` removes it); preview → **`confirmed`** |
+| `b2b/shopping_lists/delete` | R3 | Permanently delete a list; preview → **`confirmed`** |
+| `b2b/shopping_lists/items/remove` | R2 | Remove a single item; preview → **`confirmed`** |
 
 ## Project Structure
 

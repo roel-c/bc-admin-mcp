@@ -218,32 +218,51 @@ Read-only per product decision — write operations (create/update invoices, log
 
 ---
 
-### Phase B4 — Shopping Lists *(planned)*
+### Phase B4 — Shopping Lists ✅ Shipped
 
-Repeat-purchase list management for buyers and sales reps.
+Repeat-purchase list management for buyers.
 
-| Tool | Tier | Endpoint |
-|------|------|---------|
-| `b2b/shopping_lists/list` | R0 | `GET /shopping-list` — filter by userId/companyId |
-| `b2b/shopping_lists/get` | R0 | `GET /shopping-list/{id}` |
-| `b2b/shopping_lists/create` | R1 | `POST /shopping-list` |
-| `b2b/shopping_lists/update` | R1 | `PUT /shopping-list/{id}` — name, description, items array |
-| `b2b/shopping_lists/delete` | R3 | `DELETE /shopping-list/{id}` |
-| `b2b/shopping_lists/items/remove` | R2 | `DELETE /shopping-list/{id}/items/{itemId}` |
+| Tool | Tier | Description |
+|------|------|-------------|
+| `b2b/shopping_lists/list` | R0 | List lists visible to a buyer; provide exactly one of `user_id` (B2B buyer user ID) or `customer_id` (BC customer ID) |
+| `b2b/shopping_lists/get` | R0 | Full detail including items |
+| `b2b/shopping_lists/create` | R1 | Create, optionally with initial `items_json` |
+| `b2b/shopping_lists/update` | R1 | Partial update; item `quantity=0` removes that item; omitted existing items are otherwise left alone unless replaced by ID |
+| `b2b/shopping_lists/delete` | R3 | Permanently delete |
+| `b2b/shopping_lists/items/remove` | R2 | Remove a single item by ID |
+
+**API quirk confirmed live:** `POST /shopping-list` rejects a null `status` with a 422, even though the OpenAPI schema marks only `name` as required. `b2b/shopping_lists/create` now defaults `status` to `"0"` (approved) when omitted.
 
 ---
 
-### Phase B5 — Sales Operations *(planned)*
+### Phase B5 — Sales Operations ✅ Shipped
 
-Super admin masquerade and sales rep assignment.
+Backend sales rep (Sales Staff) and frontend sales rep / masquerade (Super Admin) company assignment.
+
+**Sales Staff**
 
 | Tool | Tier | Description |
-|------|------|------------|
-| `b2b/super_admins/list` | R0 | List frontend sales reps with company assignments |
-| `b2b/super_admins/assign` | R1 | Assign super admin to a company |
-| `b2b/super_admins/remove` | R2 | Remove super admin from a company |
-| `b2b/sales_staff/list` | R0 | List backend sales reps |
-| `b2b/sales_staff/assign` | R1 | Assign sales rep to a company |
+|------|------|-------------|
+| `b2b/sales_staff/list` | R0 | List B2B users with a Sales Staff role; filterable by `company_id` |
+| `b2b/sales_staff/get` | R0 | Get a sales staff account's company assignments |
+| `b2b/sales_staff/update_assignments` | R1 | Assign/unassign companies (`assignments_json`: `[{"companyId","assignStatus"}]`); non-destructive |
+
+**Super Admins** (both the super-admin- and company-perspective views)
+
+| Tool | Tier | Description |
+|------|------|-------------|
+| `b2b/super_admins/list` | R0 | List Super Admins with assigned-company counts |
+| `b2b/super_admins/companies_overview` | R0 | List companies with assigned-Super-Admin counts (inverse view) |
+| `b2b/super_admins/get` | R0 | Get a Super Admin's account details |
+| `b2b/super_admins/companies` | R0 | List the companies assigned to one Super Admin |
+| `b2b/super_admins/create` | R1 | Create (or convert an existing BC customer into) a Super Admin |
+| `b2b/super_admins/bulk_create` | R1 | Create up to 10 Super Admins in one call |
+| `b2b/super_admins/update` | R1 | Update name/phone/uuid/extra fields (email is read-only) |
+| `b2b/super_admins/update_assignments` | R1 | Assign/unassign companies (`assignments_json`: `[{"companyId","isAssigned"}]`); non-destructive |
+| `b2b/companies/super_admins/list` | R0 | List the Super Admins assigned to a company |
+| `b2b/companies/super_admins/update_assignments` | R1 | Assign/unassign Super Admins for a company (`assignments_json`: `[{"superAdminId","isAssigned"}]`); non-destructive |
+
+**API quirk confirmed live:** the two assignment directions use **different field names** for the same boolean concept — Sales Staff uses `assignStatus`, Super Admins use `isAssigned`. Confirmed from each endpoint's OpenAPI schema, not an assumption.
 
 ---
 

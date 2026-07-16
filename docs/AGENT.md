@@ -236,6 +236,10 @@ Every tool uses the same envelope:
 | `b2b/invoices/list\|get\|download_pdf\|extra_fields` | R0 (all; `/ip` base URL) |
 | `b2b/receipts/list\|get` \| `b2b/receipts/lines/list_all\|list_for_receipt\|get` | R0 (all) |
 | `b2b/payments/list\|active_methods` \| `b2b/companies/payments/list\|credit/get\|payment_terms/get` | R0 (all; read-only) |
+| `b2b/sales_staff/list\|get\|update_assignments` | R0/R0/R1 |
+| `b2b/super_admins/list\|companies_overview\|get\|companies\|create\|bulk_create\|update\|update_assignments` | R0/R0/R0/R0/R1/R1/R1/R1 |
+| `b2b/companies/super_admins/list\|update_assignments` | R0/R1 |
+| `b2b/shopping_lists/list\|get\|create\|update\|delete\|items/remove` | R0/R0/R1/R1/R3/R2 |
 
 **B2B Edition — scope: `B2B Edition` (requires `BC_B2B_ENABLED=true` in `.env`):**
 

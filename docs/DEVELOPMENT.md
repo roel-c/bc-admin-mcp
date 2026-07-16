@@ -221,6 +221,9 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `b2b/quotes/shipping/*` | R0 reads; **R1** select; **R2** remove; plural `/shipping-rates` (GET) vs singular `/shipping-rate` (PUT/DELETE) — mixing them 405s | `internal/tools/b2b/quote_tools.go` |
 | `b2b/invoices/*`, `b2b/receipts/*` | R0 (read-only); served from a distinct `/ip` base URL, not the standard B2B base — see `b2bBaseURL` usage in `internal/bigcommerce/b2b_invoices.go` | `internal/tools/b2b/invoice_tools.go` |
 | `b2b/payments/*`, `b2b/companies/payments\|credit\|payment_terms/*` | R0 (read-only); global `/payments` and per-company `/companies/{id}/payments` use different field names for the same data | `internal/tools/b2b/payment_tools.go` |
+| `b2b/sales_staff/*` | R0 reads; **R1** `update_assignments` (non-destructive; body field is `assignStatus`) | `internal/tools/b2b/sales_staff_tools.go` |
+| `b2b/super_admins/*`, `b2b/companies/super_admins/*` | R0 reads; **R1** create/bulk_create/update/update_assignments; assignment body field is `isAssigned` (not `assignStatus` — differs from Sales Staff) | `internal/tools/b2b/super_admin_tools.go` |
+| `b2b/shopping_lists/*` | R0 list/get; **R1** create/update; **R3** delete; **R2** items/remove; `create` defaults `status` to `"0"` since the live API rejects a null status despite the schema not marking it required | `internal/tools/b2b/shopping_list_tools.go` |
 
 ---
 

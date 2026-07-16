@@ -87,6 +87,28 @@ type B2BCompanyAPI interface {
 	ListB2BActivePaymentMethods(ctx context.Context, params string) ([]map[string]any, error)
 	GetB2BCompanyCredit(ctx context.Context, companyID int) (*bigcommerce.B2BCompanyCredit, error)
 	GetB2BCompanyPaymentTerms(ctx context.Context, companyID int) (*bigcommerce.B2BPaymentTerms, error)
+	// Sales staff
+	ListB2BSalesStaff(ctx context.Context, params string) ([]map[string]any, error)
+	GetB2BSalesStaff(ctx context.Context, salesStaffID int) (map[string]any, error)
+	UpdateB2BSalesStaffAssignments(ctx context.Context, salesStaffID int, assignments []bigcommerce.B2BSalesStaffAssignment) (map[string]any, error)
+	// Super admins
+	ListB2BSuperAdmins(ctx context.Context, params string) ([]map[string]any, error)
+	ListB2BSuperAdminCompaniesOverview(ctx context.Context, params string) ([]map[string]any, error)
+	GetB2BSuperAdmin(ctx context.Context, superAdminID int) (map[string]any, error)
+	CreateB2BSuperAdmin(ctx context.Context, payload bigcommerce.B2BSuperAdminCreate) (map[string]any, error)
+	BulkCreateB2BSuperAdmins(ctx context.Context, payloads []bigcommerce.B2BSuperAdminCreate) (map[string]any, error)
+	UpdateB2BSuperAdmin(ctx context.Context, superAdminID int, payload bigcommerce.B2BSuperAdminUpdate) (map[string]any, error)
+	UpdateB2BSuperAdminCompanyAssignments(ctx context.Context, superAdminID int, assignments []bigcommerce.B2BSuperAdminCompanyAssignment) (map[string]any, error)
+	GetB2BSuperAdminCompanies(ctx context.Context, superAdminID int, params string) ([]map[string]any, error)
+	ListB2BCompanySuperAdmins(ctx context.Context, companyID int, params string) ([]map[string]any, error)
+	UpdateB2BCompanySuperAdminAssignments(ctx context.Context, companyID int, assignments []bigcommerce.B2BCompanySuperAdminAssignment) (map[string]any, error)
+	// Shopping lists
+	ListB2BShoppingLists(ctx context.Context, params string) ([]map[string]any, error)
+	GetB2BShoppingList(ctx context.Context, shoppingListID int, params string) (map[string]any, error)
+	CreateB2BShoppingList(ctx context.Context, payload bigcommerce.B2BShoppingListCreate) (map[string]any, error)
+	UpdateB2BShoppingList(ctx context.Context, shoppingListID int, payload bigcommerce.B2BShoppingListUpdate) (map[string]any, error)
+	DeleteB2BShoppingList(ctx context.Context, shoppingListID, userID int) error
+	DeleteB2BShoppingListItem(ctx context.Context, shoppingListID, itemID int) error
 	// Addresses
 	ListB2BAddresses(ctx context.Context, params string) ([]bigcommerce.B2BAddress, error)
 	CreateB2BAddress(ctx context.Context, payload bigcommerce.B2BAddressCreate) (*bigcommerce.B2BAddress, error)

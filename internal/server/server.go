@@ -157,6 +157,10 @@ func registerCategories(reg *discovery.Registry, b2bEnabled bool) {
 		reg.RegisterCategory("b2b/companies/payments", "Per-company payment method availability (read-only).")
 		reg.RegisterCategory("b2b/companies/credit", "Per-company credit settings (read-only).")
 		reg.RegisterCategory("b2b/companies/payment_terms", "Per-company net-terms settings (read-only).")
+		reg.RegisterCategory("b2b/sales_staff", "Backend sales rep company assignment: list, get, update assignments.")
+		reg.RegisterCategory("b2b/super_admins", "Frontend sales rep / Super Admin accounts: CRUD, company assignments, masquerade-eligible roster.")
+		reg.RegisterCategory("b2b/companies/super_admins", "Company-perspective Super Admin assignments: list, update.")
+		reg.RegisterCategory("b2b/shopping_lists", "Repeat-purchase shopping lists: list, get, create, update, delete, and item removal.")
 	}
 
 	// store/* remains omitted until tools exist to avoid empty discover_tools leaves.

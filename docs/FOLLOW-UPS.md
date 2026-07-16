@@ -181,6 +181,20 @@ every other B2B endpoint uses. This is only visible in each endpoint's OpenAPI
 Confirm the `servers:` block for any new B2B endpoint group before assuming
 the standard base.
 
+**Note for future work — non-destructive assignment endpoints use
+inconsistent field names.** Sales Staff company assignments use
+`assignStatus`; Super Admin company/company-super-admin assignments use
+`isAssigned`. Both are booleans meaning the same thing. Always confirm the
+exact field name from the endpoint's own OpenAPI schema rather than reusing
+another resource's naming.
+
+**Note for future work — shopping list create requires `status` despite the
+schema marking only `name` as required.** `POST /shopping-list` 422s with a
+null `status` field. `b2b/shopping_lists/create` now defaults it to `"0"`
+(approved) when the caller omits it — a pattern worth checking for on any new
+B2B create endpoint where the documented "required" list looks suspiciously
+short (see also the quote `productList` issue above).
+
 ---
 
 ## FU-3 — Environment read/write test pass (COMPLETED 2026-07-15)
