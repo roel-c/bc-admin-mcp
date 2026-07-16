@@ -139,6 +139,50 @@ Discovered during the same pass.
 
 ---
 
+## FU-7 — B2B Phase B: deferred writes and open items (2026-07-15)
+
+Surfaced while shipping B2B Management API Phase B (Quotes; Invoices/Receipts;
+Payments/Credit/Net Terms) and live-validating against a POC store.
+
+**Deferred by product decision (financial writes, read-only-first):**
+- `PUT /companies/{id}/payments` — update which payment methods are enabled
+  for a company.
+- `PUT /companies/{id}/credit` — update a company's credit settings.
+- `PUT /companies/{id}/payment-terms` — update a company's net-terms config.
+- `POST /invoices`, `POST /orders/{id}/invoices`, `PUT /invoices/{id}`,
+  `DELETE /invoices/{id}` — invoice generation/update/delete.
+- `POST /payments/offline`, `PUT /payments/offline/{id}`,
+  `POST /payments/{id}/operations`, `PUT /payments/{id}/processing-status`,
+  `DELETE /payments/{id}` — logging/managing payments against invoices.
+- `DELETE /receipts/{id}`, `DELETE /receipts/{id}/lines/{lineId}` — receipt
+  and receipt-line deletion.
+
+**Open — quote `productList` write shape is underdocumented.** The OpenAPI
+schema for `POST /rfq` and `PUT /rfq/{id}` only documents `options` on
+`productList` items; live testing showed `basePrice` and `discount` are also
+required per-item (plus top-level `discount`), none of which are marked
+required in the schema. `internal/tools/b2b/quote_tools.go` accepts a raw
+`quote_json` body for this reason rather than modeling individual fields —
+revisit if BC's docs are corrected, or document the full required shape
+directly in the tool description from more live testing.
+
+**Open — `/rfq/{id}/shipping-rate` (select) response is inconsistent with
+other quote write endpoints.** Returns `{"data": []}` on success instead of
+the updated quote (every other quote write endpoint returns the quote or a
+result object). `SelectB2BQuoteShippingRate` tolerates this; flag if BC
+changes it, since the current behavior means callers can't see the applied
+result without a follow-up `get`.
+
+**Note for future work — `/ip` base URL is easy to miss.** Invoice Management
+(invoices, receipts, receipt-lines) is served from
+`https://api-b2b.bigcommerce.com/api/v3/io/ip`, not the standard `.../io` base
+every other B2B endpoint uses. This is only visible in each endpoint's OpenAPI
+`servers:` block, not in the path itself or in the top-level docs overview.
+Confirm the `servers:` block for any new B2B endpoint group before assuming
+the standard base.
+
+---
+
 ## FU-3 — Environment read/write test pass (COMPLETED 2026-07-15)
 
 Completed a broad read/write pass across all domains against the live POC store

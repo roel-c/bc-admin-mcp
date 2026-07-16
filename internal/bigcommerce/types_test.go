@@ -146,3 +146,38 @@ func (s *APIErrorScopeHintSuite) TestV2ArrayErrorMessageSurfaced() {
 	}
 	s.Contains(e.SafeError(), "The field 'email' is invalid.")
 }
+
+// B2B Edition errors use {"code":422,"data":{"errMsg":"..."},"meta":{"message":"..."}}
+// rather than the core BC V3 {title,detail,errors} shape.
+func (s *APIErrorScopeHintSuite) TestB2BErrMsgSurfaced() {
+	e := &bigcommerce.APIError{
+		StatusCode: 422,
+		Body:       []byte(`{"code":422,"data":{"errMsg":"Custom shipping is not enabled"},"meta":{"message":"Custom shipping is not enabled"}}`),
+	}
+	msg := e.SafeError()
+	s.Contains(msg, "422")
+	s.Contains(msg, "Custom shipping is not enabled")
+}
+
+// B2B field-validation errors use {"data":{"firstName":["This field may not be null."]}}.
+func (s *APIErrorScopeHintSuite) TestB2BFieldErrorsSurfaced() {
+	e := &bigcommerce.APIError{
+		StatusCode: 422,
+		Body:       []byte(`{"code":422,"data":{"firstName":["This field may not be null."]},"meta":{"message":"VALIDATION"}}`),
+	}
+	msg := e.SafeError()
+	s.Contains(msg, "VALIDATION")
+	s.Contains(msg, "firstName")
+	s.Contains(msg, "This field may not be null.")
+}
+
+// meta.message of "SUCCESS" (seen on some 2xx-shaped error bodies) should not
+// be surfaced as if it were an error detail.
+func (s *APIErrorScopeHintSuite) TestB2BSuccessMetaMessageNotSurfacedAsError() {
+	e := &bigcommerce.APIError{
+		StatusCode: 404,
+		Body:       []byte(`{"code":404,"data":{},"meta":{"message":"SUCCESS"}}`),
+	}
+	msg := e.SafeError()
+	s.NotContains(msg, "SUCCESS")
+}

@@ -449,6 +449,22 @@ The `b2b/` root only registers when `BC_B2B_ENABLED=true`; it reuses the existin
 | `b2b/orders/assign_customer_orders` | R2 | Attach a buyer's historical orders to their company; preview → **`confirmed`** |
 | `b2b/orders/reassign` | R2 | Reassign orders by customer group (Dependent-behavior stores only); preview → **`confirmed`** |
 | `b2b/orders/extra_fields` | R0 | List order extra-field definitions |
+| `b2b/quotes/list` \| `get` \| `extra_fields` | R0 | List / get full detail / extra-field definitions for sales quotes |
+| `b2b/quotes/create` \| `update` | R1 | Create / update a quote (`quote_json`); preview → **`confirmed`** |
+| `b2b/quotes/delete` | R3 | Permanently delete a quote (use `update` with `status=archived` to hide); preview → **`confirmed`** |
+| `b2b/quotes/checkout` | R1 | Generate cart/checkout URLs for a quote; preview → **`confirmed`** |
+| `b2b/quotes/assign_to_order` | R2 | Associate an existing order with a quote; preview → **`confirmed`** |
+| `b2b/quotes/pdf_export` | R0 | Backend-detail PDF download link for a quote |
+| `b2b/quotes/shipping/rates` \| `custom_methods` | R0 | Available shipping rates / store-wide custom shipping methods |
+| `b2b/quotes/shipping/select` | R1 | Assign a shipping rate to a quote; preview → **`confirmed`** |
+| `b2b/quotes/shipping/remove` | R2 | Clear a quote's shipping rate; preview → **`confirmed`** |
+| `b2b/invoices/list` \| `get` \| `download_pdf` \| `extra_fields` | R0 | Invoice reads (served from a distinct `/ip` base URL) |
+| `b2b/receipts/list` \| `get` | R0 | Payment receipt reads |
+| `b2b/receipts/lines/list_all` \| `list_for_receipt` \| `get` | R0 | Receipt line-item reads |
+| `b2b/payments/list` \| `active_methods` | R0 | Store-wide payment method definitions / cross-company active methods |
+| `b2b/companies/payments/list` | R0 | A company's payment methods and enabled state |
+| `b2b/companies/credit/get` | R0 | A company's credit settings |
+| `b2b/companies/payment_terms/get` | R0 | A company's net-terms configuration |
 
 ## Project Structure
 

@@ -17,7 +17,7 @@ BigCommerce B2B Edition (formerly BundleB2B) extends the storefront for business
 
 **Gate:** Set `BC_B2B_ENABLED=true` in `.env` to enable the `b2b/` discovery root. When false (default), the domain is not registered — stores without B2B Edition will not see broken tools.
 
-**Base URL:** `https://api-b2b.bigcommerce.com/api/v3/io/`
+**Base URL:** `https://api-b2b.bigcommerce.com/api/v3/io/` for most resources (companies, users, addresses, roles, hierarchy, channels, orders, quotes, payments/credit/terms). **Exception:** Invoice Management (invoices, receipts, receipt-lines) is served from `https://api-b2b.bigcommerce.com/api/v3/io/ip/` — a distinct base with an `/ip` suffix, confirmed from each endpoint's OpenAPI `servers:` block (not obvious from the path alone; easy to miss).
 
 Implementation: `internal/bigcommerce/b2b_client.go` (`B2BClient`)
 
@@ -33,11 +33,11 @@ BigCommerce documents 11 server-to-server resource families:
 | Users | `/users` | Buyer portal user CRUD + role assignment |
 | Addresses | `/addresses` | Company billing/shipping address management |
 | Orders | `/orders` | Get B2B order info, assign historical orders to companies |
-| Quotes (RFQ) | `/rfq` (v2) | Sales quote lifecycle + cart conversion |
+| Quotes (RFQ) | `/rfq` | Sales quote lifecycle, shipping rates, checkout/order conversion |
 | Shopping Lists | `/shopping-list` | Repeat-purchase list management |
-| Invoice Management | `/ip/invoices` | Invoice generation + external payment logging |
-| Payments | (payments resource) | Payment methods, available credit, net terms |
-| Sales Staff | `/sales-staff` | Backend sales rep company assignment |
+| Invoice Management | `/ip/invoices`, `/ip/receipts` | Invoice/receipt reads (distinct `/ip` base URL — see Authentication) |
+| Payments | `/payments`, `/companies/{id}/payments`, `/companies/{id}/credit`, `/companies/{id}/payment-terms` | Payment methods, credit, net terms |
+| Sales Staff | `/sales-staffs` | Backend sales rep company assignment |
 | Super Admins | `/super-admins` | Frontend sales rep + masquerade session management |
 | Channels | `/channels` | B2B channel information |
 
@@ -146,22 +146,79 @@ BigCommerce documents 11 server-to-server resource families:
 
 ---
 
-### Phase B2 — Quotes *(planned)*
+### Phase B2 — Quotes ✅ Shipped
 
-Sales quote lifecycle: buyer requests quote → sales rep prices → buyer approves → converts to cart/order.
+Sales quote lifecycle: buyer requests quote → sales rep prices → buyer approves → converts to cart/order. Confirmed accessible via server-to-server auth despite the docs index nominally linking list/create/get/update under the Storefront section — the Management-section mirror pages (same `X-Auth-Token`/`X-Store-Hash` auth) work identically and were verified live.
 
-| Tool | Tier | Endpoint |
-|------|------|---------|
-| `b2b/quotes/list` | R0 | `GET /rfq` — list with status/company/date filters |
-| `b2b/quotes/get` | R0 | `GET /rfq/{id}` — full line items, pricing, messages |
-| `b2b/quotes/update_status` | R2 | Approve, reject, or expire a quote |
-| `b2b/quotes/convert_to_cart` | R2 | `POST /rfq/{id}/checkout` — returns cart/checkout URL |
-| `b2b/quotes/assign_to_order` | R2 | `POST /rfq/{id}/ordered` — link quote to placed order |
-| `b2b/quotes/export_pdf` | R0 | `POST /rfq/{id}/pdf-export` — returns PDF URL |
+**Discovery tree:** `b2b/quotes/` with a `shipping/` sub-tree.
+
+| Tool | Tier | Description |
+|------|------|-------------|
+| `b2b/quotes/list` | R0 | List quotes; filter by company/salesRep/status/date ranges |
+| `b2b/quotes/get` | R0 | Full detail: line items, addresses, shipping method, message history |
+| `b2b/quotes/create` | R1 | Create a quote (`quote_json`); visible to the buyer immediately unless `allowCheckout=false` |
+| `b2b/quotes/update` | R1 | Partial update (`quote_json`); `productList` updates replace the full line-item set |
+| `b2b/quotes/delete` | R3 | Permanently delete (use `update` with `status=archived` to hide instead) |
+| `b2b/quotes/checkout` | R1 | Generate cart + checkout URLs (status New/In Process/Updated by Customer only) |
+| `b2b/quotes/assign_to_order` | R2 | Associate an existing BC order with the quote |
+| `b2b/quotes/pdf_export` | R0 | Backend-detail PDF download link (optional currency override) |
+| `b2b/quotes/extra_fields` | R0 | List quote extra-field definitions |
+| `b2b/quotes/shipping/rates` | R0 | Available static/real-time shipping rates (requires a shipping address on the quote) |
+| `b2b/quotes/shipping/select` | R1 | Assign a rate (`shipping_method_id`, or `custom_name`+`custom_cost`) |
+| `b2b/quotes/shipping/remove` | R2 | Clear the assigned shipping method |
+| `b2b/quotes/shipping/custom_methods` | R0 | Store-wide custom shipping methods (requires the setting enabled in Quotes settings) |
+
+**Quote status codes:** 0=new, 2=in process, 3=updated by customer, 4=ordered, 5=expired (others exist; see BigCommerce's Quote Statuses reference).
+
+**API quirks confirmed live:**
+- Quote IDs are **integers**; invoice/receipt IDs are strings.
+- `expiredAt` must be `MM/DD/YYYY` (BC's own 422 message has an unrendered `%D` template placeholder — cosmetic bug on their side).
+- `POST /rfq` requires `discount` (top-level) and each `productList` item needs `basePrice` + `discount`, none of which are marked required in the OpenAPI schema.
+- `PUT /rfq/{id}/shipping-rate` (select) returns `data: []` on success, not the updated quote — don't expect quote detail back from that call.
+- `/rfq/{id}/shipping-rates` (plural, GET) vs `/rfq/{id}/shipping-rate` (singular, PUT/DELETE) — mixing them returns BC's own 405.
 
 ---
 
-### Phase B3 — Shopping Lists *(planned)*
+### Phase B3 — Invoices, Receipts, Payments, Credit & Net Terms ✅ Shipped (read-only)
+
+Read-only per product decision — write operations (create/update invoices, log payments, update company payment methods/credit/terms) are deferred; see Follow-ups.
+
+**Discovery tree:** `b2b/invoices/`, `b2b/receipts/` (+ `lines/`), `b2b/payments/`, `b2b/companies/payments/`, `b2b/companies/credit/`, `b2b/companies/payment_terms/`.
+
+**Invoices** (served from the `/ip` base — see Authentication)
+
+| Tool | Tier | Description |
+|------|------|-------------|
+| `b2b/invoices/list` | R0 | List invoices; filter/sort by company, status, PO number, dates |
+| `b2b/invoices/get` | R0 | Full detail: line items, tax, billing address, balance |
+| `b2b/invoices/download_pdf` | R0 | Download link for the invoice PDF |
+| `b2b/invoices/extra_fields` | R0 | List invoice extra-field definitions |
+
+**Receipts** (same `/ip` base)
+
+| Tool | Tier | Description |
+|------|------|-------------|
+| `b2b/receipts/list` | R0 | List payment receipts |
+| `b2b/receipts/get` | R0 | Get a single receipt |
+| `b2b/receipts/lines/list_all` | R0 | List line items across all receipts |
+| `b2b/receipts/lines/list_for_receipt` | R0 | List line items on one receipt |
+| `b2b/receipts/lines/get` | R0 | Get a single receipt line |
+
+**Payments, credit, and net terms** (standard base, not `/ip`)
+
+| Tool | Tier | Description |
+|------|------|-------------|
+| `b2b/payments/list` | R0 | Store-wide payment method definitions |
+| `b2b/payments/active_methods` | R0 | Currently-enabled methods across companies (filterable by `company_id`) |
+| `b2b/companies/payments/list` | R0 | A company's payment methods + enabled state |
+| `b2b/companies/credit/get` | R0 | Credit settings (fails if the store's Company Credit feature is off) |
+| `b2b/companies/payment_terms/get` | R0 | Net-terms configuration (e.g. Net 45) |
+
+**API quirks confirmed live:** invoice/receipt/receipt-line IDs are **strings**; global `/payments` uses `id`/`paymentCode` while `/companies/{id}/payments` uses `paymentId`/`code` for the same concepts — different field names for the same data, not a documentation error.
+
+---
+
+### Phase B4 — Shopping Lists *(planned)*
 
 Repeat-purchase list management for buyers and sales reps.
 
@@ -173,21 +230,6 @@ Repeat-purchase list management for buyers and sales reps.
 | `b2b/shopping_lists/update` | R1 | `PUT /shopping-list/{id}` — name, description, items array |
 | `b2b/shopping_lists/delete` | R3 | `DELETE /shopping-list/{id}` |
 | `b2b/shopping_lists/items/remove` | R2 | `DELETE /shopping-list/{id}/items/{itemId}` |
-
----
-
-### Phase B4 — Invoicing & Payments *(planned)*
-
-Net terms / PO-based purchasing and invoice management.
-
-| Tool | Tier | Endpoint |
-|------|------|---------|
-| `b2b/invoices/list` | R0 | `GET /ip/invoices` — filter by company/status/date/PO |
-| `b2b/invoices/get` | R0 | Single invoice with line items and balance |
-| `b2b/invoices/create` | R2 | Generate invoice for a purchase order |
-| `b2b/invoices/log_payment` | R2 | Log an external payment against an invoice |
-| `b2b/companies/payments/list` | R0 | View payment methods and credit balance |
-| `b2b/companies/payments/net_terms` | R1 | View/update net terms for a company |
 
 ---
 

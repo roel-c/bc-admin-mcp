@@ -148,6 +148,15 @@ func registerCategories(reg *discovery.Registry, b2bEnabled bool) {
 		reg.RegisterCategory("b2b/companies/hierarchy", "Account hierarchy: view parents/subsidiaries, attach parent, detach subsidiary.")
 		reg.RegisterCategory("b2b/channels", "Storefront channels as seen by B2B Edition: list and get.")
 		reg.RegisterCategory("b2b/orders", "B2B order metadata: get/update PO+extra fields, assign/reassign orders to companies.")
+		reg.RegisterCategory("b2b/invoices", "B2B invoices (read-only): list, get, PDF download, extra-field configs.")
+		reg.RegisterCategory("b2b/receipts", "B2B payment receipts (read-only): list, get, and receipt line items.")
+		reg.RegisterCategory("b2b/receipts/lines", "Receipt line items: list across all receipts, list for one receipt, get a single line.")
+		reg.RegisterCategory("b2b/quotes", "Sales quotes: list, get, create, update, delete, checkout, assign-to-order, PDF export, extra fields.")
+		reg.RegisterCategory("b2b/quotes/shipping", "Quote shipping: available rates, select/remove a rate, store-wide custom shipping methods.")
+		reg.RegisterCategory("b2b/payments", "Store-wide payment methods (read-only): definitions and cross-company active methods.")
+		reg.RegisterCategory("b2b/companies/payments", "Per-company payment method availability (read-only).")
+		reg.RegisterCategory("b2b/companies/credit", "Per-company credit settings (read-only).")
+		reg.RegisterCategory("b2b/companies/payment_terms", "Per-company net-terms settings (read-only).")
 	}
 
 	// store/* remains omitted until tools exist to avoid empty discover_tools leaves.

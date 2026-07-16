@@ -57,6 +57,36 @@ type B2BCompanyAPI interface {
 	AssignCustomerOrdersToCompany(ctx context.Context, customerID int) error
 	ReassignOrdersToCompany(ctx context.Context, customerID, bcGroupID int) error
 	ListB2BOrderExtraFields(ctx context.Context, params string) ([]bigcommerce.B2BExtraFieldDef, error)
+	// Invoices & receipts (read-only)
+	ListB2BInvoices(ctx context.Context, params string) ([]map[string]any, error)
+	GetB2BInvoice(ctx context.Context, invoiceID string) (map[string]any, error)
+	DownloadB2BInvoicePDF(ctx context.Context, invoiceID string) (map[string]any, error)
+	ListB2BInvoiceExtraFields(ctx context.Context, params string) ([]bigcommerce.B2BExtraFieldDef, error)
+	ListB2BReceipts(ctx context.Context, params string) ([]map[string]any, error)
+	GetB2BReceipt(ctx context.Context, receiptID string) (map[string]any, error)
+	ListB2BReceiptLines(ctx context.Context, params string) ([]map[string]any, error)
+	ListB2BLinesOfReceipt(ctx context.Context, receiptID, params string) ([]map[string]any, error)
+	GetB2BReceiptLine(ctx context.Context, receiptID, lineID string) (map[string]any, error)
+	// Quotes
+	ListB2BQuotes(ctx context.Context, params string) ([]map[string]any, error)
+	GetB2BQuote(ctx context.Context, quoteID int) (map[string]any, error)
+	CreateB2BQuote(ctx context.Context, body map[string]any) (map[string]any, error)
+	UpdateB2BQuote(ctx context.Context, quoteID int, body map[string]any) (map[string]any, error)
+	DeleteB2BQuote(ctx context.Context, quoteID int) error
+	GenerateB2BQuoteCheckout(ctx context.Context, quoteID int) (map[string]any, error)
+	AssignB2BQuoteToOrder(ctx context.Context, quoteID, orderID int) error
+	ExportB2BQuotePDF(ctx context.Context, quoteID int, currency map[string]any) (map[string]any, error)
+	ListB2BQuoteShippingRates(ctx context.Context, quoteID int) ([]map[string]any, error)
+	SelectB2BQuoteShippingRate(ctx context.Context, quoteID int, shippingMethodID, customName string, customCost float64, hasCustomCost bool) (map[string]any, error)
+	RemoveB2BQuoteShippingRate(ctx context.Context, quoteID int) error
+	ListB2BQuoteCustomShippingMethods(ctx context.Context) ([]map[string]any, error)
+	ListB2BQuoteExtraFields(ctx context.Context, params string) ([]bigcommerce.B2BExtraFieldDef, error)
+	// Payments, credit, and net terms (read-only)
+	ListB2BPaymentMethods(ctx context.Context) ([]bigcommerce.B2BPaymentMethod, error)
+	ListB2BCompanyPaymentMethods(ctx context.Context, companyID int) ([]bigcommerce.B2BCompanyPaymentMethod, error)
+	ListB2BActivePaymentMethods(ctx context.Context, params string) ([]map[string]any, error)
+	GetB2BCompanyCredit(ctx context.Context, companyID int) (*bigcommerce.B2BCompanyCredit, error)
+	GetB2BCompanyPaymentTerms(ctx context.Context, companyID int) (*bigcommerce.B2BPaymentTerms, error)
 	// Addresses
 	ListB2BAddresses(ctx context.Context, params string) ([]bigcommerce.B2BAddress, error)
 	CreateB2BAddress(ctx context.Context, payload bigcommerce.B2BAddressCreate) (*bigcommerce.B2BAddress, error)

@@ -231,6 +231,11 @@ Every tool uses the same envelope:
 | `b2b/companies/hierarchy/get\|subsidiaries\|attach_parent\|detach_subsidiary` | R0/R0/R1/R2 |
 | `b2b/channels/list\|get` | R0/R0 |
 | `b2b/orders/get\|update\|assign_customer_orders\|reassign\|extra_fields` | R0/R1/R2/R2/R0 |
+| `b2b/quotes/list\|get\|create\|update\|delete\|checkout\|assign_to_order\|pdf_export\|extra_fields` | R0/R0/R1/R1/R3/R1/R2/R0/R0 |
+| `b2b/quotes/shipping/rates\|select\|remove\|custom_methods` | R0/R1/R2/R0 |
+| `b2b/invoices/list\|get\|download_pdf\|extra_fields` | R0 (all; `/ip` base URL) |
+| `b2b/receipts/list\|get` \| `b2b/receipts/lines/list_all\|list_for_receipt\|get` | R0 (all) |
+| `b2b/payments/list\|active_methods` \| `b2b/companies/payments/list\|credit/get\|payment_terms/get` | R0 (all; read-only) |
 
 **B2B Edition — scope: `B2B Edition` (requires `BC_B2B_ENABLED=true` in `.env`):**
 

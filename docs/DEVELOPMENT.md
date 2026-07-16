@@ -214,6 +214,13 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `b2b/channels/list` / `get` | R0; storefront channels as seen by B2B Edition (`id` ≠ `channelId`) | `internal/tools/b2b/channel_order_tools.go` |
 | `b2b/orders/get` / `extra_fields` | R0; B2B order view by BC order ID; order extra-field configs | `internal/tools/b2b/channel_order_tools.go` |
 | `b2b/orders/update` / `assign_customer_orders` / `reassign` | **R1** / **R2** / **R2**; PO+extra fields; attach historical orders; reassign by group (Dependent-behavior only) | `internal/tools/b2b/channel_order_tools.go` |
+| `b2b/quotes/list` / `get` / `extra_fields` | R0; quote IDs are integers (invoice/receipt IDs are strings) | `internal/tools/b2b/quote_tools.go` |
+| `b2b/quotes/create` / `update` | **R1**; take a raw `quote_json` body (nested line-item schema is underdocumented — see FOLLOW-UPS FU-7); `expiredAt` must be `MM/DD/YYYY` | `internal/tools/b2b/quote_tools.go` |
+| `b2b/quotes/delete` | **R3 destructive**; prefer `update` with `status=archived` to hide instead | `internal/tools/b2b/quote_tools.go` |
+| `b2b/quotes/checkout` / `assign_to_order` | **R1** / **R2**; only valid in quote status New/In Process/Updated by Customer | `internal/tools/b2b/quote_tools.go` |
+| `b2b/quotes/shipping/*` | R0 reads; **R1** select; **R2** remove; plural `/shipping-rates` (GET) vs singular `/shipping-rate` (PUT/DELETE) — mixing them 405s | `internal/tools/b2b/quote_tools.go` |
+| `b2b/invoices/*`, `b2b/receipts/*` | R0 (read-only); served from a distinct `/ip` base URL, not the standard B2B base — see `b2bBaseURL` usage in `internal/bigcommerce/b2b_invoices.go` | `internal/tools/b2b/invoice_tools.go` |
+| `b2b/payments/*`, `b2b/companies/payments\|credit\|payment_terms/*` | R0 (read-only); global `/payments` and per-company `/companies/{id}/payments` use different field names for the same data | `internal/tools/b2b/payment_tools.go` |
 
 ---
 
@@ -270,6 +277,8 @@ From `BC-API-Reference.md`: grant **minimum scopes** per tool group.
 | **429** | Server backs off automatically; tools should not double-retry |
 | **500 / 503** | Backoff; if persistent, stop batch and report |
 | **509** | Treat like rate limit (reference) |
+
+`APIError.SafeError()` (`internal/bigcommerce/types.go`) parses structured error bodies for 4xx responses and is shared by both the core BC client and the B2B client. It tries, in order: the core BC V3 shape (`{title, detail, errors}`), the V2 array shape (`[{status, message}]`), and the B2B Edition shape (`{"data":{"errMsg"} or {field:[...]}, "meta":{"message"}}`) — the latter is structurally different from the core API and easy to leave unhandled if adding a new error-shape variant.
 
 ---
 

@@ -80,6 +80,13 @@ func (e *APIError) parsedDetail() string {
 		}
 	}
 
+	// Fallback: B2B Edition envelope, {"code":422,"data":{...},"meta":{"message":"..."}}.
+	// "data" is either {"errMsg": "..."} or a map of field -> validation messages
+	// (e.g. {"firstName":["This field may not be null."]}).
+	if len(parts) == 0 {
+		parts = append(parts, b2bErrorStrings(e.Body)...)
+	}
+
 	msg := strings.TrimSpace(strings.Join(parts, " — "))
 	const maxLen = 500
 	if len(msg) > maxLen {
@@ -104,6 +111,36 @@ func fieldErrorStrings(raw json.RawMessage) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// b2bErrorStrings extracts a B2B Edition error's detail. The API's error
+// envelope is {"code":N,"data":{...},"meta":{"message":"..."}} — distinct
+// from the core BC V3 {title,detail,errors} shape parsedDetail tries first.
+func b2bErrorStrings(body []byte) []string {
+	var env struct {
+		Data json.RawMessage `json:"data"`
+		Meta struct {
+			Message string `json:"message"`
+		} `json:"meta"`
+	}
+	if json.Unmarshal(body, &env) != nil {
+		return nil
+	}
+	var parts []string
+	if env.Meta.Message != "" && !strings.EqualFold(env.Meta.Message, "success") {
+		parts = append(parts, env.Meta.Message)
+	}
+	var dataErr struct {
+		ErrMsg string `json:"errMsg"`
+	}
+	if json.Unmarshal(env.Data, &dataErr) == nil && dataErr.ErrMsg != "" {
+		if !contains(parts, dataErr.ErrMsg) {
+			parts = append(parts, dataErr.ErrMsg)
+		}
+	} else {
+		parts = append(parts, fieldErrorStrings(env.Data)...)
+	}
+	return parts
 }
 
 func contains(ss []string, s string) bool {

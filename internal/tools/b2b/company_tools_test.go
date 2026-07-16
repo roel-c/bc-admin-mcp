@@ -47,6 +47,15 @@ func (s *B2BCompanyToolsSuite) SetupTest() {
 	s.reg.RegisterCategory("b2b/companies/hierarchy", "Account hierarchy")
 	s.reg.RegisterCategory("b2b/channels", "B2B channels")
 	s.reg.RegisterCategory("b2b/orders", "B2B orders")
+	s.reg.RegisterCategory("b2b/invoices", "B2B invoices")
+	s.reg.RegisterCategory("b2b/receipts", "B2B receipts")
+	s.reg.RegisterCategory("b2b/receipts/lines", "Receipt lines")
+	s.reg.RegisterCategory("b2b/quotes", "B2B quotes")
+	s.reg.RegisterCategory("b2b/quotes/shipping", "Quote shipping")
+	s.reg.RegisterCategory("b2b/payments", "B2B payments")
+	s.reg.RegisterCategory("b2b/companies/payments", "Company payments")
+	s.reg.RegisterCategory("b2b/companies/credit", "Company credit")
+	s.reg.RegisterCategory("b2b/companies/payment_terms", "Company payment terms")
 	s.ct.RegisterTools(s.reg)
 }
 
