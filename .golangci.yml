@@ -1,0 +1,23 @@
+# golangci-lint configuration for bc-admin-mcp.
+#
+# The enabled set is pinned explicitly (rather than relying on the tool's
+# built-in defaults, which change between releases) so `make lint` produces the
+# same result on every machine and in CI. Tested with golangci-lint v1.64.x.
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck     # unchecked error returns — enforces our error-handling policy
+    - govet        # same analyzers as `go vet`
+    - staticcheck  # correctness + deprecation checks (SA*)
+    - gosimple     # code simplifications (S*)
+    - ineffassign  # ineffectual assignments
+    - unused       # unused funcs, vars, consts, types
+
+issues:
+  # Show every finding rather than golangci-lint's default cap.
+  max-issues-per-linter: 0
+  max-same-issues: 0

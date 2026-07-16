@@ -1,7 +1,10 @@
-.PHONY: build run run-http smoke smoke-msf test vet lint clean
+.PHONY: build run run-http smoke smoke-msf test vet lint lint-install clean
 
 BINARY := bc-mcp-server
 CMD    := ./cmd/server
+
+# Pinned so local runs match CI (.github/workflows/ci.yml). Bump both together.
+GOLANGCI_LINT_VERSION := v1.64.8
 
 build:
 	go build -buildvcs=false -o $(BINARY) $(CMD)
@@ -26,7 +29,17 @@ test:
 vet:
 	go vet ./...
 
+# Install the pinned golangci-lint version.
+lint-install:
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
 lint:
+	@command -v golangci-lint >/dev/null 2>&1 || { \
+		echo "golangci-lint not installed. Run: make lint-install"; \
+		exit 1; \
+	}
+	@golangci-lint version 2>/dev/null | grep -q "$(GOLANGCI_LINT_VERSION:v%=%)" || \
+		echo "warning: installed golangci-lint differs from pinned $(GOLANGCI_LINT_VERSION) — results may vary (run: make lint-install)"
 	golangci-lint run ./...
 
 clean:
