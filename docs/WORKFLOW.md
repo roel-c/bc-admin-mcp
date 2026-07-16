@@ -180,6 +180,9 @@ There are two variants:
   §10.2 first (or confirm its artifacts already exist) — the B2B check reuses
   the D2C sample product and category rather than creating its own.
 
+On multi-storefront stores, **both variants require the operator to confirm
+which channel(s) to target before any data is created** (§10.1).
+
 ### 10.1 Prerequisites
 
 - Confirm the running MCP server reflects the current binary if any tool code
@@ -197,17 +200,34 @@ There are two variants:
 - Decide nothing about cleanup up front — that's an explicit decision point
   at the end of each variant (§10.2 step 10, §10.3 step 10). Don't delete
   anything without the operator's answer.
+- **Multi-storefront channel selection (required when MSF is enabled):** before
+  creating any sample data in §10.2 or §10.3, call `catalog/channels/list`.
+  When the store has more than one active storefront channel
+  (`multi_storefront_likely: true` or `active_storefront_channel_count > 1`),
+  **ask the operator which storefront channel or channels the run should
+  target** — do not assume channel 1, the "default" storefront, or reuse a
+  prior run's channel without confirmation. Record the chosen BigCommerce
+  `channel_id`(s) and use them for every channel-scoped write in both variants:
+  categories (`channel_id`), products (`channel_ids`), customers
+  (`origin_channel_id` / `channel_ids`), carts (`channel_id`), and — for B2B —
+  the `bc_customer_id` linking pattern in §10.3. For B2B runs, also confirm the
+  chosen channel appears in `b2b/channels/list`. Single-storefront stores may
+  skip the question and use the lone active channel implicitly.
 
 ### 10.2 D2C Surface Check
 
 1. **Catalog** — `catalog/brands/create` ("MCP Test Brand") →
-   `catalog/categories/create` ("MCP Test Category") →
+   `catalog/categories/create` with `name: "MCP Test Category"` and, when MSF
+   applies (§10.1), `channel_id: <target channel id>` →
    `catalog/products/create` with an inline `variants` array (two option
-   values, e.g. Size: Small/Large) and `category_ids`/`brand_id` set → verify
-   via `catalog/products/variants/list` → `catalog/products/metafields/set`
+   values, e.g. Size: Small/Large), `category_ids`/`brand_id` set, and when
+   MSF applies `channel_ids: [<target channel id>]` → verify via
+   `catalog/products/variants/list` → `catalog/products/metafields/set`
    on the product.
 2. **Customers** — `customers/groups/create` → `customers/create` in that
-   group → `customers/addresses/create` → `customers/attributes/create` +
+   group (when MSF applies, also set `origin_channel_id: <target channel id>`
+   and `channel_ids: [<target channel id>]`) → `customers/addresses/create`
+   → `customers/attributes/create` +
    `customers/attribute_values/upsert`.
    ⚠️ **Quirk:** `customers/addresses/create` requires the **full state
    name** (`"Texas"`), not an abbreviation (`"TX"` 422s) — see `FU-8`.
@@ -224,7 +244,8 @@ There are two variants:
    `visibility: all_pages`).
 6. **Webhooks** — `webhooks/create` with an HTTPS destination.
 7. **Carts/Checkout** — `carts/cart/create` (line item = the sample variant,
-   `customer_id` set) → `carts/checkout/billing_address` →
+   `customer_id` set; when MSF applies, also `channel_id: <target channel id>`)
+   → `carts/checkout/billing_address` →
    `carts/checkout/consignment_add` → `carts/checkout/get` to read
    `available_shipping_options` (should be non-empty for a real address if
    the store has shipping zones configured — if it comes back empty, don't
@@ -238,7 +259,11 @@ There are two variants:
    to get `order_address_id` → `orders/fulfillment/shipments/create`.
 9. **Verify** — re-read each created record (list/get) and confirm the
    cross-domain interaction: the cart/order total should reflect the
-   automatic promotion's discount from step 3.
+   automatic promotion's discount from step 3. When MSF applies, also confirm
+   the sample product is assigned to the target channel
+   (`catalog/products/channel_summary` or `catalog/products/search` with
+   `channel_ids`) and the sample customer is scoped to it (`customers/get`:
+   `origin_channel_id` / `channel_ids`).
 10. **Decision point** — ask the operator: *keep this sample data, or delete
     it now?* Only proceed to delete (reverse dependency order: shipments →
     order → cart/checkout already consumed → webhook → script → inventory
@@ -281,43 +306,69 @@ fixed in the same pass (see `internal/bigcommerce/b2b_companies.go` /
 `customer_group_id` integer. The step order below reflects the corrected,
 live-validated flow (group created *before* the company, not after).
 
-1. **Category** — `catalog/categories/create` with `name: "Company Accounts"`.
-2. **Create the customer group, restricted to that category, first** —
+1. **Confirm the target channel from §10.1, then validate B2B enablement** —
+   the operator should already have chosen the storefront channel before §10.2
+   began (see §10.1). Re-use that same `channel_id` here — do **not** pick a
+   different channel mid-run. Confirm it also appears in `b2b/channels/list`
+   (B2B-enabled storefronts only). On this POC store the live example target
+   was `MSF-B2BE` = channel `1741970`.
+2. **Category** — `catalog/categories/create` with `name: "Company Accounts"`
+   and `channel_id: <target channel id>` so the category is created in that
+   storefront's tree, not implicitly under the wrong storefront.
+3. **Create the customer group, restricted to that category, first** —
    `customers/groups/create` with `category_access_type: "specific"` and
    `category_access_categories: [<Company Accounts category ID>]` set at
    creation time (no separate update step needed). This is the native
    BigCommerce mechanism: any storefront login mapped to this group sees
    only that one category and its products.
-3. **Assign the D2C sample product to the category** —
+4. **Assign the D2C sample product to the channel and category** —
+   ensure the sample product exists on the target storefront, not just in
+   the global catalog. Use `catalog/products/create`/`update` with
+   `channel_ids: [<target channel id>]` if needed, then
    `catalog/products/assign_categories` with the product from §10.2 step 1
    and this category's ID (additive; doesn't remove its existing category).
-4. **Create (or update) the parent company with the group attached** —
+5. **Pre-create channel-scoped BC customers for every B2B user, then link
+   them into B2B by `bc_customer_id`** — this is the key storefront-context
+   fix. Do **not** rely on implicit BC-customer creation inside
+   `b2b/companies/create` or `b2b/companies/users/bulk_create`, because that
+   can land the identity on the wrong storefront in MSF stores. Instead:
+   `customers/create` for the parent admin, subsidiary admin, and the later
+   Senior/Junior buyers with `origin_channel_id: <target channel id>` and
+   `channel_ids: [<target channel id>]`, plus the restricted
+   `customer_group_id` from step 3. Then pass the resulting BC customer IDs
+   into the B2B tools via `bc_customer_id`.
+6. **Create (or update) the parent company with the group attached** —
    `b2b/companies/create` (`company_name`, `company_email`, `company_country`,
    **`company_phone`** — required though undocumented in the tool schema,
    see `FU-8` — plus `admin_first_name`/`admin_last_name`/`admin_email`, plus
-   **`customer_group_id`** = the group from step 2) if creating fresh; use
+   **`bc_customer_id`** = the channel-scoped BC customer from step 5, plus
+   **`customer_group_id`** = the group from step 3) if creating fresh; use
    `b2b/companies/update` with the same `customer_group_id` if reassigning an
    existing company (Independent behavior allows reassignment — Dependent
    does not). Create also provisions the company's first user (role 0,
-   admin) automatically.
+   admin) automatically **on the linked BC customer** rather than creating a
+   new one in an arbitrary storefront context.
    ⚠️ **The `update` response is sparse** — even on a successful
    `customer_group_id` change, the returned company object can come back
    with `bc_group_id: 0` and most other fields blank. This is now fixed
    MCP-side (the tool re-fetches after update, mirroring what `create`
    already did for its own sparse-response quirk) — but if you're ever
    unsure, `b2b/companies/get` is the source of truth.
-5. **Create the subsidiary company with the same group** — `b2b/companies/create`
-   for `MCP Test Company - Subsidiary` with the **same** `customer_group_id`
-   from step 2 (per the "shared" scoping decision — do not create a second
-   category or group), then `b2b/companies/hierarchy/attach_parent` with
+7. **Create the subsidiary company with the same group** — `b2b/companies/create`
+   for `MCP Test Company - Subsidiary` with the **same** `bc_customer_id`
+   pattern (subsidiary admin's BC customer from step 5) and the **same**
+   `customer_group_id` from step 3 (per the "shared" scoping decision — do
+   not create a second category or group), then
+   `b2b/companies/hierarchy/attach_parent` with
    `company_id` = subsidiary, `parent_company_id` = parent.
-6. **Create 3 users per company (Admin / Senior / Junior)** — each company
-   already has 1 admin user (role 0) from its create call in steps 4/5. Add
+8. **Create 3 users per company (Admin / Senior / Junior)** — each company
+   already has 1 admin user (role 0) from its create call in steps 6/7. Add
    the other two via `b2b/companies/users/bulk_create` (`users_json`, max 10
-   per call) with `role: 1` (senior buyer) and `role: 2` (junior buyer) —
-   one bulk-create call can cover both companies at once (`company_id`
-   varies per row), 6 users overall.
-7. **Restrict payment methods to Offline-only** — `b2b/payments/list` for
+   per call) with `role: 1` (senior buyer) and `role: 2` (junior buyer),
+   and pass each row's **pre-created, channel-scoped** `bc_customer_id` from
+   step 5. One bulk-create call can cover both companies at once
+   (`company_id` varies per row), 6 users overall.
+9. **Restrict payment methods to Offline-only** — `b2b/payments/list` for
    the store-wide method registry; inspect each entry's `code`/`title` to
    identify which are genuine Offline Payment Methods (e.g. `cheque`/Check,
    COD, bank deposit, in-store pickup, custom manual methods) as opposed to
@@ -331,15 +382,17 @@ live-validated flow (group created *before* the company, not after).
    (`isEnabled: false`) anything else currently enabled (in one live run:
    store had `cheque` + a test gateway both enabled by default — disabled
    the gateway, kept `cheque`). Repeat for the subsidiary.
-8. **Verify** — `b2b/companies/hierarchy/get` on the parent (should list the
+10. **Verify** — `b2b/companies/hierarchy/get` on the parent (should list the
    subsidiary, and the subsidiary's own `b2b/companies/get` should show
-   `parent_company_id`) → `customers/groups/get` on the group ID from step 2
+   `parent_company_id`) → `customers/groups/get` on the group ID from step 3
    (confirm `category_access` shows `specific` + the one category) →
    `catalog/categories/products` on the category (confirm the sample product
    is listed) → `b2b/companies/users/list` per company (3 rows each, roles
-   0/1/2) → `b2b/companies/payments/list` per company (only Offline methods
-   enabled).
-9. **Decision point** — same as §10.2 step 10, scoped to all B2B artifacts
+   0/1/2) → `customers/get` on the linked BC customer IDs used in steps 5/8
+   (confirm `origin_channel_id` / `channel_ids` point at the target
+   storefront) → `b2b/companies/payments/list` per company (only Offline
+   methods enabled).
+11. **Decision point** — same as §10.2 step 10, scoped to all B2B artifacts
    created here (users → companies, in that order, since deleting a company
    cascades to its users and — by default — their linked BC customer
    accounts; see `b2b/companies/delete`'s `delete_bc_customers` flag) plus

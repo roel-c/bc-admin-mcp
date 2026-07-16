@@ -905,7 +905,8 @@ records across every domain (D2C variant) or additionally exercising B2B
 company/hierarchy/catalog-restriction/payment scenarios (B2B variant) — see
 [**`WORKFLOW.md` §10**](./WORKFLOW.md#10-full-surface-check-d2c--b2b). It's
 written as a step-by-step runbook (not a script) since it involves
-preview→confirm judgment calls and an explicit keep-or-delete decision point;
+preview→confirm judgment calls, an explicit keep-or-delete decision point,
+and — on multi-storefront stores — a required upfront channel-selection step;
 run it after a batch of domain changes or before a demo.
 
 ### Integration Tests (gap)

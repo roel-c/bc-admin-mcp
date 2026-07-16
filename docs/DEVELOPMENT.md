@@ -121,7 +121,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `customers/groups/delete` | **R3 destructive** — preview then `confirmed=true`; BC unassigns all members automatically | `internal/tools/customers/groups.go` |
 | `customers/list` | R0; requires a real filter or `list_all=true`; GET `/v3/customers` | `internal/tools/customers/customer_records.go` |
 | `customers/get` | R0; single customer via `id:in` | `internal/tools/customers/customer_records.go` |
-| `customers/create` / `update` | **R2**; `new_password` needs `set_password=true` and `confirmed=true`; BC max **10** per POST/PUT | `internal/tools/customers/customer_records.go` |
+| `customers/create` / `update` | **R2**; `new_password` needs `set_password=true` and `confirmed=true`; BC max **10** per POST/PUT; supports storefront identity fields `origin_channel_id` / `channel_ids` for MSF-aware customer creation | `internal/tools/customers/customer_records.go` |
 | `customers/delete` | **R3**; max **50** ids; preview then confirm | `internal/tools/customers/customer_records.go` |
 | `customers/assign_group` | **R2**; max **100** ids, chunked PUTs of **10**; `group_id` **0** clears assignment | `internal/tools/customers/customer_records.go` |
 | `customers/addresses/list` | R0; filter or `list_all=true` | `internal/tools/customers/customer_addresses_tools.go` |

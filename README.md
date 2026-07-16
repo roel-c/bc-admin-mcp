@@ -316,8 +316,8 @@ Use **`confirmed: true`** on the second call after reviewing the preview.
 | `customers/groups/delete` | R3 | Destructive delete by `group_id` — BC unassigns all members automatically; preview → `confirmed=true` |
 | `customers/list` | R0 | Search customers (`list_all` or filters); GET `/v3/customers` |
 | `customers/get` | R0 | One customer by `customer_id` (wraps `id:in`) |
-| `customers/create` | R2 | POST `/v3/customers` (≤10); preview → `confirmed=true`; `new_password` also needs `set_password=true` |
-| `customers/update` | R2 | PUT `/v3/customers` (≤10 rows in `customer_batch`); same password double gate |
+| `customers/create` | R2 | POST `/v3/customers` (≤10); preview → `confirmed=true`; `new_password` also needs `set_password=true`; supports `origin_channel_id` / `channel_ids` for MSF storefront-scoped identities |
+| `customers/update` | R2 | PUT `/v3/customers` (≤10 rows in `customer_batch`); same password double gate; batch rows may set `origin_channel_id` / `channel_ids` |
 | `customers/delete` | R3 | DELETE by `customer_ids` (≤50); preview → confirm |
 | `customers/assign_group` | R2 | Batch set `customer_group_id` (≤100 ids, chunked PUTs of 10); `group_id` 0 unassigns |
 | `customers/addresses/list` | R0 | List addresses (`list_all` or filters) |
@@ -543,7 +543,7 @@ The client layer implements the conservative defaults from [`docs/DEVELOPMENT.md
 
 ## Documentation
 
-- **[docs/WORKFLOW.md](./docs/WORKFLOW.md)** — Implementation workflow for adding endpoints: research → implement → build/test/lint gate → reload → live-validate with cleanup → docs → commit → CI. **Follow this for all new endpoint work.** Also documents the on-demand **Full Surface Check** (§10) — an MCP-only, end-to-end capability review (D2C and B2B variants) you can run anytime, independent of code changes.
+- **[docs/WORKFLOW.md](./docs/WORKFLOW.md)** — Implementation workflow for adding endpoints: research → implement → build/test/lint gate → reload → live-validate with cleanup → docs → commit → CI. **Follow this for all new endpoint work.** Also documents the on-demand **Full Surface Check** (§10) — an MCP-only, end-to-end capability review (D2C and B2B variants) you can run anytime, independent of code changes. On multi-storefront stores, both variants require confirming the target channel(s) before creating sample data.
 - **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — Full architecture, design decisions, token analysis, security controls, known limitations, expansion roadmap, registration policy (§8), and testing strategy incl. manual discovery/preview drills (§9)
 - **[docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)** — Tool tiers, numeric caps, OAuth scopes, concurrency policy, and the channel assignments vs listings model
 - **[docs/AGENT.md](./docs/AGENT.md)** — Agent operating guidelines: tool tables, the universal `execute_tool` envelope, and response format
