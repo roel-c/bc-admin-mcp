@@ -149,6 +149,36 @@ check "inventory/locations/list"         "${V3}/inventory/locations?limit=3" fal
 check "inventory/items/list"             "${V3}/inventory/items?limit=3" false
 
 echo ""
+echo "▸ storefront/scripts  (scope: store_content)"
+check "storefront/scripts/list"          "${V3}/content/scripts?limit=3" false
+
+echo ""
+echo "▸ webhooks  (scope: store_v2_information_read_only)"
+check "webhooks/list"                    "${V3}/hooks?limit=3" false
+
+# carts/checkout have no safe R0 "list all" endpoint (they are keyed by cart UUID),
+# so they are exercised by the unit suite (internal/tools/carts) rather than here.
+
+# B2B Edition uses a different host (and an extra X-Store-Hash header), and is
+# only checked when explicitly enabled.
+if [[ "${BC_B2B_ENABLED:-false}" == "true" ]]; then
+    echo ""
+    echo "▸ b2b/companies  (B2B Edition scope; requires BC_B2B_ENABLED=true)"
+    b2b_url="https://api-b2b.bigcommerce.com/api/v3/io/companies?limit=3"
+    b2b_code=$(curl -sS -o /dev/null -w "%{http_code}" \
+        -H "X-Auth-Token: ${BC_AUTH_TOKEN}" \
+        -H "X-Store-Hash: ${BC_STORE_HASH}" \
+        -H "Accept: application/json" "$b2b_url")
+    if [[ "$b2b_code" == "200" ]]; then
+        printf "  %-55s \033[32mPASS\033[0m  HTTP 200\n" "b2b/companies/list"
+        (( PASS++ )) || true
+    else
+        printf "  %-55s \033[33mWARN\033[0m  HTTP %s (B2B Edition not provisioned or scope missing)\n" "b2b/companies/list" "$b2b_code"
+        (( WARN++ )) || true
+    fi
+fi
+
+echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 printf "Results: \033[32m%d PASS\033[0m  \033[33m%d WARN\033[0m  \033[31m%d FAIL\033[0m\n" "$PASS" "$WARN" "$FAIL"
 

@@ -10,6 +10,9 @@ bc-mcp-server
 # Go
 vendor/
 
+# golangci-lint local cache (only created when the default cache dir is unwritable)
+.golangci-cache/
+
 # IDE
 .idea/
 .vscode/

@@ -1,6 +1,6 @@
 # BigCommerce MCP Server — Architecture & Design Decisions
 
-A lightweight Go binary (`bc-mcp-server`) that lets AI agents manage a BigCommerce store through natural language. It implements the **Model Context Protocol (MCP)**, exposing exactly **two meta-tools** — `discover_tools` and `execute_tool` — instead of registering 200+ flat tool schemas. The agent navigates a category hierarchy on demand, keeping initial token cost ~600 tokens versus ~40k for a flat approach. Seven domains are implemented: catalog, orders, customers, marketing, inventory, storefront/scripts, and webhooks. The binary is stateless except for an in-memory session cache; deployment is a single process with no database or queue.
+A lightweight Go binary (`bc-mcp-server`) that lets AI agents manage a BigCommerce store through natural language. It implements the **Model Context Protocol (MCP)**, exposing exactly **two meta-tools** — `discover_tools` and `execute_tool` — instead of registering 200+ flat tool schemas. The agent navigates a category hierarchy on demand, keeping initial token cost ~600 tokens versus ~40k for a flat approach. Eight domains are always enabled: catalog, orders, customers, marketing, inventory, storefront/scripts, webhooks, and carts/checkout. A ninth domain — B2B Edition — registers only when `BC_B2B_ENABLED=true`. The binary is stateless except for an in-memory session cache; deployment is a single process with no database or queue.
 
 This document captures the full architectural rationale, every design decision with alternatives considered, the current implementation state, known limitations, and a roadmap for extending the server's coverage.
 
@@ -186,7 +186,7 @@ This server solves all three through progressive disclosure, use-case-driven too
 
 **How it works:**
 
-The `discover_tools(path)` meta-tool navigates a hierarchical category tree. Calling it with an empty path returns the active roots (**`catalog`**, **`orders`**, **`customers`**, **`marketing`**, **`inventory`**); planned domains (carts, store) remain in the expansion roadmap and are **not** registered until tools exist (avoids empty `discover_tools` leaves). Drilling into a root (for example `"catalog"`) returns subcategories; drilling into e.g. `"catalog/products"` reveals tools and deeper categories.
+The `discover_tools(path)` meta-tool navigates a hierarchical category tree. Calling it with an empty path returns the always-on roots (**`catalog`**, **`orders`**, **`customers`**, **`marketing`**, **`inventory`**, **`storefront`**, **`webhooks`**, **`carts`**), plus **`b2b`** when B2B Edition is enabled. Planned domains (e.g. `store/`) remain in the expansion roadmap and are **not** registered until tools exist (avoids empty `discover_tools` leaves). Drilling into a root (for example `"catalog"`) returns subcategories; drilling into e.g. `"catalog/products"` reveals tools and deeper categories.
 
 The `execute_tool(tool_path, arguments)` meta-tool invokes any tool by its full path. The full tool schema (parameters, types, descriptions) is never sent to the LLM — it lives server-side and is resolved when the tool is executed.
 
@@ -383,6 +383,10 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/bigcommerce/products.go` | ~375 | Domain methods: product/category search, batch product updates, product CRUD, tree CRUD, tree ID resolution; `categoryBatchSize = 50` for `BatchUpdateCategories` |
 | `internal/bigcommerce/channels.go` | ~95 | `ListStoreChannels`, `GetStoreChannel`, `UpdateStoreChannel` — GET/PUT /v3/channels (Management API); `StoreChannelUpdate` type |
 | `internal/bigcommerce/webhooks.go` | ~130 | `ListWebhooks`, `GetWebhook`, `GetWebhookEvents`, `CreateWebhook`, `UpdateWebhook`, `DeleteWebhook` — full CRUD for GET/POST/PUT/DELETE /v3/hooks; `Webhook`, `WebhookEvent`, `WebhookCreate`, `WebhookUpdate` types |
+| `internal/bigcommerce/carts.go` | ~200 | Cart client: create/get/update/delete, item add/update/remove, redirect URLs, cart metafields; `Cart`, `CartCreate`, `CartUpdate`, line-item types |
+| `internal/bigcommerce/checkouts.go` | ~180 | Checkout client: get, coupon apply/remove, billing address set/update, consignment add/update, convert-to-order; `Checkout`, `CheckoutAddressInput`, consignment types |
+| `internal/bigcommerce/b2b_client.go` | ~260 | `B2BClient` for api-b2b.bigcommerce.com (unified `X-Auth-Token` + `X-Store-Hash`); throttle, retry, offset pagination |
+| `internal/bigcommerce/b2b_companies.go` | ~300 | B2B company/user/address types and CRUD methods (Phase B1) |
 | `internal/bigcommerce/category_trees.go` | ~65 | `ListCategoryTrees`, `GetTreeIDForChannel` (`GET /v3/catalog/trees`) |
 | `internal/bigcommerce/channel_assignments.go` | ~100 | `ListProductChannelAssignments`, `UpsertProductChannelAssignments`, `DeleteProductChannelAssignments` |
 | `internal/bigcommerce/channel_listings.go` | ~120 | `ListChannelListings`, `CreateChannelListings`, `UpdateChannelListings` |
@@ -423,6 +427,13 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/tools/catalog/channel_tools.go` | ~290 | `catalog/channels/list`, `catalog/channels/get`, `catalog/channels/update` (R2 preview→confirm), `catalog/channels/category_trees`; delegates listing tools; `validChannelStatuses` |
 | `internal/tools/webhooks/webhook_tools.go` | ~310 | `webhooks/list|get|events` (R0), `webhooks/create|update` (R1 preview→confirm), `webhooks/delete` (R3); `parseHeadersJSON` helper; HTTPS destination validation |
 | `internal/tools/webhooks/interfaces.go` | ~25 | `WebhooksAPI` consumer-side interface + compile-time check |
+| `internal/tools/carts/cart_tools.go` | ~510 | `carts/cart/*` handlers: create, get, update, delete, item add/update/remove, checkout_url |
+| `internal/tools/carts/cart_metafields_tools.go` | ~210 | `carts/cart/metafields/*` handlers (list/set/delete) |
+| `internal/tools/carts/checkout_tools.go` | ~525 | `carts/checkout/*` handlers: get, coupon apply/remove, billing address, consignment add/update, convert |
+| `internal/tools/carts/interfaces.go` | ~40 | `CartAPI` consumer-side interface (cart + checkout methods) + compile-time check |
+| `internal/tools/b2b/company_tools.go` | ~630 | `b2b/companies/**` handlers: company/user/address CRUD + status (Phase B1) |
+| `internal/tools/b2b/interfaces.go` | ~30 | `B2BCompanyAPI` consumer-side interface + compile-time check |
+| `internal/tools/shared/` | ~40 | Shared `ToolError` / `ToolJSON` response builders used across newer domains |
 | `internal/tools/catalog/channel_listings_tools.go` | ~370 | `catalog/channels/listings/list`, `create`, `update` (GET/POST/PUT listings) |
 | `internal/tools/catalog/pricelists_tools.go` | ~1,080 | `catalog/pricelists/*`, `catalog/pricelists/records/*`, `catalog/pricelists/assignments/*` handlers (preview→confirm for R1+) |
 | `internal/tools/catalog/metafield_shared.go` | ~370 | Shared catalog metafields: `MetafieldResourceOps`, list/upsert/delete MCP helpers, `metafieldUpsertExecute` (single execution path for confirmed tool + bulk upserts), `metafieldResolveIDByNamespaceKey`, product/variant/category/brand op factories |
@@ -439,7 +450,7 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/config/config_test.go` | ~170 | Config validation |
 | `internal/discovery/registry_test.go` | ~185 | Registry confirmed-param validation, tool discovery |
 | `internal/discovery/metatool_test.go` | ~235 | `discover_tools` / `execute_tool` meta-tool flows |
-| `internal/server/registration_audit_test.go` | ~200 | Locks: roots = `catalog` + `customers` + `marketing`; every active category has children; every tool's parent path exists; R1+ tools expose `confirmed`; BFS reachability; pricelist and orders subtrees. **New:** `TestFullRegistrationCategorySummaryLength` and `TestFullRegistrationToolSummaryLength` enforce ≤150 chars on every registered summary — prevents discovery token bloat as new domains are added |
+| `internal/server/registration_audit_test.go` | ~530 | Locks discovery shape: eight always-on roots (`catalog`, `orders`, `customers`, `marketing`, `inventory`, `storefront`, `webhooks`, `carts`); every active category has children; every tool's parent path exists; R1+ tools expose `confirmed`; BFS reachability; pricelist, orders, inventory, **carts/checkout**, storefront/webhooks subtrees; **b2b/ gating** (hidden when disabled, full subtree when enabled); and `TestFullRegistration{Category,Tool}SummaryLength` enforce ≤150 chars on every summary to prevent discovery token bloat |
 | `docs/SECURITY.md` | — | Security review findings, threat model, and remediation details |
 | `.gitignore` | — | Prevents `.env` and binaries from being committed |
 
@@ -543,7 +554,7 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 
 ### Registered Category Hierarchy
 
-**Discovery (`discover_tools`)** currently registers eight active roots: **`catalog/**`**, **`orders/**`**, **`customers/**`**, **`marketing/**`**, **`inventory/**`**, **`storefront/**`**, **`webhooks/**`**, and **`carts/**`**. Domains such as `store/` remain in the [Expansion Roadmap](#7-expansion-roadmap) and are **not** category nodes until tools ship (registration policy in [§8](#8-adding-a-new-tool-domain)).
+**Discovery (`discover_tools`)** registers eight always-on roots: **`catalog/**`**, **`orders/**`**, **`customers/**`**, **`marketing/**`**, **`inventory/**`**, **`storefront/**`**, **`webhooks/**`**, and **`carts/**`**. A ninth root — **`b2b/**`** — registers only when `BC_B2B_ENABLED=true`. Domains such as `store/` remain in the [Expansion Roadmap](#7-expansion-roadmap) and are **not** category nodes until tools ship (registration policy in [§8](#8-adding-a-new-tool-domain)).
 
 ```
 catalog/                    — Product catalog: products, categories, brands, variants, price lists
@@ -558,7 +569,8 @@ catalog/                    — Product catalog: products, categories, brands, v
     catalog/products/metafields/     — Product metafield CRUD: list, set, delete, bulk_set, bulk_delete
   catalog/categories/       — Category operations: list, get, create, update, SEO, metafields
     catalog/categories/metafields/ — Category metafield CRUD: list, set, delete
-  catalog/brands/           — Brand list, get, create, update (V3 catalog/brands)
+  catalog/brands/           — Brand list, get, create, update, delete (V3 catalog/brands)
+    catalog/brands/image/     — Brand image: set by URL (via update), delete (/brands/{id}/image)
     catalog/brands/metafields/ — Brand metafield list, set (upsert), delete
   catalog/variants/         — Global variant list (GET) and batch update (PUT); product CRUD under catalog/products/variants
   catalog/channels/         — Management GET/PUT /v3/channels (storefront IDs, MSF awareness, name/status updates)
@@ -588,9 +600,15 @@ marketing/                  — Marketing-domain operations
 storefront/                 — Storefront operations
   storefront/scripts/       — Script Manager script injection/management
 webhooks/                   — Webhook registration management (/v3/hooks)
-carts/                      — Server-side cart lifecycle via /v3/carts
-  carts/cart/               — Cart CRUD: create, get, update, delete
-  carts/cart/items/         — Cart item management: add, update, remove
+carts/                      — Server-side cart + checkout lifecycle via /v3/carts and /v3/checkouts
+  carts/cart/               — Cart CRUD: create, get, update, delete; checkout URL generation
+    carts/cart/items/       — Cart item management: add, update, remove
+    carts/cart/metafields/  — Cart metafield CRUD: list, set, delete
+  carts/checkout/           — Checkout: get, coupon apply/remove, billing address, consignments, convert to order
+b2b/                        — (Gated by BC_B2B_ENABLED) B2B Edition via api-b2b.bigcommerce.com
+  b2b/companies/            — Company account CRUD + status lifecycle
+    b2b/companies/users/    — Buyer portal user CRUD (admin/senior/junior roles)
+    b2b/companies/addresses/ — Company billing/shipping address CRUD
 ```
 
 ---
@@ -707,13 +725,14 @@ Core customer and promotions surfaces are now shipped under `customers/**` and `
 
 ### Priority 3 — Store Operations
 
-| Domain | Tools to Add | BC API | Tier |
-|--------|-------------|--------|------|
-| `store/settings/get` | Store info | GET /v2/store | R0 |
-| `store/settings/seo` | Read/update SEO settings | GET/PUT /v3/settings/SEO | R1 |
-| `store/shipping/zones` | List shipping zones | GET /v2/shipping/zones | R0 |
-| `carts/management/create` | Create a server-side cart | POST /v3/carts | R1 |
-| `carts/checkout/create_link` | Generate checkout URL | POST /v3/carts/{id}/redirect_urls | R0 |
+| Domain | Tools to Add | BC API | Tier | Notes |
+|--------|-------------|--------|------|-------|
+| `store/settings/get` | Store info | GET /v2/store | R0 | Planned |
+| `store/settings/seo` | Read/update SEO settings | GET/PUT /v3/settings/SEO | R1 | Planned |
+| `store/shipping/zones` | List shipping zones | GET /v2/shipping/zones | R0 | Planned |
+| `carts/cart/*` | Server-side cart lifecycle, items, metafields, checkout URL | /v3/carts | R0/R1/R2/R3 | **Implemented** — see `internal/tools/carts/` |
+| `carts/checkout/*` | Checkout: coupons, billing address, consignments, convert to order | /v3/checkouts | R0/R1/R2 | **Implemented** — see `internal/tools/carts/checkout_tools.go` |
+| `b2b/companies/**` | B2B Edition companies, users, addresses (Phase B1) | api-b2b.bigcommerce.com | R0/R1/R2/R3 | **Implemented** — gated by `BC_B2B_ENABLED`; see `docs/B2B.md` |
 
 ### Priority 4 — Advanced / Low Frequency
 
@@ -881,14 +900,14 @@ make smoke-msf      # MSF/channel slice
 | `config` | Env validation bounds |
 | `bigcommerce` | Types, orders, inventory, pricelists, promotions |
 | `tools/catalog` | Search filters, preview/confirm flows, caps, metafield CRUD, MSF surfaces |
-| `tools/orders`, `customers`, `promotions`, `inventory`, `webhooks`, `storefront` | Handler parsing, preview flows |
-| `server` (audit) | No empty discovery leaves; all tool parents exist; BFS reachability; R1+ tools expose `confirmed`; category/tool summary ≤ 150 chars |
+| `tools/orders`, `customers`, `promotions`, `inventory`, `webhooks`, `storefront`, `carts`, `b2b` | Handler parsing, preview/confirm flows (carts covers cart + checkout; b2b covers company/user/address) |
+| `server` (audit) | No empty discovery leaves; all tool parents exist; BFS reachability; R1+ tools expose `confirmed`; carts/checkout + storefront/webhooks subtrees; b2b/ gating; category/tool summary ≤ 150 chars |
 
 ### Manual Drill — Discovery
 
 Use your MCP host's "call tool" UI or JSON-RPC:
 
-1. `discover_tools` with `path: ""` → expect the 7 active roots.
+1. `discover_tools` with `path: ""` → expect the eight always-on roots (plus `b2b` when `BC_B2B_ENABLED=true`).
 2. `discover_tools` with `path: "catalog"` → subcategories.
 3. Drill to a leaf (e.g. `catalog/products/channel_assignments`) until you see tool stubs with `tier` fields.
 
@@ -986,6 +1005,7 @@ A comprehensive line-by-line security audit was performed across all source file
 - [DEVELOPMENT.md](./DEVELOPMENT.md) — Tool tiers (R0–R4), numeric caps, concurrency policy, OAuth scopes, and channel assignment model
 - [AGENT.md](./AGENT.md) — Agent system prompt: tool tables, workflow, safety rules, and response format
 - [MSF.md](./MSF.md) — Multi-storefront research, shipped tools, and open follow-ups
+- [B2B.md](./B2B.md) — B2B Edition API research, unified auth, and phased implementation plan
 - [BC-API-Reference.md](./BC-API-Reference.md) — Full BigCommerce REST API endpoint map with batch sizes, concurrency limits, and pagination patterns
 - [BC-API-SPECIFICITY.md](./BC-API-SPECIFICITY.md) — Field-level API quirks, undocumented behaviors, and response shape differences
 - [catalog-completion-checklist.md](./catalog-completion-checklist.md) — Catalog completeness gate and implementation reference

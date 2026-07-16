@@ -33,7 +33,7 @@ Place values in a **`.env`** file in the project root (see `.env.example`). Use 
 
 The MCP server uses **progressive disclosure**. Navigate the category tree before executing:
 
-1. **`discover_tools("")`** → active roots (`catalog`, `orders`, `customers`, `marketing`, `inventory`, `storefront`, `webhooks`)
+1. **`discover_tools("")`** → active roots (`catalog`, `orders`, `customers`, `marketing`, `inventory`, `storefront`, `webhooks`, `carts`; plus `b2b` when `BC_B2B_ENABLED=true`)
 2. **`discover_tools("<root>")`** → subcategories (e.g. `catalog/products`, `customers/groups`)
 3. **`discover_tools("catalog/products")`** → tool stubs (path, type, summary, tier — not full schemas)
 4. **`execute_tool`** → pass `tool_path` and `arguments`
@@ -175,6 +175,9 @@ Every tool uses the same envelope:
 | `catalog/brands/get` | R0 | Single brand by ID |
 | `catalog/brands/create` | R1 | Create brand |
 | `catalog/brands/update` | R1 | Partial update |
+| `catalog/brands/delete` | R3 | Delete a brand by ID |
+| `catalog/brands/image/set` | R1 | Set/replace brand image by URL |
+| `catalog/brands/image/delete` | R2 | Remove brand image |
 
 **Orders, Customers, Marketing, Inventory, Storefront, Webhooks:**
 
@@ -210,9 +213,21 @@ Every tool uses the same envelope:
 | `inventory/adjustments/absolute\|relative` | R2 |
 | `storefront/scripts/list\|get\|create\|update\|toggle\|delete` | R0/R1/R3 |
 | `webhooks/list\|get\|events\|create\|update\|delete` | R0/R1/R3 |
-| `carts/cart/create\|get\|update\|delete` | R0/R1/R3 |
-| `carts/cart/items/add\|update\|remove` | R1/R2 |
+| `carts/cart/create\|get\|update\|delete` | R1/R0/R1/R3 |
+| `carts/cart/items/add\|update\|remove` | R1/R1/R2 |
 | `carts/cart/checkout_url` | R0 |
+| `carts/cart/metafields/list\|set\|delete` | R0/R1/R1 |
+| `carts/checkout/get` | R0 |
+| `carts/checkout/coupon_apply\|coupon_remove` | R1/R2 |
+| `carts/checkout/billing_address\|consignment_add\|consignment_update` | R1 |
+| `carts/checkout/convert` | R2 |
+| `b2b/companies/list\|get\|create\|update\|set_status\|delete` | R0/R0/R1/R1/R2/R3 |
+| `b2b/companies/users/list\|create\|update\|delete` | R0/R1/R1/R2 |
+| `b2b/companies/addresses/list\|create\|update\|delete` | R0/R1/R1/R2 |
+
+**B2B Edition — scope: `B2B Edition` (requires `BC_B2B_ENABLED=true` in `.env`):**
+
+The `b2b/` root only appears when `BC_B2B_ENABLED=true`. Company status: 0=pending, 1=approved, 2=rejected, 3=inactive. User roles: 0=admin, 1=senior buyer, 2=junior buyer. See `docs/B2B.md` for setup and the full phased plan.
 
 **Carts — scope: `store_cart`:**
 - `carts/cart/create` — Create a server-side cart. Provide `line_items_json` and/or `custom_items_json` as JSON arrays. Optional `customer_id` to assign a customer; `channel_id` for MSF channels.
@@ -223,6 +238,15 @@ Every tool uses the same envelope:
 - `carts/cart/items/update` — Update a line item's quantity. Provide `item_id` (UUID from cart), `quantity`, and `product_id` (for catalog items) or `custom_item_name` (for custom items).
 - `carts/cart/items/remove` — Remove a line item by `item_id`.
 - `carts/cart/checkout_url` — Generate `cart_url`, `checkout_url`, and `embedded_checkout_url` for a cart. Use `checkout_url` to send a customer directly to checkout.
+- `carts/cart/metafields/list\|set\|delete` — Cart metafield CRUD (upsert by namespace+key).
+
+**Checkout — scope: `store_checkouts`:** the checkout ID is the same UUID as the cart.
+- `carts/checkout/get` — Billing address, consignments with available shipping options, applied coupons, and totals.
+- `carts/checkout/coupon_apply` / `coupon_remove` — Apply or remove a coupon code.
+- `carts/checkout/billing_address` — Set (POST) or update (PUT with `billing_address_id`) the billing address. Requires first_name, last_name, address1, city, country_code.
+- `carts/checkout/consignment_add` — Assign line items to a shipping address; then call `checkout/get` to read `available_shipping_options`.
+- `carts/checkout/consignment_update` — Select a `shipping_option_id` (or change address/items) on an existing consignment.
+- `carts/checkout/convert` — Convert a completed checkout into an order (consumes the cart; irreversible). Requires billing address + a consignment with a selected shipping option.
 
 **Channels — assignment vs listing choice:**
 

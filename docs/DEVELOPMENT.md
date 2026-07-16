@@ -92,6 +92,9 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `catalog/products/variants/metafields/bulk_set_products` / `bulk_delete_products` | `product_ids ≤ 50`, total variant writes ≤ 500 | `products_variants_metafields_bulk.go` |
 | `catalog/variants/list` | `product_ids ≤ 100`, `variant_ids ≤ 100` | `variants_global.go` |
 | `catalog/variants/bulk_update` | ≤ 200 rows per call (server chunks by `BC_VARIANT_BATCH_SIZE`) | `variants_global.go` |
+| `catalog/brands/delete` | **R3 destructive**; `DELETE /v3/catalog/brands/{id}`; products keep existing (brand link cleared); preview then confirm | `internal/tools/catalog/brands.go` |
+| `catalog/brands/image/set` | **R1**; sets `image_url` via brand update (BC fetches the public URL; multipart upload not supported); preview then confirm | `internal/tools/catalog/brands.go` |
+| `catalog/brands/image/delete` | **R2**; `DELETE /v3/catalog/brands/{id}/image`; preview then confirm | `internal/tools/catalog/brands.go` |
 | `catalog/channels/get` | R0; `channel_id` required; `GET /v3/channels/{id}` | `internal/tools/catalog/channel_tools.go` |
 | `catalog/channels/update` | **R2**; `channel_id` required; at least one of `name` / `status`; valid statuses: active, inactive, connected, disconnected, prelaunch; deleted/terminated channels cannot be updated (BC returns 422); preview then confirm | `internal/tools/catalog/channel_tools.go` |
 | `catalog/channels/listings/list` | up to 2000 rows fetched per call; `product_ids` filter ≤ 50 | `channel_listings_tools.go` |
@@ -177,6 +180,29 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `webhooks/create` | **R1**; `scope` + `destination` required; `destination` must be HTTPS (validated client-side before BC call); `is_active` defaults to `true`; optional `channel_id` (channel-scoped vs store-wide); optional `headers_json` (JSON string of string→string map; non-string values rejected); preview then confirm; **serial write policy** | `internal/tools/webhooks/webhook_tools.go` |
 | `webhooks/update` | **R1**; `id` required; at least one of `scope`, `destination`, `is_active`, `headers_json`; fetch-merge-PUT: fetches current state, merges provided fields; `channel_id` immutable after creation; HTTPS validated on `destination`; preview then confirm | `internal/tools/webhooks/webhook_tools.go` |
 | `webhooks/delete` | **R3 destructive**; `id` required; fetches current hook for preview (scope + destination shown); `confirmed=true` to permanently delete | `internal/tools/webhooks/webhook_tools.go` |
+| `storefront/scripts/list` / `get` | R0; Script Manager reads via `/v3/content/scripts` | `internal/tools/storefront/scripts.go` |
+| `storefront/scripts/create` / `update` / `toggle` | **R1**; preview then confirm; `toggle` flips `enabled` without editing the body | `internal/tools/storefront/scripts.go` |
+| `storefront/scripts/delete` | **R3 destructive**; preview then `confirmed=true` | `internal/tools/storefront/scripts.go` |
+| `carts/cart/create` / `update` | **R1**; preview then confirm; `line_items_json` / `custom_items_json` validated (quantity ≥ 1) | `internal/tools/carts/cart_tools.go` |
+| `carts/cart/get` / `checkout_url` | R0; require `cart_id` (UUID) | `internal/tools/carts/cart_tools.go` |
+| `carts/cart/delete` | **R3 destructive**; preview shows cart summary; `confirmed=true` | `internal/tools/carts/cart_tools.go` |
+| `carts/cart/items/add` / `update` | **R1**; preview then confirm; quantity ≥ 1 | `internal/tools/carts/cart_tools.go` |
+| `carts/cart/items/remove` | **R2**; preview shows the item; `confirmed=true` | `internal/tools/carts/cart_tools.go` |
+| `carts/cart/metafields/list` / `set` / `delete` | R0 / **R1** / **R1**; upsert by namespace+key; scope `store_cart` | `internal/tools/carts/cart_metafields_tools.go` |
+| `carts/checkout/get` | R0; `checkout_id` = cart UUID; scope `store_checkouts` | `internal/tools/carts/checkout_tools.go` |
+| `carts/checkout/coupon_apply` | **R1**; preview then confirm | `internal/tools/carts/checkout_tools.go` |
+| `carts/checkout/coupon_remove` | **R2**; preview then confirm | `internal/tools/carts/checkout_tools.go` |
+| `carts/checkout/billing_address` | **R1**; POST to set / PUT (`billing_address_id`) to update; requires first_name, last_name, address1, city, country_code | `internal/tools/carts/checkout_tools.go` |
+| `carts/checkout/consignment_add` / `consignment_update` | **R1**; add assigns items to a shipping address; update selects a `shipping_option_id` | `internal/tools/carts/checkout_tools.go` |
+| `carts/checkout/convert` | **R2**; converts checkout to an order (cart consumed, irreversible); preview warns if billing address or consignment missing | `internal/tools/carts/checkout_tools.go` |
+| `b2b/companies/list` / `get` | R0; B2B Edition; requires `BC_B2B_ENABLED=true` | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/create` / `update` | **R1**; preview then confirm; create also provisions the initial admin user | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/set_status` | **R2**; approve / reject / deactivate (status 0–3) | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/delete` | **R3 destructive**; deletes the company, all its users, and (by default) the users' linked BC customer accounts — resolved by `bcCustomerId` or email fallback; `delete_bc_customers=false` keeps them | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/users/list` / `create` / `update` | R0 / **R1** / **R1**; roles 0=admin, 1=senior, 2=junior | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/users/delete` | **R2**; removes the buyer-portal user (underlying BC customer preserved) | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/addresses/list` / `create` / `update` | R0 / **R1** / **R1**; company billing/shipping addresses | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/addresses/delete` | **R2**; removes an address (existing orders/quotes unaffected) | `internal/tools/b2b/company_tools.go` |
 
 ---
 
@@ -214,6 +240,10 @@ From `BC-API-Reference.md`: grant **minimum scopes** per tool group.
 | Price lists | `store_price_lists` |
 | Channels (MSF) | `store_channel_settings` (write, for `catalog/channels/update`); `store_channel_settings_read_only` (for `catalog/channels/list`, `catalog/channels/get`); channel listings need `store_channel_listings` (write) or `store_channel_listings_read_only` |
 | Webhooks | `store_v2_information_read_only` sufficient for `webhooks/list`, `webhooks/get`, `webhooks/events`; `store_v2_information` (modify) required for `webhooks/create`, `webhooks/update`, `webhooks/delete` |
+| Storefront scripts | `store_content` (Script Manager `/v3/content/scripts`) |
+| Carts | `store_cart` (covers `carts/cart/**` including cart metafields) |
+| Checkout | `store_checkouts` (covers `carts/checkout/**`; convert-to-order also touches orders) |
+| B2B Edition | B2B Edition scope on the store-level API account (same `X-Auth-Token`); gated by `BC_B2B_ENABLED=true` |
 | Store / SEO / content | `store_v2_information`, `store_content`, etc. |
 
 **LLM note:** a single long-lived token with every scope maximizes damage from one bad tool call. Prefer **narrow tokens** or **separate environments** (sandbox vs production) when testing new tools.

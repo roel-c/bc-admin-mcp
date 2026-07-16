@@ -27,13 +27,18 @@ This reduces initial token usage to ~600 tokens (a 60-100x reduction) and keeps 
 
 ### Tool Hierarchy
 
-**`discover_tools("")`** returns **`catalog`**, **`orders`**, **`customers`**, **`marketing`**, **`inventory`**, **`storefront`**, and **`webhooks`** — the live MCP tree matches implemented tools (no empty placeholder roots). Planned domains (carts, store, …) are described in **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** section 7, not in discovery, until tools register.
+**`discover_tools("")`** returns eight always-on roots — **`catalog`**, **`orders`**, **`customers`**, **`marketing`**, **`inventory`**, **`storefront`**, **`webhooks`**, and **`carts`** — plus **`b2b`** when B2B Edition is enabled (`BC_B2B_ENABLED=true`). The live MCP tree matches implemented tools (no empty placeholder roots). Planned domains (e.g. `store/`) are described in **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** section 7, not in discovery, until tools register.
 
 ```
-catalog/          — Products, categories, brands, variants, and price lists (full tree under this root)
-orders/           — V2 order management and fulfillment shipments (`orders/management/*`, `orders/fulfillment/shipments/*`).
-customers/        — V3 customer records, addresses, attributes, attribute values, metafields, settings, consent, stored instruments, credential validation, customer segments, shopper profiles, and V2 customer groups.
-marketing/        — Promotions engine. AUTOMATIC promotions under marketing/promotions/automatic/*; COUPON promotions and coupon-code sub-resources under marketing/promotions/coupon/* and marketing/promotions/coupon/codes/*; store-wide policy toggles under marketing/promotions/settings/*.
+catalog/     — Products, categories, brands, variants, channels/MSF, and price lists (full tree under this root).
+orders/      — V2 order management, fulfillment shipments, payments (capture/void), and refunds.
+customers/   — V3 customer records, addresses, attributes, metafields, settings, consent, stored instruments, credential validation, segments, shopper profiles, and V2 customer groups.
+marketing/   — Promotions engine: automatic promotions, coupon promotions + codes, and store-wide promotion settings.
+inventory/   — Locations, items, and guarded absolute/relative stock adjustments.
+storefront/  — Script Manager script injection and management.
+webhooks/    — Webhook registration CRUD and delivery-event inspection (/v3/hooks).
+carts/       — Server-side cart lifecycle, cart items, cart metafields, and the checkout flow (coupons, addresses, consignments, convert-to-order).
+b2b/         — (Gated) Company accounts, buyer users, and company addresses via B2B Edition.
 ```
 
 **Variants:** use **`catalog/products/variants`** for product-scoped CRUD, options-linked creates, and variant metafields. Use **`catalog/variants`** for **global** `GET /v3/catalog/variants` list/search and **`PUT /v3/catalog/variants`** batch updates (IMS-style); see tool table rows below.
@@ -86,6 +91,10 @@ cp .env.example .env
 Use your own `.env` locally and keep it uncommitted. This repository is intended
 to be safely shareable publicly (for example GitHub) while each operator uses
 their own private credentials.
+
+To enable the optional **B2B Edition** tools, set `BC_B2B_ENABLED=true` in `.env`
+(the store's API account must have the B2B Edition scope). It reuses the same
+`BC_AUTH_TOKEN` + `BC_STORE_HASH` — see [docs/B2B.md](./docs/B2B.md).
 
 ### Local-Only Operating Model (current posture)
 
@@ -229,6 +238,9 @@ Use **`confirmed: true`** on the second call after reviewing the preview.
 | `catalog/brands/get` | R0 | Single brand by `brand_id` |
 | `catalog/brands/create` | R1 | Create brand (name + optional SEO, image URL, layout, custom URL path); preview → confirm |
 | `catalog/brands/update` | R1 | Update brand fields by `brand_id`; preview → confirm |
+| `catalog/brands/delete` | R3 | `DELETE /v3/catalog/brands/{id}` — permanently delete a brand (products keep existing, brand link cleared); preview → confirm |
+| `catalog/brands/image/set` | R1 | Set/replace a brand image by public `image_url` (via brand update); preview → confirm |
+| `catalog/brands/image/delete` | R2 | `DELETE /v3/catalog/brands/{id}/image` — remove the brand image; preview → confirm |
 | `catalog/brands/metafields/list` | R0 | List metafields on a brand (`brand_id` or exact `brand_name`) |
 | `catalog/brands/metafields/set` | R1 | Upsert metafield by namespace+key; default `permission_set` **write**; preview → confirm |
 | `catalog/brands/metafields/delete` | R1 | Delete by `metafield_id` or namespace+key; preview → confirm |
@@ -368,6 +380,51 @@ Use **`confirmed: true`** on the second call after reviewing the preview.
 | `webhooks/create` | R1 | `POST /v3/hooks` — destination must be **HTTPS**; optional `channel_id` (channel-scoped vs store-wide); optional `headers_json` (custom delivery headers); preview → **`confirmed`**; scope **`store_v2_information`** |
 | `webhooks/update` | R1 | Fetch-merge-`PUT /v3/hooks/{id}` — scope, destination, is_active, or headers; `channel_id` immutable; preview → **`confirmed`** |
 | `webhooks/delete` | R3 | `DELETE /v3/hooks/{id}` — permanently remove; preview shows scope + destination → **`confirmed`** |
+| `storefront/scripts/list` | R0 | `GET /v3/content/scripts` — list Script Manager scripts |
+| `storefront/scripts/get` | R0 | `GET /v3/content/scripts/{uuid}` — single script |
+| `storefront/scripts/create` | R1 | `POST /v3/content/scripts` — inject a script (HTML/`src`); preview → **`confirmed`** |
+| `storefront/scripts/update` | R1 | `PUT /v3/content/scripts/{uuid}` — update script fields; preview → **`confirmed`** |
+| `storefront/scripts/toggle` | R1 | Enable/disable a script without editing its body; preview → **`confirmed`** |
+| `storefront/scripts/delete` | R3 | `DELETE /v3/content/scripts/{uuid}` — permanently remove; preview → **`confirmed`** |
+| `carts/cart/create` | R1 | `POST /v3/carts` — create a server-side cart with optional line/custom items, `customer_id`, `channel_id`; preview → **`confirmed`** |
+| `carts/cart/get` | R0 | `GET /v3/carts/{id}` — line items, totals, currency; optional `include_redirect_urls` |
+| `carts/cart/update` | R1 | `PUT /v3/carts/{id}` — update `customer_id`, `channel_id`, or `locale`; preview → **`confirmed`** |
+| `carts/cart/delete` | R3 | `DELETE /v3/carts/{id}` — permanently delete a cart; preview shows summary → **`confirmed`** |
+| `carts/cart/items/add` | R1 | `POST /v3/carts/{id}/items` — add catalog/custom items; preview → **`confirmed`** |
+| `carts/cart/items/update` | R1 | `PUT /v3/carts/{id}/items/{item_id}` — change a line item quantity; preview → **`confirmed`** |
+| `carts/cart/items/remove` | R2 | `DELETE /v3/carts/{id}/items/{item_id}` — remove a line item; preview → **`confirmed`** |
+| `carts/cart/checkout_url` | R0 | `POST /v3/carts/{id}/redirect_urls` — cart, checkout, and embedded-checkout URLs |
+| `carts/cart/metafields/list` | R0 | `GET /v3/carts/{id}/metafields` — list cart metafields |
+| `carts/cart/metafields/set` | R1 | Upsert cart metafield by namespace+key; preview → **`confirmed`** |
+| `carts/cart/metafields/delete` | R1 | Delete cart metafield by id or namespace+key; preview → **`confirmed`** |
+| `carts/checkout/get` | R0 | `GET /v3/checkouts/{id}` — billing address, consignments + shipping options, coupons, totals |
+| `carts/checkout/coupon_apply` | R1 | `POST /v3/checkouts/{id}/coupons` — apply a coupon code; preview → **`confirmed`** |
+| `carts/checkout/coupon_remove` | R2 | `DELETE /v3/checkouts/{id}/coupons/{code}` — remove a coupon; preview → **`confirmed`** |
+| `carts/checkout/billing_address` | R1 | Set (POST) or update (PUT) the checkout billing address; preview → **`confirmed`** |
+| `carts/checkout/consignment_add` | R1 | Add a shipping consignment (address + items) to reveal shipping options; preview → **`confirmed`** |
+| `carts/checkout/consignment_update` | R1 | Update a consignment — typically to select a `shipping_option_id`; preview → **`confirmed`** |
+| `carts/checkout/convert` | R2 | Convert a completed checkout into an order (consumes the cart, irreversible); preview → **`confirmed`** |
+
+### B2B Edition tools (gated by `BC_B2B_ENABLED=true`)
+
+The `b2b/` root only registers when `BC_B2B_ENABLED=true`; it reuses the existing `BC_AUTH_TOKEN` + `BC_STORE_HASH` (see [docs/B2B.md](./docs/B2B.md)).
+
+| Tool Path | Tier | Description |
+|-----------|------|-------------|
+| `b2b/companies/list` | R0 | List companies; filter by status/name/email |
+| `b2b/companies/get` | R0 | Company details by ID |
+| `b2b/companies/create` | R1 | Create company + initial admin user; preview → **`confirmed`** |
+| `b2b/companies/update` | R1 | Update company profile fields; preview → **`confirmed`** |
+| `b2b/companies/set_status` | R2 | Approve, reject, or deactivate a company; preview → **`confirmed`** |
+| `b2b/companies/delete` | R3 | Permanently delete company, all users, and (by default) their linked BC customer accounts (`delete_bc_customers=false` to keep); preview → **`confirmed`** |
+| `b2b/companies/users/list` | R0 | List buyer users; filter by company/role/email |
+| `b2b/companies/users/create` | R1 | Create buyer user (0=admin, 1=senior, 2=junior); preview → **`confirmed`** |
+| `b2b/companies/users/update` | R1 | Update user name, phone, or role; preview → **`confirmed`** |
+| `b2b/companies/users/delete` | R2 | Remove user from the buyer portal; preview → **`confirmed`** |
+| `b2b/companies/addresses/list` | R0 | List company addresses; filter by billing/shipping/country |
+| `b2b/companies/addresses/create` | R1 | Add an address to a company; preview → **`confirmed`** |
+| `b2b/companies/addresses/update` | R1 | Full PUT update of a company address; preview → **`confirmed`** |
+| `b2b/companies/addresses/delete` | R2 | Remove a company address; preview → **`confirmed`** |
 
 ## Project Structure
 
@@ -388,11 +445,18 @@ internal/
     promotions/          — Automatic and coupon promotions, coupon codes, settings
     storefront/          — Script Manager scripts
     webhooks/            — Webhook registrations (list/get/events/create/update/delete via /v3/hooks)
+    carts/               — Cart lifecycle, cart items, cart metafields, and checkout flow (/v3/carts, /v3/checkouts)
+    b2b/                 — B2B Edition companies, users, addresses (gated by BC_B2B_ENABLED)
+    shared/              — Shared tool helpers (ToolError, ToolJSON response builders)
 ```
 
 ### Test Coverage
 
 Run `go test ./...` — multiple testify suites across `internal/tools/catalog`, `internal/discovery`, `internal/config`, `internal/middleware`, and `internal/session` cover security-critical paths (type assertions, price bounds, auth, cache eviction, config validation, confirmed-param enforcement) and tool parameter parsing. Exact subtest counts change as suites grow; do not rely on a fixed number in docs.
+
+### Linting & CI
+
+`make lint` runs `golangci-lint` with the pinned config in [`.golangci.yml`](./.golangci.yml) (`errcheck`, `govet`, `staticcheck`, `gosimple`, `ineffassign`, `unused`). Install the pinned version once with `make lint-install`. The same build, `go vet`, `go test`, and lint steps run in CI on every push and pull request via [`.github/workflows/ci.yml`](./.github/workflows/ci.yml); the golangci-lint version is pinned identically in the Makefile, the workflow, and `.golangci.yml` — bump all three together.
 
 ## Security
 
