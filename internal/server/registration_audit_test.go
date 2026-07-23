@@ -355,6 +355,7 @@ func TestFullRegistrationInventoryInitialSubtreeIsFullyRegistered(t *testing.T) 
 		"inventory",
 		"inventory/locations",
 		"inventory/locations/metafields",
+		"inventory/locations/items",
 		"inventory/items",
 		"inventory/adjustments",
 	}
@@ -370,6 +371,8 @@ func TestFullRegistrationInventoryInitialSubtreeIsFullyRegistered(t *testing.T) 
 		"inventory/locations/metafields/list",
 		"inventory/locations/metafields/set",
 		"inventory/locations/metafields/delete",
+		"inventory/locations/items/list",
+		"inventory/locations/items/update",
 		"inventory/items/list",
 		"inventory/items/get",
 		"inventory/items/update_batch",

@@ -23,6 +23,8 @@ type BigCommerceInventoryAPI interface {
 	DeleteInventoryLocationMetafield(ctx context.Context, locationID, metafieldID int) error
 	ListInventoryItems(ctx context.Context, params bigcommerce.InventoryItemListParams) ([]json.RawMessage, error)
 	GetInventoryItem(ctx context.Context, variantID int) (json.RawMessage, error)
+	ListInventoryLocationItems(ctx context.Context, locationID int, params bigcommerce.InventoryLocationItemListParams) ([]json.RawMessage, error)
+	UpdateInventoryLocationItems(ctx context.Context, locationID int, payload json.RawMessage) (json.RawMessage, error)
 	CreateInventoryAbsoluteAdjustment(ctx context.Context, payload json.RawMessage) (json.RawMessage, error)
 	CreateInventoryRelativeAdjustment(ctx context.Context, payload json.RawMessage) (json.RawMessage, error)
 	UpdateInventoryItems(ctx context.Context, payload json.RawMessage) (json.RawMessage, error)

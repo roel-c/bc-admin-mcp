@@ -164,7 +164,7 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 | `b2b/quotes/update` | R1 | Partial update (`quote_json`); `productList` updates replace the full line-item set |
 | `b2b/quotes/delete` | R3 | Permanently delete (use `update` with `status=archived` to hide instead) |
 | `b2b/quotes/checkout` | R1 | Generate cart + checkout URLs (status New/In Process/Updated by Customer only) |
-| `b2b/quotes/assign_to_order` | R2 | Associate an existing BC order with the quote |
+| `b2b/quotes/assign_to_order` | R2 | Associate an existing BC order with a quote (`POST /rfq/{id}/ordered`). **Required** after Management API `carts/checkout/convert` on a quote cart; storefront/Buyer Portal checkout via the quote `checkoutUrl` links natively instead |
 | `b2b/quotes/pdf_export` | R0 | Backend-detail PDF download link (optional currency override) |
 | `b2b/quotes/extra_fields` | R0 | List quote extra-field definitions |
 | `b2b/quotes/shipping/rates` | R0 | Available static/real-time shipping rates (requires a shipping address on the quote) |
@@ -260,7 +260,19 @@ Confirmed live against a POC store while validating the quote → order → invo
    - **Gateway methods** (credit card) *can* be processed via API using a Payment Access Token against the separate `payments.bigcommerce.com` server — a materially different, more involved flow than anything in this MCP today.
    - The practical path for orders created through `carts/checkout/convert` is to move them out of Incomplete via `orders/management/update_status` (mirrors what a merchant does manually in the admin panel).
 3. **B2B-panel visibility is driven by the cart/order's `customer_id`.** If the checkout's customer belongs to a B2B company user, the resulting order gets a `companyId` (after a short async indexing delay — seen up to ~25s) and appears in **both** the native BigCommerce Orders dashboard and the B2B Admin Panel's Orders section. Orders placed with `customer_id: 0` (guest) only ever appear in the native dashboard, never in the B2B panel — confirmed by comparing a guest order, a guest-but-company-linked order, and a real admin-buyer order side by side.
-4. Once an order has both a real status (not Incomplete) and, for B2B invoicing, a `companyId`, `b2b/invoices/create_from_order` succeeds.
+4. **Quote → order linkage depends on how checkout is completed.**
+   - **Storefront / Buyer Portal:** completing purchase via the
+     `checkoutUrl` from `b2b/quotes/checkout` (typically with
+     `isFromQuote=Y`) links the quote to the order natively — the B2B
+     frontend calls GraphQL `quoteOrdered`.
+   - **MCP / Management API path:** `b2b/quotes/checkout` only creates a
+     cart + URLs. Finishing that cart with `carts/checkout/convert` creates
+     a BC order but leaves the quote **In Process** with empty
+     `bcOrderId`. Call `b2b/quotes/assign_to_order` (`POST
+     /rfq/{quote_id}/ordered` with the **BigCommerce** order ID) to mark
+     the quote Ordered and attach `bcOrderId`. Live-confirmed 2026-07-22
+     during the MCP-only surface check.
+5. Once an order has both a real status (not Incomplete) and, for B2B invoicing, a `companyId`, `b2b/invoices/create_from_order` succeeds.
 
 ---
 
@@ -328,4 +340,4 @@ Backend sales rep (Sales Staff) and frontend sales rep / masquerade (Super Admin
 - `internal/bigcommerce/b2b_client.go` — B2B HTTP client
 - `internal/bigcommerce/b2b_companies.go` — Company/User/Address types and methods
 - `internal/tools/b2b/company_tools.go` — Phase B1 tool handlers
-- `docs/b2be-page-detection.md` — Storefront/buyer portal injection research (Script Manager)
+- `scripts/b2be-page-detection.md` — Storefront/buyer portal injection research (Script Manager); lives alongside the other checkout/storefront-script assets in `scripts/`, not in `docs/`, since it's script-injection research rather than MCP tool documentation

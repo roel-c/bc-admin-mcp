@@ -40,7 +40,7 @@ Use these tiers when defining MCP tools (or HTTP actions) so permissions and con
 | `BC_MAX_RETRIES` | `6` | 429 / 5xx backoff rounds |
 | `BC_PRODUCT_BATCH_SIZE` | `10` | Max items per batch **PUT** `/v3/catalog/products` (validated 1–10) |
 | `BC_VARIANT_BATCH_SIZE` | `10` | Max items per batch **PUT** `/v3/catalog/variants` (validated 1–10) |
-| `BC_INVENTORY_BATCH_SIZE` | `10` | Safe batch size for inventory high-risk writes (`inventory/items/update_batch`, `inventory/adjustments/absolute`, `inventory/adjustments/relative`) |
+| `BC_INVENTORY_BATCH_SIZE` | `10` | Safe batch size for inventory high-risk writes (`inventory/items/update_batch`, `inventory/locations/items/update`, `inventory/adjustments/absolute`, `inventory/adjustments/relative`) |
 | `BC_DEFAULT_PAGE_LIMIT` | `250` | Page size for most V3 list endpoints (validated 1–250) |
 | `BC_MAX_TOTAL_RECORDS` | `10000` | Pagination ceiling for `GetAll` (set `0` for unlimited) |
 | `BC_DELAY_BETWEEN_CHUNKS_MS` | `500` | Inter-chunk pause inside `BatchPut` (on top of the throttle) |
@@ -83,6 +83,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | Tool | Cap | Source |
 |------|-----|--------|
 | `catalog/products/update` | ≤ 500 product × `channel_ids` pairs (additive post-write assignment) | `products_update.go` |
+| `catalog/products/bulk_sku_update` | `product_id`/new-SKU pairs ≤ 100/call | `products_bulk_update_sku.go` |
 | `catalog/products/assign_categories` | `product_ids ≤ 100`, `category_ids ≤ 50`, pairs ≤ 500 | `categories_assignments.go` |
 | `catalog/products/unassign_categories` | `product_ids ≤ 100`, `category_ids ≤ 50` | `categories_assignments.go` |
 | `catalog/products/channel_assignments/list` | `product_ids ≤ 100`, `channel_ids ≤ 20` | `products_channel_assignments.go` |
@@ -115,7 +116,11 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `inventory/locations/metafields/list` | R0; requires `location_id`; optional `page`/`limit` | `internal/tools/inventory/tools.go` |
 | `inventory/locations/metafields/set` | **R1**; upsert by `namespace` + `key`; new metafields default `permission_set=app_only`; preview then confirm | `internal/tools/inventory/tools.go` |
 | `inventory/locations/metafields/delete` | **R1**; delete by `metafield_id` or `namespace` + `key`; preview then confirm | `internal/tools/inventory/tools.go` |
-| `inventory/items/update_batch` | **R2**; requires `update` object with either `items[]` or `data[]`; max **10** rows/call; preview then confirm | `internal/tools/inventory/tools.go` |
+| `inventory/locations/items/list` | R0; requires `location_id`; optional variant/product/sku filters; returns `qty_backordered` + `settings.backorder_limit` | `internal/tools/inventory/tools.go` |
+| `inventory/locations/items/update` | **R2**; requires `location_id` + `settings[]` (max **10**); `identity` = exactly one of `variant_id` / `product_id` / `sku`; set `backorder_limit` / safety_stock / etc.; preview then confirm | `internal/tools/inventory/tools.go` |
+| `inventory/items/update_batch` | **R2**; requires `update` object with either `items[]` or `data[]`; max **10** rows/call; preview then confirm; **not** for `backorder_limit` (use `locations/items/update`) | `internal/tools/inventory/tools.go` |
+| `inventory/adjustments/absolute` | **R2**; max **10** rows; identity = exactly one of `variant_id` / `product_id` / `sku`; optional `quantity` and/or `qty_backordered` (≥ 0); preview then confirm | `internal/tools/inventory/tools.go` |
+| `inventory/adjustments/relative` | **R2**; max **10** rows; same identity rules; optional `quantity` and/or `qty_backordered` deltas; at least one must be non-zero; preview then confirm | `internal/tools/inventory/tools.go` |
 | `customers/groups/list` | offset paginated; respects `BC_DEFAULT_PAGE_LIMIT` and `BC_MAX_TOTAL_RECORDS` (max 50 pages) | `internal/bigcommerce/customer_groups.go` |
 | `customers/groups/create` / `update` | `discount_rules` mixing `price_list` with other rule types is silently pruned (price_list wins) and surfaced as a `warnings` field; PUT overwrites discount_rules in bulk per BC | `internal/tools/customers/groups.go` |
 | `customers/groups/delete` | **R3 destructive** — preview then `confirmed=true`; BC unassigns all members automatically | `internal/tools/customers/groups.go` |
@@ -183,7 +188,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `webhooks/update` | **R1**; `id` required; at least one of `scope`, `destination`, `is_active`, `headers_json`; fetch-merge-PUT: fetches current state, merges provided fields; `channel_id` immutable after creation; HTTPS validated on `destination`; preview then confirm | `internal/tools/webhooks/webhook_tools.go` |
 | `webhooks/delete` | **R3 destructive**; `id` required; fetches current hook for preview (scope + destination shown); `confirmed=true` to permanently delete | `internal/tools/webhooks/webhook_tools.go` |
 | `storefront/scripts/list` / `get` | R0; Script Manager reads via `/v3/content/scripts` | `internal/tools/storefront/scripts.go` |
-| `storefront/scripts/create` / `update` / `toggle` | **R1**; preview then confirm; `toggle` flips `enabled` without editing the body | `internal/tools/storefront/scripts.go` |
+| `storefront/scripts/create` / `update` / `toggle` | **R1**; preview then confirm; `toggle` flips `enabled` without editing the body. MCP quirks: `docs/BC-API-SPECIFICITY.md` §14 + `scripts/pdp-metafields-display.html`. For Script Manager / Storefront GraphQL frontend patterns, see the external [Stencil Customization Guide INDEX](https://github.com/roel-c/bc-stencil-customization-guide/blob/main/INDEX.md) (`docs/AGENT.md`) | `internal/tools/storefront/scripts.go` |
 | `storefront/scripts/delete` | **R3 destructive**; preview then `confirmed=true` | `internal/tools/storefront/scripts.go` |
 | `carts/cart/create` / `update` | **R1**; preview then confirm; `line_items_json` / `custom_items_json` validated (quantity ≥ 1) | `internal/tools/carts/cart_tools.go` |
 | `carts/cart/get` / `checkout_url` | R0; require `cart_id` (UUID) | `internal/tools/carts/cart_tools.go` |
@@ -323,7 +328,7 @@ Follow **`{action}_{resource}`** in snake_case (BC-API-Reference §9).
 
 **Write (R1):** `bulk_update_products` (max 10 items + chunking in implementation), `update_category`, …
 
-**High-risk (R2):** `catalog/pricelists/records/upsert` (**serial only**), `catalog/pricelists/assignments/create_batch`, `catalog/pricelists/assignments/upsert`, `catalog/pricelists/assignments/delete`, `inventory/locations/create`, `inventory/locations/update`, `inventory/items/update_batch` (batch ≤ 10), `inventory/adjustments/absolute` (batch ≤ 10), `inventory/adjustments/relative` (batch ≤ 10), …
+**High-risk (R2):** `catalog/pricelists/records/upsert` (**serial only**), `catalog/pricelists/assignments/create_batch`, `catalog/pricelists/assignments/upsert`, `catalog/pricelists/assignments/delete`, `inventory/locations/create`, `inventory/locations/update`, `inventory/locations/items/update` (batch ≤ 10), `inventory/items/update_batch` (batch ≤ 10), `inventory/adjustments/absolute` (batch ≤ 10), `inventory/adjustments/relative` (batch ≤ 10), …
 
 **Parameters:** mirror BC limits — e.g. `maxItems: 10` on bulk product arrays; optional `dry_run: bool` for proposals.
 

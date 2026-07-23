@@ -104,7 +104,7 @@ func (ct *CompanyTools) registerQuoteTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR2,
 		Summary: "Associate an existing BigCommerce order with a quote",
 		Tool: mcp.NewTool("b2b_quotes_assign_to_order",
-			mcp.WithDescription("Associate an existing BigCommerce order with a quote. Only valid for quotes in status New(0), In Process(2), or Updated by Customer(3). Preview → confirm."),
+			mcp.WithDescription("Associate an existing BigCommerce order with a quote via POST /rfq/{id}/ordered. Required after Management API carts/checkout/convert on a quote-generated cart (storefront/Buyer Portal checkout via the quote checkoutUrl links natively instead). Only valid for quotes in status New(0), In Process(2), or Updated by Customer(3). Pass the BigCommerce order ID (not the B2B Edition internal order id). Preview → confirm."),
 			mcp.WithNumber("quote_id", mcp.Description("Quote ID"), mcp.Required()),
 			mcp.WithNumber("order_id", mcp.Description("BigCommerce order ID"), mcp.Required()),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to apply.")),

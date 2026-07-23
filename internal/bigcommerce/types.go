@@ -1240,6 +1240,16 @@ type InventoryItemListParams struct {
 	Limit       int
 }
 
+// InventoryLocationItemListParams controls filters/paging for
+// GET /v3/inventory/locations/{location_id}/items.
+type InventoryLocationItemListParams struct {
+	ProductIDs []int
+	VariantIDs []int
+	SKUs       []string
+	Page       int
+	Limit      int
+}
+
 // CustomerAuthentication is the nested authentication object on V3 customer
 // create/update payloads.
 type CustomerAuthentication struct {

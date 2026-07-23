@@ -68,221 +68,26 @@ Every tool uses the same envelope:
 | **R3** | Destructive | Preview → confirm with child safety gates |
 | **R4** | Forbidden | Blocked by the server at all times |
 
-### Implemented Tools
+### Full Tool Inventory — Use `discover_tools`, Not a Static List
 
-**Catalog — Products (core):**
+The tool catalog changes as domains ship, so this file does not restate it.
+Navigate live instead:
 
-| Tool Path | Tier | Description |
-|-----------|------|-------------|
-| `catalog/products/search` | R0 | Declarative filter search (name, SKU, price range, category, brand, visibility, MSF `channel_ids`) |
-| `catalog/products/get` | R0 | Single product with variant pricing detection |
-| `catalog/products/create` | R1 | Create with all writable fields, optional images, optional MSF `channel_ids` |
-| `catalog/products/update` | R1 | Unified update: any field(s), any targeting (product_ids/sku/product_name/category_id), optional MSF `channel_ids` |
-| `catalog/products/delete` | R3 | Permanently delete (prefer `is_visible: false`) |
-| `catalog/products/assign_categories` | R1 | Additive assignment (caps: product_ids ≤ 100, category_ids ≤ 50, pairs ≤ 500) |
-| `catalog/products/unassign_categories` | R2 | Filter-based DELETE of specific (product, category) links |
-| `catalog/products/channel_summary` | R0 | MSF snapshot: assignments + per-channel listing state (max 5 product IDs) |
-| `catalog/products/channel_assignments/list` | R0 | List product↔channel rows |
-| `catalog/products/channel_assignments/assign` | R1 | Cartesian assign products to channels (max 500 pairs) |
-| `catalog/products/channel_assignments/remove` | R2 | Remove assignments (`product_ids` required) |
+1. `discover_tools("")` → active domain roots (`catalog`, `orders`,
+   `customers`, `marketing`, `inventory`, `storefront`, `webhooks`, `carts`;
+   plus `b2b` when `BC_B2B_ENABLED=true`).
+2. `discover_tools("<root>")` / `discover_tools("<root>/<sub>")` → drill down
+   until you see tool stubs with a `tier`.
+3. Each tool's own description (returned by `discover_tools` at the leaf, and
+   echoed by `execute_tool`) documents its required arguments, caps, and
+   known gotchas **at the point of use** — trust that over anything a static
+   doc says, since tool descriptions ship with the code and can't drift out
+   of sync the way prose can.
 
-**Catalog — Product Sub-Resources:**
-
-| Tool Path | Tier | Description |
-|-----------|------|-------------|
-| `catalog/products/images/list` | R0 | List product images |
-| `catalog/products/images/add` | R1 | Add image by URL |
-| `catalog/products/images/delete` | R2 | Delete a product image |
-| `catalog/products/options/list` | R0 | List variant-generating options |
-| `catalog/products/options/create` | R1 | Create option with values |
-| `catalog/products/options/update` | R1 | Update option name, sort, or values |
-| `catalog/products/options/delete` | R2 | Delete option (removes variants) |
-| `catalog/products/variants/list` | R0 | List all variants |
-| `catalog/products/variants/create` | R1 | Create variant with option value mapping |
-| `catalog/products/variants/update` | R1 | Update variant fields |
-| `catalog/products/variants/delete` | R2 | Delete variant |
-| `catalog/products/custom_fields/list` | R0 | List custom fields |
-| `catalog/products/custom_fields/set` | R1 | Upsert custom field by name |
-| `catalog/products/custom_fields/delete` | R2 | Delete custom field |
-| `catalog/products/modifiers/list` | R0 | List modifiers |
-| `catalog/products/modifiers/create` | R1 | Create modifier |
-| `catalog/products/modifiers/delete` | R2 | Delete modifier |
-
-**Catalog — Metafields (products, variants, categories, brands):**
-
-| Tool Path | Tier | Description |
-|-----------|------|-------------|
-| `catalog/products/metafields/list` | R0 | List product metafields |
-| `catalog/products/metafields/set` | R1 | Upsert by namespace+key; `permission_set` default `app_only` |
-| `catalog/products/metafields/delete` | R1 | Delete by `metafield_id` or namespace+key |
-| `catalog/products/metafields/bulk_set` | R1 | Same metafield on up to 50 products |
-| `catalog/products/metafields/bulk_delete` | R1 | Delete namespace+key across up to 50 products |
-| `catalog/products/variants/metafields/list` | R0 | List variant metafields |
-| `catalog/products/variants/metafields/set` | R1 | Upsert by namespace+key |
-| `catalog/products/variants/metafields/delete` | R1 | Delete by `metafield_id` or namespace+key |
-| `catalog/products/variants/metafields/bulk_set` | R1 | One product: up to 50 variant_ids or `variant_sku_contains` |
-| `catalog/products/variants/metafields/bulk_delete` | R1 | Same targeting as bulk_set |
-| `catalog/products/variants/metafields/bulk_set_products` | R1 | Cross-product: up to 50 product_ids, variant_scope, max 500 writes |
-| `catalog/products/variants/metafields/bulk_delete_products` | R1 | Cross-product delete; same caps |
-| `catalog/categories/metafields/list` | R0 | List category metafields |
-| `catalog/categories/metafields/set` | R1 | Upsert by namespace+key |
-| `catalog/categories/metafields/delete` | R1 | Delete by id or namespace+key |
-| `catalog/brands/metafields/list` | R0 | List brand metafields |
-| `catalog/brands/metafields/set` | R1 | Upsert by namespace+key |
-| `catalog/brands/metafields/delete` | R1 | Delete by id or namespace+key |
-
-**Catalog — Global Variants, Channels, Price Lists:**
-
-| Tool Path | Tier | Description |
-|-----------|------|-------------|
-| `catalog/variants/list` | R0 | Global `GET /v3/catalog/variants` with filters |
-| `catalog/variants/bulk_update` | R2 | Batch update up to 200 variants |
-| `catalog/channels/list` | R0 | List store channels |
-| `catalog/channels/get` | R0 | Single channel by ID |
-| `catalog/channels/update` | R2 | Update channel name or status |
-| `catalog/channels/category_trees` | R0 | List category trees (MSF) |
-| `catalog/channels/listings/list` | R0 | List channel product listings |
-| `catalog/channels/listings/create` | R1 | Create listings (max 10 per call) |
-| `catalog/channels/listings/update` | R2 | Update listings (requires listing_id) |
-| `catalog/pricelists/list` | R0 | List price lists |
-| `catalog/pricelists/get` | R0 | Single price list |
-| `catalog/pricelists/create` | R1 | Create price list |
-| `catalog/pricelists/update` | R1 | Fetch-merge-PUT |
-| `catalog/pricelists/delete` | R3 | Destructive delete |
-| `catalog/pricelists/records/list` | R0 | List price records |
-| `catalog/pricelists/records/upsert` | R2 | Upsert records (max 100/call, serial) |
-| `catalog/pricelists/records/delete` | R2 | Selector-based delete |
-| `catalog/pricelists/assignments/list` | R0 | List assignments |
-| `catalog/pricelists/assignments/create_batch` | R2 | Create assignments (max 25/call) |
-| `catalog/pricelists/assignments/upsert` | R2 | Upsert one assignment tuple |
-| `catalog/pricelists/assignments/delete` | R2 | Filter-based delete |
-
-**Catalog — Categories & Brands:**
-
-| Tool Path | Tier | Description |
-|-----------|------|-------------|
-| `catalog/categories/list` | R0 | Filter search with `list_all` mode; optional `channel_id` |
-| `catalog/categories/get` | R0 | Single category by ID |
-| `catalog/categories/create` | R1 | Create with `parent_name` resolution |
-| `catalog/categories/bulk_update` | R1 | Batch update category fields |
-| `catalog/categories/products` | R0 | List products in a category |
-| `catalog/categories/seo_audit` | R0 | Scan for missing SEO fields |
-| `catalog/categories/move` | R2 | Reparent with cycle detection |
-| `catalog/categories/reorder` | R1 | Reorder siblings |
-| `catalog/categories/delete` | R3 | Single deletion with child safety gate |
-| `catalog/categories/bulk_delete` | R3 | Multi-category deletion |
-| `catalog/brands/list` | R0 | Filter or `list_all` |
-| `catalog/brands/get` | R0 | Single brand by ID |
-| `catalog/brands/create` | R1 | Create brand |
-| `catalog/brands/update` | R1 | Partial update |
-| `catalog/brands/delete` | R3 | Delete a brand by ID |
-| `catalog/brands/image/set` | R1 | Set/replace brand image by URL |
-| `catalog/brands/image/delete` | R2 | Remove brand image |
-
-**Orders, Customers, Marketing, Inventory, Storefront, Webhooks:**
-
-| Tool Path | Tier |
-|-----------|------|
-| `orders/management/list\|get\|create\|update\|delete\|count\|statuses\|update_status` | R0/R1/R2/R3 |
-| `orders/management/products/get` | R0 |
-| `orders/management/metafields/list\|set\|delete` | R0/R1 |
-| `orders/management/coupons\|shipping_addresses\|messages\|taxes` (list/get/update) | R0/R1 |
-| `orders/fulfillment/shipments/list\|get\|create\|update\|delete` | R0/R1/R3 |
-| `orders/payments/actions/list\|transactions/list\|capture\|void` | R0/R3 |
-| `orders/refunds/list\|legacy_list\|quote\|create` | R0/R2/R3 |
-| `customers/list\|get\|create\|update\|delete\|assign_group` | R0/R2/R3 |
-| `customers/addresses/list\|create\|update\|delete` | R0/R1/R3 |
-| `customers/attributes/list\|create\|update\|delete` | R0/R1/R3 |
-| `customers/attribute_values/list\|upsert\|delete` | R0/R1/R2 |
-| `customers/metafields/list\|set\|delete\|bulk_set\|bulk_delete` | R0/R1 |
-| `customers/settings/global\|channel` (get/update) | R0/R2 |
-| `customers/consent/get\|update` | R0/R1 |
-| `customers/stored_instruments/list` | R0 |
-| `customers/credentials/validate` | R2 |
-| `customers/segments/list\|get\|create\|update\|delete` | R0/R1/R3 |
-| `customers/segments/shoppers/list\|add\|remove` | R0/R1 |
-| `customers/shopper_profiles/list\|create\|delete\|list_segments` | R0/R1/R2 |
-| `customers/groups/list\|get\|count\|create\|update\|delete` | R0/R1/R3 |
-| `marketing/promotions/automatic/list\|get\|create\|update\|set_status\|delete` | R0/R2/R3 |
-| `marketing/promotions/coupon/list\|get\|create\|update\|set_status\|delete` | R0/R2/R3 |
-| `marketing/promotions/coupon/codes/list\|create_single\|generate_bulk\|delete` | R0/R1/R2/R3 |
-| `marketing/promotions/settings/get\|update` | R0/R2 |
-| `inventory/locations/list\|create\|update\|delete` | R0/R2/R3 |
-| `inventory/locations/metafields/list\|set\|delete` | R0/R1 |
-| `inventory/items/list\|get\|update_batch` | R0/R2 |
-| `inventory/adjustments/absolute\|relative` | R2 |
-| `storefront/scripts/list\|get\|create\|update\|toggle\|delete` | R0/R1/R3 |
-| `webhooks/list\|get\|events\|create\|update\|delete` | R0/R1/R3 |
-| `carts/cart/create\|get\|update\|delete` | R1/R0/R1/R3 |
-| `carts/cart/items/add\|update\|remove` | R1/R1/R2 |
-| `carts/cart/checkout_url` | R0 |
-| `carts/cart/metafields/list\|set\|delete` | R0/R1/R1 |
-| `carts/checkout/get` | R0 |
-| `carts/checkout/coupon_apply\|coupon_remove` | R1/R2 |
-| `carts/checkout/billing_address\|consignment_add\|consignment_update` | R1 |
-| `carts/checkout/convert` | R2 |
-| `b2b/companies/list\|get\|create\|update\|set_status\|delete` | R0/R0/R1/R1/R2/R3 |
-| `b2b/companies/extra_fields\|update_catalog` | R0/R2 |
-| `b2b/companies/users/list\|get\|get_by_customer\|create\|bulk_create\|update\|delete\|extra_fields` | R0/R0/R0/R1/R1/R1/R2/R0 |
-| `b2b/companies/addresses/list\|create\|update\|delete` | R0/R1/R1/R2 |
-| `b2b/companies/attachments/list\|add\|delete` | R0/R1/R2 |
-| `b2b/companies/roles/list\|get\|create\|update\|delete` | R0/R0/R1/R1/R2 |
-| `b2b/companies/permissions/list\|create\|update\|delete` | R0/R1/R1/R2 |
-| `b2b/companies/hierarchy/get\|subsidiaries\|attach_parent\|detach_subsidiary` | R0/R0/R1/R2 |
-| `b2b/channels/list\|get` | R0/R0 |
-| `b2b/orders/get\|update\|assign_customer_orders\|reassign\|extra_fields` | R0/R1/R2/R2/R0 |
-| `b2b/quotes/list\|get\|create\|update\|delete\|checkout\|assign_to_order\|pdf_export\|extra_fields` | R0/R0/R1/R1/R3/R1/R2/R0/R0 |
-| `b2b/quotes/shipping/rates\|select\|remove\|custom_methods` | R0/R1/R2/R0 |
-
-**Quotes — Buyer Portal visibility:** `b2b/quotes/create` must include
-`companyId` (B2B company id) in `quote_json`. Contact email/name alone leave
-`companyInfo` empty — the quote appears in the Control Panel but not for the
-buyer. Verify with `b2b/quotes/get` (`companyInfo.companyId` populated).
-Commercial path: quote (+ shipping) → `quotes/checkout` → bind cart
-`customer_id` → checkout convert → `update_status` off Incomplete →
-`assign_to_order` → `invoices/create_from_order` →
-`payment_records/create_offline`. See `docs/WORKFLOW.md` §10.3 steps 10–11.
-| `b2b/invoices/list\|get\|download_pdf\|extra_fields\|create\|create_from_order\|update\|delete` | R0/R0/R0/R0/R2/R2/R2/R3 (`/ip` base URL) |
-| `b2b/receipts/list\|get` \| `b2b/receipts/lines/list_all\|list_for_receipt\|get` | R0 (all) |
-| `b2b/receipts/delete` \| `b2b/receipts/lines/delete` | R3/R2 |
-| `b2b/payment_records/list\|get\|transactions\|operations\|create_offline\|update_offline\|perform_operation\|update_processing_status\|delete` | R0/R0/R0/R0/R2/R2/R2/R2/R3 (`/ip` base URL) |
-| `b2b/payments/list\|active_methods` \| `b2b/companies/payments/list\|credit/get\|payment_terms/get` | R0 (all) |
-| `b2b/companies/payments/update\|credit/update\|payment_terms/update` | R2/R2/R2 |
-| `b2b/sales_staff/list\|get\|update_assignments` | R0/R0/R1 |
-| `b2b/super_admins/list\|companies_overview\|get\|companies\|create\|bulk_create\|update\|update_assignments` | R0/R0/R0/R0/R1/R1/R1/R1 |
-| `b2b/companies/super_admins/list\|update_assignments` | R0/R1 |
-| `b2b/shopping_lists/list\|get\|create\|update\|delete\|items/remove` | R0/R0/R1/R1/R3/R2 |
-
-**B2B Edition — scope: `B2B Edition` (requires `BC_B2B_ENABLED=true` in `.env`):**
-
-The `b2b/` root only appears when `BC_B2B_ENABLED=true`. Company status: 0=pending, 1=approved, 2=rejected, 3=inactive. User roles: 0=admin, 1=senior buyer, 2=junior buyer. Catalog/pricing visibility for a company's buyers is controlled by its BigCommerce customer group — pass `customer_group_id` on `b2b/companies/create`/`update` to assign one (Independent Companies behavior stores only; see `docs/B2B.md`). See `docs/B2B.md` for setup and the full phased plan.
-
-**Carts — scope: `store_cart`:**
-- `carts/cart/create` — Create a server-side cart. Provide `line_items_json` and/or `custom_items_json` as JSON arrays. Optional `customer_id` to assign a customer; `channel_id` for MSF channels.
-- `carts/cart/get` — Get a cart by UUID. Pass `include_redirect_urls: true` to include checkout links in the response.
-- `carts/cart/update` — Update cart metadata (customer_id, channel_id, locale). Preview → confirm.
-- `carts/cart/delete` — Permanently delete a cart. Preview shows item count and total.
-- `carts/cart/items/add` — Add catalog or custom items to an existing cart. `line_items_json`: `[{"product_id":1,"quantity":2}]`; `custom_items_json`: `[{"name":"Custom","sku":"X","quantity":1,"list_price":9.99}]`.
-- `carts/cart/items/update` — Update a line item's quantity. Provide `item_id` (UUID from cart), `quantity`, and `product_id` (for catalog items) or `custom_item_name` (for custom items).
-- `carts/cart/items/remove` — Remove a line item by `item_id`.
-- `carts/cart/checkout_url` — Generate `cart_url`, `checkout_url`, and `embedded_checkout_url` for a cart. Use `checkout_url` to send a customer directly to checkout.
-- `carts/cart/metafields/list\|set\|delete` — Cart metafield CRUD (upsert by namespace+key).
-
-**Checkout — scope: `store_checkouts`:** the checkout ID is the same UUID as the cart.
-- `carts/checkout/get` — Billing address, consignments with available shipping options, applied coupons, and totals.
-- `carts/checkout/coupon_apply` / `coupon_remove` — Apply or remove a coupon code.
-- `carts/checkout/billing_address` — Set (POST) or update (PUT with `billing_address_id`) the billing address. Requires first_name, last_name, address1, city, country_code.
-- `carts/checkout/consignment_add` — Assign line items to a shipping address; then call `checkout/get` to read `available_shipping_options`.
-- `carts/checkout/consignment_update` — Select a `shipping_option_id` (or change address/items) on an existing consignment.
-- `carts/checkout/convert` — Convert a completed checkout into an order (consumes the cart; irreversible). Requires billing address + a consignment with a selected shipping option.
-
-**Channels — assignment vs listing choice:**
-
-- **`catalog/products/channel_assignments/*`** — availability: "make this product available on this channel."
-- **`catalog/channels/listings/*`** — presentation and state: "mark the listing disabled" or "override channel-specific copy."
-- **`catalog/products/channel_summary`** — read both surfaces at once for a small product batch.
-- Pass **`channel_ids`** to `catalog/products/search` for a lightweight "is this product on channel X?" check.
-- Pass **`channel_ids`** to `catalog/products/create` or `catalog/products/update` for additive post-write assignment (never destructive).
+For a human-browsable snapshot of every implemented tool path, see the
+**Implemented Tools** table in [`README.md`](../README.md). For the B2B
+domain specifically (gated by `BC_B2B_ENABLED=true`), see `docs/B2B.md` for
+setup and the commercial-path (quote → checkout → invoice → payment) flow.
 
 ---
 
@@ -323,6 +128,32 @@ The server monitors `X-Rate-Limit-Requests-Left` and applies exponential backoff
 
 ---
 
+## SCRIPT MANAGER / STOREFRONT FRONTEND INJECTION
+
+When the task is **injecting frontend behavior via BigCommerce Script Manager**
+(`storefront/scripts/*`) — including scripts that call Storefront GraphQL to
+read or display catalog data (products, variants, metafields), react to PDP
+option changes, or take other storefront-page actions — treat this external
+guide as the **authoritative frontend reference**:
+
+**[BigCommerce Stencil Customization Guide — INDEX](https://github.com/roel-c/bc-stencil-customization-guide/blob/main/INDEX.md)**
+
+Start at `INDEX.md`, then open the linked docs as needed (especially GraphQL
+Storefront API and Cart/Checkout / Script Manager patterns). Use it for:
+
+- Storefront GraphQL auth and query shapes (including metafields)
+- Script Manager deployment patterns and checkout vs storefront constraints
+- Client-side patterns for scripts that act on the live storefront
+
+Do **not** copy that guide into this repository. Keep MCP-specific injection
+quirks here (Scripts API / Handlebars over `script_tag` HTML) in
+`docs/BC-API-SPECIFICITY.md` §14 and the worked example
+`scripts/pdp-metafields-display.html`. Catalog metafield **writes** still go
+through this MCP server (`catalog/products/metafields/*`, variant metafields);
+the guide covers how to **consume** storefront-visible data in injected JS.
+
+---
+
 ## ERROR HANDLING
 
 BigCommerce API errors are surfaced as tool results (not exceptions):
@@ -357,14 +188,15 @@ BigCommerce API errors are surfaced as tool results (not exceptions):
 
 ## PROJECT FILES
 
-- `docs/ARCHITECTURE.md` — Full architectural rationale, design decisions, tool hierarchy, and expansion roadmap
-- `docs/SECURITY.md` — Security review findings, remediation log, and implemented controls
-- `docs/BC-API-Reference.md` — BigCommerce REST Management API endpoint map, pagination, and batching patterns
+You should not need to read most of these to operate the store — this file
+plus live `discover_tools` calls is normally sufficient. They exist for
+deeper questions or for contributor work:
+
+- `README.md` — Setup, quick start, and the full Implemented Tools table
 - `docs/DEVELOPMENT.md` — Tool tiers (R0–R4), numeric caps, concurrency policy, OAuth scope grouping, and channel assignment model
-- `docs/BC-API-SPECIFICITY.md` — Field-level API quirks and undocumented behaviors
-- `docs/MSF.md` — Multi-storefront research and phased delivery record
-- `docs/B2B.md` — B2B Edition API research and phased implementation plan
-- `docs/WORKFLOW.md` — Implementation workflow for adding new endpoints/domains
-- `docs/FOLLOW-UPS.md` — Tracked technical debt and deferred fixes
-- `README.md` — Setup instructions, build commands, and transport configuration
+- `docs/B2B.md` — B2B Edition setup and phased implementation plan
+- **Reference (search by section, don't read linearly):** `docs/BC-API-Reference.md`, `docs/BC-API-SPECIFICITY.md` (inventory backorders: §15)
+- **Script Manager / storefront frontend injection (external):** [Stencil Customization Guide INDEX](https://github.com/roel-c/bc-stencil-customization-guide/blob/main/INDEX.md) — see section above; do not vendor into this repo
+- **Contributor-only (adding/changing tools):** `docs/WORKFLOW.md`, `docs/ARCHITECTURE.md`
+- **History / audit trail (rarely needed):** `docs/MSF.md`, `docs/SECURITY.md`, `docs/FOLLOW-UPS.md`
 - `.env.example` — Template for required environment variable names

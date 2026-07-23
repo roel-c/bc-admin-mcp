@@ -87,7 +87,13 @@ except Exception:
 # ── run ───────────────────────────────────────────────────────────────────────
 echo ""
 echo "BigCommerce MCP Server — pre-session domain smoke test"
-echo "store: ${BC_STORE_HASH}"
+# Store hash identifies the target store (medium sensitivity). Redact in CI so
+# shared logs don't retain a durable store identifier; keep full value locally.
+if [[ "${CI:-}" == "true" || "${CI:-}" == "1" ]]; then
+    echo "store: [redacted]"
+else
+    echo "store: ${BC_STORE_HASH}"
+fi
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 echo ""
@@ -147,6 +153,8 @@ echo ""
 echo "▸ inventory  (scope: store_inventory)"
 check "inventory/locations/list"         "${V3}/inventory/locations?limit=3" false
 check "inventory/items/list"             "${V3}/inventory/items?limit=3" false
+# Location-scoped items include backorder_limit / qty_backordered (default loc 1).
+check "inventory/locations/items/list"   "${V3}/inventory/locations/1/items?limit=3" false
 
 echo ""
 echo "▸ storefront/scripts  (scope: store_content)"

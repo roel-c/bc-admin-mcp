@@ -1,0 +1,347 @@
+<script>
+(function () {
+  'use strict';
+
+  var CONFIG = {
+    productIds: [327, 324],
+    storefrontToken: '{{settings.storefront_api.token}}',
+    heading: 'You may also need',
+    buttonLabel: 'Add selected to cart',
+    mountSelectors: [
+      '.productView-info',
+      '.productView-details',
+      '[data-product-option-change]',
+      '#product-add-to-cart-form',
+      '.productView',
+      'main .product'
+    ],
+    mountPollMs: 250,
+    mountPollMax: 20
+  };
+
+  var WIDGET_ID = 'bc-related-products-widget';
+  var state = { products: [], adding: false };
+
+  function isProductPage() {
+    if (document.querySelector('.productView, [data-product-id], form[data-cart-item-add]')) {
+      return true;
+    }
+    if (document.body) {
+      var cls = ' ' + (document.body.className || '') + ' ';
+      if (cls.indexOf(' product ') !== -1 || cls.indexOf(' page-type-product ') !== -1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function widgetStyles() {
+    return [
+      '<style>',
+      '  .bc-related-products { margin: 1.5rem 0; padding: 1rem; border: 1px solid #e5e5e5; border-radius: 4px; }',
+      '  .bc-related-products__heading { margin: 0 0 0.75rem; font-size: 1.125rem; font-weight: 600; }',
+      '  .bc-related-products__list { list-style: none; margin: 0; padding: 0; }',
+      '  .bc-related-products__item { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid #f0f0f0; }',
+      '  .bc-related-products__item:last-child { border-bottom: none; }',
+      '  .bc-related-products__item img { width: 60px; height: 60px; object-fit: cover; border-radius: 2px; flex-shrink: 0; }',
+      '  .bc-related-products__meta { flex: 1; min-width: 0; }',
+      '  .bc-related-products__name { font-weight: 500; line-height: 1.3; }',
+      '  .bc-related-products__price { color: #666; font-size: 0.875rem; margin-top: 0.125rem; }',
+      '  .bc-related-products__item--disabled { opacity: 0.55; }',
+      '  .bc-related-products__actions { margin-top: 0.75rem; }',
+      '  .bc-related-products__btn {',
+      '    display: inline-block; padding: 0.625rem 1.25rem; border: none; border-radius: 4px;',
+      '    background: #333; color: #fff; font-size: 0.9375rem; cursor: pointer;',
+      '  }',
+      '  .bc-related-products__btn:disabled { opacity: 0.5; cursor: not-allowed; }',
+      '  .bc-related-products__msg { margin-top: 0.5rem; font-size: 0.875rem; }',
+      '  .bc-related-products__msg--error { color: #c0392b; }',
+      '  .bc-related-products__msg--success { color: #27ae60; }',
+      '</style>'
+    ].join('');
+  }
+
+  function fetchProducts(ids) {
+    if (!CONFIG.storefrontToken || CONFIG.storefrontToken.indexOf('{{') !== -1) {
+      return Promise.reject(new Error('Storefront API token was not rendered. Check theme storefront API settings.'));
+    }
+
+    return fetch('/graphql', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + CONFIG.storefrontToken
+      },
+      body: JSON.stringify({
+        query: [
+          'query RelatedProducts($ids: [Int!]) {',
+          '  site {',
+          '    products(entityIds: $ids) {',
+          '      edges {',
+          '        node {',
+          '          entityId',
+          '          name',
+          '          path',
+          '          defaultImage { url(width: 120) }',
+          '          prices { price { value currencyCode } }',
+          '          availabilityV2 { status }',
+          '        }',
+          '      }',
+          '    }',
+          '  }',
+          '}'
+        ].join('\n'),
+        variables: { ids: ids }
+      })
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error('GraphQL request failed (' + res.status + ')');
+        return res.json();
+      })
+      .then(function (payload) {
+        if (payload.errors && payload.errors.length) {
+          throw new Error(payload.errors[0].message || 'GraphQL error');
+        }
+        var edges = (((payload.data || {}).site || {}).products || {}).edges || [];
+        return edges.map(function (edge) { return edge.node; });
+      });
+  }
+
+  function addLineItems(lineItems) {
+    return fetch('/api/storefront/carts', { credentials: 'same-origin' })
+      .then(function (res) { return res.json(); })
+      .then(function (carts) {
+        var cart = Array.isArray(carts) && carts.length ? carts[0] : null;
+
+        if (cart && cart.id) {
+          return fetch('/api/storefront/carts/' + cart.id + '/items', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lineItems: lineItems })
+          });
+        }
+
+        return fetch('/api/storefront/carts', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lineItems: lineItems })
+        });
+      })
+      .then(function (res) {
+        if (!res.ok) {
+          return res.json().then(function (body) {
+            var msg = (body && (body.title || body.detail || body.message)) || ('HTTP ' + res.status);
+            throw new Error(msg);
+          });
+        }
+        return res.json();
+      });
+  }
+
+  function refreshCartUI() {
+    if (window.stencilUtils && window.stencilUtils.api && window.stencilUtils.api.cart) {
+      window.stencilUtils.api.cart.getContent({}, function () {});
+      return;
+    }
+    if (window.utils && window.utils.api && window.utils.api.cart) {
+      window.utils.api.cart.getContent({}, function () {});
+    }
+  }
+
+  function formatPrice(value, currencyCode) {
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: currencyCode || 'USD'
+      }).format(value);
+    } catch (e) {
+      return '$' + Number(value).toFixed(2);
+    }
+  }
+
+  function isPurchasable(product) {
+    if (!product) return false;
+    var status = product.availabilityV2 && product.availabilityV2.status;
+    if (!status) return true;
+    return status === 'Available' || status === 'Preorder';
+  }
+
+  function findMountPoint() {
+    for (var i = 0; i < CONFIG.mountSelectors.length; i++) {
+      var el = document.querySelector(CONFIG.mountSelectors[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function waitForMount(callback) {
+    var attempts = 0;
+
+    function poll() {
+      var mount = findMountPoint();
+      if (mount) {
+        callback(mount);
+        return;
+      }
+      attempts += 1;
+      if (attempts >= CONFIG.mountPollMax) {
+        callback(null);
+        return;
+      }
+      setTimeout(poll, CONFIG.mountPollMs);
+    }
+
+    poll();
+  }
+
+  function mountShell(mount, message, isError) {
+    if (document.getElementById(WIDGET_ID)) return;
+
+    var widget = document.createElement('div');
+    widget.id = WIDGET_ID;
+    widget.className = 'bc-related-products';
+    widget.innerHTML = widgetStyles() +
+      '<h3 class="bc-related-products__heading">' + escapeHtml(CONFIG.heading) + '</h3>' +
+      '<div class="bc-related-products__msg' + (isError ? ' bc-related-products__msg--error' : '') + '">' +
+      escapeHtml(message) + '</div>';
+    mount.appendChild(widget);
+  }
+
+  function renderWidget(mount, products) {
+    if (document.getElementById(WIDGET_ID)) return;
+
+    var widget = document.createElement('div');
+    widget.id = WIDGET_ID;
+    widget.className = 'bc-related-products';
+    widget.innerHTML = [
+      widgetStyles(),
+      '<h3 class="bc-related-products__heading">' + escapeHtml(CONFIG.heading) + '</h3>',
+      '<ul class="bc-related-products__list" role="list"></ul>',
+      '<div class="bc-related-products__actions">',
+      '  <button type="button" class="bc-related-products__btn" disabled>' + escapeHtml(CONFIG.buttonLabel) + '</button>',
+      '  <div class="bc-related-products__msg" aria-live="polite"></div>',
+      '</div>'
+    ].join('');
+
+    var list = widget.querySelector('.bc-related-products__list');
+    var btn = widget.querySelector('.bc-related-products__btn');
+    var msg = widget.querySelector('.bc-related-products__msg');
+
+    products.forEach(function (product) {
+      var purchasable = isPurchasable(product);
+      var price = product.prices && product.prices.price;
+      var imageUrl = (product.defaultImage && product.defaultImage.url) || '';
+      var safeName = escapeHtml(product.name);
+      var li = document.createElement('li');
+      li.className = 'bc-related-products__item' + (purchasable ? '' : ' bc-related-products__item--disabled');
+      li.innerHTML = [
+        '<label style="display:flex;align-items:center;gap:0.75rem;width:100%;cursor:' + (purchasable ? 'pointer' : 'not-allowed') + ';">',
+        '  <input type="checkbox" value="' + product.entityId + '"' + (purchasable ? '' : ' disabled') + ' aria-label="Add ' + safeName + ' to cart">',
+        imageUrl ? '  <img src="' + escapeHtml(imageUrl) + '" alt="" loading="lazy">' : '  <span style="width:60px;height:60px;background:#f5f5f5;display:inline-block;border-radius:2px;"></span>',
+        '  <span class="bc-related-products__meta">',
+        '    <span class="bc-related-products__name">' + safeName + '</span>',
+        price ? '    <span class="bc-related-products__price">' + formatPrice(price.value, price.currencyCode) + '</span>' : '',
+        purchasable ? '' : '    <span class="bc-related-products__price">Unavailable</span>',
+        '  </span>',
+        '</label>'
+      ].join('');
+      list.appendChild(li);
+    });
+
+    function updateButtonState() {
+      var checked = widget.querySelectorAll('input[type="checkbox"]:checked');
+      btn.disabled = checked.length === 0 || state.adding;
+    }
+
+    widget.addEventListener('change', function (e) {
+      if (e.target.matches('input[type="checkbox"]')) updateButtonState();
+    });
+
+    btn.addEventListener('click', function () {
+      if (state.adding) return;
+
+      var checked = widget.querySelectorAll('input[type="checkbox"]:checked');
+      if (!checked.length) return;
+
+      var lineItems = Array.prototype.map.call(checked, function (input) {
+        return { quantity: 1, productId: parseInt(input.value, 10) };
+      });
+
+      state.adding = true;
+      btn.disabled = true;
+      msg.className = 'bc-related-products__msg';
+      msg.textContent = 'Adding to cart…';
+
+      addLineItems(lineItems)
+        .then(function () {
+          msg.className = 'bc-related-products__msg bc-related-products__msg--success';
+          msg.textContent = checked.length === 1
+            ? '1 item added to cart.'
+            : checked.length + ' items added to cart.';
+          Array.prototype.forEach.call(checked, function (input) { input.checked = false; });
+          refreshCartUI();
+        })
+        .catch(function (err) {
+          msg.className = 'bc-related-products__msg bc-related-products__msg--error';
+          msg.textContent = err.message || 'Could not add items to cart.';
+        })
+        .finally(function () {
+          state.adding = false;
+          updateButtonState();
+        });
+    });
+
+    mount.appendChild(widget);
+  }
+
+  function init() {
+    if (!isProductPage()) return;
+    if (document.getElementById(WIDGET_ID)) return;
+
+    waitForMount(function (mount) {
+      if (!mount) {
+        console.warn('[bc-related-products] Could not find a mount point on this PDP.');
+        return;
+      }
+
+      fetchProducts(CONFIG.productIds)
+        .then(function (products) {
+          var byId = {};
+          products.forEach(function (p) { byId[p.entityId] = p; });
+          state.products = CONFIG.productIds
+            .map(function (id) { return byId[id]; })
+            .filter(Boolean);
+
+          if (!state.products.length) {
+            mountShell(mount, 'Related products are not available on this storefront.', true);
+            return;
+          }
+
+          renderWidget(mount, state.products);
+        })
+        .catch(function (err) {
+          console.warn('[bc-related-products]', err.message);
+          mountShell(mount, err.message || 'Could not load related products.', true);
+        });
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>

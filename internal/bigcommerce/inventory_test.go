@@ -280,3 +280,50 @@ func TestUpdateInventoryItemsUsesV3Endpoint(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(resp), `"transaction_id":"txn_items_1"`)
 }
+
+func TestListInventoryLocationItemsUsesFilters(t *testing.T) {
+	c := newTestPromotionsClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		require.Equal(t, http.MethodGet, req.Method)
+		require.Equal(t, "/stores/hash/v3/inventory/locations/5/items", req.URL.Path)
+		require.Equal(t, "1712", req.URL.Query().Get("variant_id:in"))
+		require.Equal(t, "1", req.URL.Query().Get("page"))
+		require.Equal(t, "50", req.URL.Query().Get("limit"))
+		return &http.Response{
+			StatusCode: 200,
+			Body: io.NopCloser(strings.NewReader(
+				`{"data":[{"identity":{"variant_id":1712},"qty_backordered":0,"settings":{"backorder_limit":25}}],"meta":{}}`,
+			)),
+			Header: http.Header{},
+		}, nil
+	}))
+
+	rows, err := c.ListInventoryLocationItems(context.Background(), 5, InventoryLocationItemListParams{
+		VariantIDs: []int{1712},
+		Page:       1,
+		Limit:      50,
+	})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Contains(t, string(rows[0]), `"backorder_limit":25`)
+}
+
+func TestUpdateInventoryLocationItemsUsesV3Endpoint(t *testing.T) {
+	c := newTestPromotionsClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		require.Equal(t, http.MethodPut, req.Method)
+		require.Equal(t, "/stores/hash/v3/inventory/locations/5/items", req.URL.Path)
+		body, err := io.ReadAll(req.Body)
+		require.NoError(t, err)
+		require.Contains(t, string(body), `"backorder_limit":100`)
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"data":{"transaction_id":"txn_loc_1"}}`)),
+			Header:     http.Header{},
+		}, nil
+	}))
+
+	resp, err := c.UpdateInventoryLocationItems(context.Background(), 5, json.RawMessage(
+		`{"settings":[{"identity":{"variant_id":1712},"backorder_limit":100}]}`,
+	))
+	require.NoError(t, err)
+	require.Contains(t, string(resp), `"transaction_id":"txn_loc_1"`)
+}

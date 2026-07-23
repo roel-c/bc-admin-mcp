@@ -7,8 +7,9 @@ domains, and **all future endpoint work should follow it**. It complements
 and caps*) — this doc is the *how we build and ship* cadence.
 
 > TL;DR loop: **research → scope into a small batch → implement all layers →
-> pass the build/test/lint gate → rebuild binary → reload MCP → live-validate
-> with cleanup → update docs → themed commit + push → confirm CI green.**
+> pass the build/test/lint gate → rebuild binary → reload MCP → smoke-check
+> credentials/scopes → live-validate through MCP tools with cleanup → update
+> docs → themed commit + push → confirm CI green.**
 
 ---
 
@@ -108,6 +109,15 @@ go build -o bc-mcp-server ./cmd/server
   stat -f %Sm bc-mcp-server
   ```
   The process start time must be **after** the binary build time.
+- **Pre-flight smoke check before spending MCP round-trips**: run
+  `make smoke` (all domains) and, for MSF-touching batches, `make smoke-msf`.
+  These hit BigCommerce directly via `curl` (bypassing the MCP layer) to
+  confirm `BC_AUTH_TOKEN`/`BC_STORE_HASH` are valid and the OAuth scopes for
+  the domain(s) in this batch are present. A FAIL here means fix credentials
+  first — don't burn §6/§10 MCP calls diagnosing what's actually a scope or
+  token problem. A WARN is a known scope gap/Enterprise gate; note it and
+  proceed. This is a reachability check only, not a substitute for §6/§10
+  (which validate the actual MCP tool contracts).
 
 ## 6. Live-validate against the POC store (validate-as-we-go)
 
@@ -416,11 +426,23 @@ live-validated flow (group created *before* the company, not after).
        `carts/checkout/convert`. Record the BC `order_id`.
     5. `orders/management/update_status` off **Incomplete** (e.g. to
        **Awaiting Payment** / `status_id: 7`) — Incomplete orders are not
-       reliably invoiceable / B2B-visible.
-    6. `b2b/quotes/assign_to_order` linking the quote to that `order_id`
-       (valid while the quote is still New / In Process / Updated by
-       Customer). Optionally `b2b/orders/get` with `bc_order_id` and wait
-       briefly (~5–25s) until `companyId` is populated before invoicing.
+       reliably invoiceable / B2B-visible. Optionally `b2b/orders/get`
+       with `bc_order_id` and wait briefly (~5–25s) until `companyId` is
+       populated before invoicing.
+    6. **`b2b/quotes/assign_to_order`** with `quote_id` + the BC
+       `order_id` from step 4 — **required on the MCP/API surface-check
+       path.** `b2b/quotes/checkout` only generates a cart + storefront
+       checkout URLs; completing that cart via Management API
+       `carts/checkout/convert` creates the BC order but does **not** mark
+       the quote Ordered or write `bcOrderId` on the quote. Live-confirmed
+       2026-07-22: after convert + status update the quote stayed status
+       **In Process (2)** with empty `bcOrderId`/`orderId` until
+       `POST /rfq/{quote_id}/ordered` (`assign_to_order`) ran. Buyer Portal
+       / storefront checkout via the generated `checkoutUrl`
+       (`isFromQuote=Y`) is the path that links natively (B2B frontend
+       calls GraphQL `quoteOrdered`); that path is out of scope for this
+       MCP-only checklist. After assign, re-`b2b/quotes/get` and confirm
+       status **Ordered (4)** and `bcOrderId` = the BC order id.
 11. **Invoice from order → offline payment** — continue the commercial path:
     1. `b2b/invoices/create_from_order` with the BC `order_id` from step 10
        (the tool resolves B2B Edition's internal order id automatically).
@@ -447,10 +469,11 @@ live-validated flow (group created *before* the company, not after).
    is listed) → `b2b/companies/users/list` per company (3 rows each, roles
    0/1/2) → `customers/get` on the linked BC customer IDs used in steps 5/8
    (confirm `origin_channel_id` / `channel_ids` point at the target
-   storefront) → `b2b/companies/payments/list` per company (only Offline
-   methods enabled) → `b2b/quotes/get` on the quote from step 10 (linked
-   order when assigned) → `b2b/invoices/get` + payment/receipt reads from
-   step 11 (openBalance reduced; status partially-paid or completed).
+   storefront) →    `b2b/companies/payments/list` per company (only Offline
+   methods enabled) → `b2b/quotes/get` on the quote from step 10 (status
+   Ordered / `bcOrderId` set **after** `assign_to_order` on the API path) →
+   `b2b/invoices/get` + payment/receipt reads from step 11 (openBalance
+   reduced; status partially-paid or completed).
 13. **Decision point** — same as §10.2 step 10, scoped to all B2B artifacts
    created here: reverse dependency order for commercial artifacts first
    (payment record → receipt lines/receipt if deletable → invoice → order

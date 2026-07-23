@@ -1,0 +1,190 @@
+<script>
+/**
+ * PDP — display section beneath Add to Cart
+ *
+ * Injects a custom display block immediately after `.add-to-cart-buttons`
+ * (Add to Cart + B2B "Add to quote" / "Add to shopping list" on MSF-B2BE).
+ *
+ * Script Manager settings:
+ *   Name:       PDP — Beneath ATC Display
+ *   Location:   Footer
+ *   Pages:      Storefront Pages (or All Pages — script self-gates to PDP)
+ *   Script type: Script
+ *   Channel:    MSF-B2BE only (set channel_id when creating via API)
+ *
+ * Paste this entire file (including <script> tags) into Script Manager HTML.
+ */
+(function () {
+  'use strict';
+
+  var CONFIG = {
+    // Unique id — change if you deploy multiple variants
+    widgetId: 'bc-pdp-beneath-atc',
+
+    // Preferred mount: insert immediately AFTER this element
+    // From your MSF-B2BE PDP: div.add-to-cart-buttons inside #add-to-cart-wrapper
+    afterSelectors: [
+      '.add-to-cart-buttons',
+      '#add-to-cart-wrapper .add-to-cart-buttons',
+      '#add-to-cart-wrapper'
+    ],
+
+    // Fallback: append as last child of these parents if "after" target is missing
+    parentSelectors: [
+      '#add-to-cart-wrapper',
+      '.productView-details',
+      '.productView'
+    ],
+
+    heading: 'Custom display',
+    bodyHtml:
+      '<p>Replace this copy with your PDP message, promo, or product-specific content.</p>',
+
+    // Poll while B2B Edition injects quote/list buttons into the ATC area
+    pollMs: 250,
+    pollMax: 40
+  };
+
+  function isProductPage() {
+    if (document.querySelector(
+      '.productView, [data-product-id], form[data-cart-item-add], #form-action-addToCart, #add-to-cart-wrapper'
+    )) {
+      return true;
+    }
+    if (document.body) {
+      var cls = ' ' + (document.body.className || '') + ' ';
+      if (cls.indexOf(' product ') !== -1 || cls.indexOf(' page-type-product ') !== -1) {
+        return true;
+      }
+    }
+    return /\/products?\//i.test(window.location.pathname || '');
+  }
+
+  function findAfterTarget() {
+    for (var i = 0; i < CONFIG.afterSelectors.length; i++) {
+      var el = document.querySelector(CONFIG.afterSelectors[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function findParentFallback() {
+    for (var i = 0; i < CONFIG.parentSelectors.length; i++) {
+      var el = document.querySelector(CONFIG.parentSelectors[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function widgetStyles() {
+    return [
+      '<style>',
+      '#' + CONFIG.widgetId + ' {',
+      '  margin: 1rem 0 1.25rem;',
+      '  padding: 1rem 1.125rem;',
+      '  border: 1px solid #d8d8d8;',
+      '  border-radius: 2px;',
+      '  background: #fafafa;',
+      '  box-sizing: border-box;',
+      '  width: 100%;',
+      '}',
+      '#' + CONFIG.widgetId + ' .bc-pdp-beneath-atc__heading {',
+      '  margin: 0 0 0.5rem;',
+      '  font-size: 1rem;',
+      '  font-weight: 600;',
+      '  line-height: 1.3;',
+      '}',
+      '#' + CONFIG.widgetId + ' .bc-pdp-beneath-atc__body {',
+      '  margin: 0;',
+      '  font-size: 0.9375rem;',
+      '  line-height: 1.45;',
+      '  color: #333;',
+      '}',
+      '#' + CONFIG.widgetId + ' .bc-pdp-beneath-atc__body p { margin: 0 0 0.5rem; }',
+      '#' + CONFIG.widgetId + ' .bc-pdp-beneath-atc__body p:last-child { margin-bottom: 0; }',
+      '</style>'
+    ].join('');
+  }
+
+  function buildWidget() {
+    var root = document.createElement('div');
+    root.id = CONFIG.widgetId;
+    root.className = 'bc-pdp-beneath-atc';
+    root.setAttribute('data-bc-pdp-beneath-atc', '1');
+    root.innerHTML =
+      widgetStyles() +
+      '<div class="bc-pdp-beneath-atc__heading">' + CONFIG.heading + '</div>' +
+      '<div class="bc-pdp-beneath-atc__body">' + CONFIG.bodyHtml + '</div>';
+    return root;
+  }
+
+  function mountWidget() {
+    if (document.getElementById(CONFIG.widgetId)) return true;
+
+    var after = findAfterTarget();
+    var widget = buildWidget();
+
+    if (after && after.parentNode) {
+      // Place directly beneath the ATC button stack (incl. B2B quote/list when present)
+      if (after.nextSibling) {
+        after.parentNode.insertBefore(widget, after.nextSibling);
+      } else {
+        after.parentNode.appendChild(widget);
+      }
+      return true;
+    }
+
+    var parent = findParentFallback();
+    if (parent) {
+      parent.appendChild(widget);
+      return true;
+    }
+
+    return false;
+  }
+
+  function waitAndMount(done) {
+    var attempts = 0;
+
+    function tick() {
+      if (mountWidget()) {
+        done(true);
+        return;
+      }
+      attempts += 1;
+      if (attempts >= CONFIG.pollMax) {
+        console.warn('[bc-pdp-beneath-atc] Mount target not found on this PDP.');
+        done(false);
+        return;
+      }
+      setTimeout(tick, CONFIG.pollMs);
+    }
+
+    tick();
+  }
+
+  function startObserver() {
+    // B2B Edition may re-render quote/list buttons; re-insert if our node is removed
+    var observer = new MutationObserver(function () {
+      if (!document.getElementById(CONFIG.widgetId)) {
+        mountWidget();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function init() {
+    if (!isProductPage()) return;
+
+    waitAndMount(function (ok) {
+      if (ok) startObserver();
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>

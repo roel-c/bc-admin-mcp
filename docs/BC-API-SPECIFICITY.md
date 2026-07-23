@@ -16,6 +16,11 @@ Field-level quirks, undocumented behaviors, and response shape differences disco
 8. [Category Deletion: Cascade Behavior & Product Impact](#8-category-deletion-cascade-behavior--product-impact)
 9. [Parent Name Resolution Pattern](#9-parent-name-resolution-pattern)
 10. [Empty Filter Query Parameter Bug](#10-empty-filter-query-parameter-bug)
+11. [Category Tree GET Filter Uses `category_id:in`, Not `id:in`](#11-category-tree-get-filter-uses-category_idin-not-idin)
+12. [Category Metafields Use Legacy Path, Not Tree Path](#12-category-metafields-use-legacy-path-not-tree-path)
+13. [Dedicated Category-Assignments Endpoints Mirror the Catalog-Side Pattern](#13-dedicated-category-assignments-endpoints-mirror-the-catalog-side-pattern)
+14. [Storefront Metafields via GraphQL + Script Manager](#14-storefront-metafields-via-graphql--script-manager)
+15. [Inventory Backorders vs Catalog Preorder](#15-inventory-backorders-vs-catalog-preorder)
 
 ---
 
@@ -661,6 +666,109 @@ Both endpoints contrast with the batch `PUT /v3/catalog/products` approach where
 |------|---------------|----------------|-------|
 | `assign_categories` | ≤ 100 | ≤ 50 | ≤ 500 |
 | `unassign_categories` | ≤ 100 | ≤ 50 | (same intersection) |
+
+---
+
+## 14. Storefront Metafields via GraphQL + Script Manager
+
+**Discovered:** 2026-07-22 (PDP metafields display on MSF-B2BE)
+**Reference example:** `scripts/pdp-metafields-display.html`
+**Related tools:** `catalog/products/metafields/set`, `catalog/products/variants/metafields/set`, `storefront/scripts/create`
+
+### External frontend guidance (do not duplicate here)
+
+For **Script Manager injections** that run on the storefront — especially
+scripts that use Storefront GraphQL to display or act on product/variant/
+metafield data — use the external Stencil guide as the authoritative
+frontend reference (patterns, pitfalls, query shapes):
+
+**[bc-stencil-customization-guide — INDEX.md](https://github.com/roel-c/bc-stencil-customization-guide/blob/main/INDEX.md)**
+
+This MCP repo remains the source of truth for **creating/updating**
+metafields via the Management API and for **Scripts API** injection quirks
+below. Do not vendor the guide into this tree.
+
+### Storefront visibility requires `permission_set`
+
+Management API metafields default to `app_only`. Storefront GraphQL returns **only** metafields with:
+
+- `read_and_sf_access`, or
+- `write_and_sf_access`
+
+Set this at create time (or update before relying on SF GraphQL). Query by exact `namespace` (and preferably explicit `keys`).
+
+### Script Manager runs Handlebars over the whole `html` body
+
+For `kind=script_tag`, BigCommerce renders Handlebars before the browser sees the script. The **only** safe adjacent double-brace sequence is an intentional placeholder (commonly `settings.storefront_api.token`).
+
+Do **not** put other adjacent double-brace pairs in JS — including token-detection checks like searching for an unrendered Handlebars marker. Handlebars will corrupt the script and it may fail silently (no widget, odd console errors).
+
+Validate the rendered token by shape instead (JWT-like length / does not start with `{`), and optionally fall back to a theme-exposed attribute such as `header[data-apitoken]`.
+
+### Practical PDP pattern
+
+1. Upsert product/variant metafields with SF permission via MCP catalog tools.
+2. Inject footer `script_tag` scoped to the target `channel_id`.
+3. `fetch('/graphql', { credentials: 'same-origin', headers: { Authorization: 'Bearer ' + token } })`.
+4. Resolve product id from `.productView[data-entity-id]` / `[data-product-id]`; refresh variant metafields on option `change`/`click`.
+
+ASCII-only script **names** (no em dashes). Prefer `footer` + self-gate to PDP rather than `head` observers against `document.body` before it exists.
+
+### Unrelated storefront 404s (do not chase in metafield scripts)
+
+| Console noise | Typical cause |
+|---|---|
+| `/…/undefined` from `theme-bundle` `_loadImage` | Product/variant has no image URL |
+| `/customer/current.jwt` 404 | Guest / B2BE session probe |
+| Preload of a dead `src` script | Leftover Script Manager `kind=src` entry |
+
+---
+
+## 15. Inventory Backorders vs Catalog Preorder
+
+**Discovered:** 2026-07-22  
+**Source files:** `internal/tools/inventory/tools.go`, `internal/bigcommerce/inventory.go`  
+**Official guide:** [Backorders](https://docs.bigcommerce.com/developer/docs/admin/catalog-and-inventory/backorders)
+
+Inventory **backorders** let shoppers purchase past on-hand stock up to a per-location `settings.backorder_limit`. BigCommerce tracks `qty_backordered` separately from on-hand; sellable quantity is **available_to_sell** (ATS).
+
+This is **not** catalog `availability: preorder` (which uses `preorder_release_date` / `preorder_message` on the product).
+
+### Read path
+
+`inventory/items/get` and `inventory/items/list` already return per-location:
+
+- `qty_backordered`
+- `available_to_sell` / `total_inventory_onhand`
+- `settings.backorder_limit` (and related settings)
+
+`inventory/locations/items/list` is the location-scoped equivalent (`GET /v3/inventory/locations/{location_id}/items`).
+
+### Write path
+
+| Goal | Tool | BC endpoint |
+|---|---|---|
+| Set `backorder_limit` | `inventory/locations/items/update` | `PUT /v3/inventory/locations/{location_id}/items` with `settings[]` |
+| Set/adjust `qty_backordered` | `inventory/adjustments/absolute` or `…/relative` | absolute PUT / relative POST with optional `qty_backordered` |
+| Other item settings (non-limit) | `inventory/items/update_batch` | `PUT /v3/inventory/items` |
+
+`parseAdjustmentPayload` previously stripped unknown fields and only forwarded `location_id` / `variant_id` / `quantity` — so `qty_backordered` never reached BigCommerce until 2026-07-22.
+
+Relative adjustments may omit `quantity` when only adjusting `qty_backordered` (BC docs allow qty-only rows). **Do not send `quantity: 0` on relative adjustments** — BigCommerce returns **422** (`quantity: must be greater than 0`); the MCP omits the field when relative quantity is 0. Absolute/relative item identity and `locations/items/update` `settings[].identity` both require **exactly one** of `variant_id`, `product_id`, or `sku` (not multiple).
+
+### Orders + webhooks
+
+- V2 order create/update payloads may include `products[].quantity_backordered` (pass-through on `orders/management/create` and `update`). Oversells beyond ATS return **409** with `available_quantity` / `available_quantity_for_backorder`.
+- Channel inventory webhook scopes include `store/channel/{id}/inventory/product/backorder_limit_reached` and `store/channel/{id}/inventory/product/stock_changed`.
+
+### Deferred
+
+- **Admin GraphQL** inventory aggregated fields (`backorderLimit`, `qtyBackordered`, etc.) — this MCP is REST-first; use inventory item tools instead.
+- **Store inventory / OOS merchant settings** that gate storefront backorder purchasing behavior — Control Panel / settings APIs, not inventory item writes.
+
+### Store prerequisites
+
+Backorders behave correctly only when inventory tracking is enabled and storefront OOS settings allow purchasing past zero (merchant config; not a single catalog toggle).
 
 ---
 

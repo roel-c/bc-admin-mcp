@@ -1,0 +1,544 @@
+<script>
+/**
+ * PDP - Product + Variant Metafields Display
+ *
+ * Worked example for Storefront GraphQL metafields via Script Manager.
+ * MCP quirks: docs/BC-API-SPECIFICITY.md §14
+ * Frontend / Script Manager patterns (external): 
+ *   https://github.com/roel-c/bc-stencil-customization-guide/blob/main/INDEX.md
+ *
+ * Uses the Stencil auto-token (settings.storefront_api.token) against /graphql.
+ * Shows product metafields on load; swaps variant metafields when options change.
+ *
+ * IMPORTANT: Do not put adjacent double curly braces anywhere except the intentional
+ * token Handlebars placeholder below. Script Manager runs Handlebars over script_tag HTML.
+ *
+ * Prerequisites: metafield permission_set read_and_sf_access or write_and_sf_access.
+ * Namespace: mcp_sample
+ *
+ * Script Manager: Footer, Storefront Pages, script_tag, channel-scoped as needed
+ */
+(function () {
+  'use strict';
+
+  var CONFIG = {
+    widgetId: 'bc-pdp-metafields',
+    namespace: 'mcp_sample',
+    // Intentional Handlebars - rendered server-side by Script Manager / Stencil
+    storefrontToken: '{{settings.storefront_api.token}}',
+    afterSelectors: [
+      '.add-to-cart-buttons',
+      '#add-to-cart-wrapper .add-to-cart-buttons',
+      '#add-to-cart-wrapper',
+      '.productView-options',
+      '.productView-details'
+    ],
+    parentSelectors: [
+      '#add-to-cart-wrapper',
+      '.productView-details',
+      '.productView'
+    ],
+    pollMs: 250,
+    pollMax: 40,
+    debounceMs: 200
+  };
+
+  var state = {
+    productId: null,
+    productMetafields: [],
+    variantsById: {},
+    selectedVariantId: null,
+    debounceTimer: null,
+    debug: '',
+    token: ''
+  };
+
+  function isProductPage() {
+    if (document.querySelector(
+      '.productView, [data-product-id], [data-entity-id].productView, form[data-cart-item-add], #form-action-addToCart, #add-to-cart-wrapper'
+    )) {
+      return true;
+    }
+    if (document.body) {
+      var cls = ' ' + (document.body.className || '') + ' ';
+      if (cls.indexOf(' product ') !== -1 || cls.indexOf(' page-type-product ') !== -1) {
+        return true;
+      }
+    }
+    return /\/products?\//i.test(window.location.pathname || '');
+  }
+
+  function resolveProductId() {
+    var view = document.querySelector('.productView[data-entity-id], [data-entity-id].productView');
+    if (view) {
+      var n0 = parseInt(view.getAttribute('data-entity-id'), 10);
+      if (n0 > 0) return n0;
+    }
+    var el = document.querySelector('[data-product-id]');
+    if (el) {
+      var n = parseInt(el.getAttribute('data-product-id'), 10);
+      if (n > 0) return n;
+    }
+    var input = document.querySelector(
+      'form[data-cart-item-add] input[name="product_id"], input[name="product_id"]'
+    );
+    if (input && input.value) {
+      var n2 = parseInt(input.value, 10);
+      if (n2 > 0) return n2;
+    }
+    return null;
+  }
+
+  function looksLikeJwt(t) {
+    if (!t || typeof t !== 'string') return false;
+    // Unrendered Handlebars starts with "{"; JWTs start with "eyJ"
+    if (t.charAt(0) === '{') return false;
+    return t.length > 20;
+  }
+
+  function resolveStorefrontToken() {
+    if (looksLikeJwt(CONFIG.storefrontToken)) return CONFIG.storefrontToken;
+
+    var selectors = [
+      'header[data-apitoken]',
+      '[data-apitoken]',
+      '[data-api-token]',
+      'meta[name="storefront-api-token"]',
+      'meta[name="api-token"]'
+    ];
+    for (var i = 0; i < selectors.length; i++) {
+      var el = document.querySelector(selectors[i]);
+      if (!el) continue;
+      var raw =
+        el.getAttribute('data-apitoken') ||
+        el.getAttribute('data-api-token') ||
+        el.getAttribute('content') ||
+        '';
+      if (looksLikeJwt(raw)) return raw;
+    }
+
+    if (window.jsContext && looksLikeJwt(window.jsContext.token)) {
+      return window.jsContext.token;
+    }
+    if (window.BCData && looksLikeJwt(window.BCData.storefront_api_token)) {
+      return window.BCData.storefront_api_token;
+    }
+    return '';
+  }
+
+  function findAfterTarget() {
+    for (var i = 0; i < CONFIG.afterSelectors.length; i++) {
+      var el = document.querySelector(CONFIG.afterSelectors[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function findParentFallback() {
+    for (var i = 0; i < CONFIG.parentSelectors.length; i++) {
+      var el = document.querySelector(CONFIG.parentSelectors[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function ensureStyles() {
+    if (document.getElementById(CONFIG.widgetId + '-css')) return;
+    var css = document.createElement('style');
+    css.id = CONFIG.widgetId + '-css';
+    css.textContent = [
+      '#' + CONFIG.widgetId + ' {',
+      '  margin: 1rem 0 1.25rem; padding: 0.85rem 1rem;',
+      '  border: 1px solid #d9d9d9; border-radius: 4px;',
+      '  background: #fafafa; font-size: 0.9rem; line-height: 1.45; color: #333;',
+      '}',
+      '#' + CONFIG.widgetId + ' .bc-mf__heading { font-weight: 700; margin: 0 0 0.5rem; font-size: 0.95rem; }',
+      '#' + CONFIG.widgetId + ' .bc-mf__section { margin: 0.65rem 0 0; }',
+      '#' + CONFIG.widgetId + ' .bc-mf__section-title {',
+      '  font-weight: 600; margin: 0 0 0.35rem; color: #555;',
+      '  font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.03em;',
+      '}',
+      '#' + CONFIG.widgetId + ' .bc-mf__rows { margin: 0; }',
+      '#' + CONFIG.widgetId + ' .bc-mf__row { display: flex; gap: 0.75rem; padding: 0.15rem 0; }',
+      '#' + CONFIG.widgetId + ' .bc-mf__key { flex: 0 0 42%; font-weight: 600; }',
+      '#' + CONFIG.widgetId + ' .bc-mf__val { flex: 1 1 auto; word-break: break-word; }',
+      '#' + CONFIG.widgetId + ' .bc-mf__empty { color: #888; font-style: italic; margin: 0; }',
+      '#' + CONFIG.widgetId + ' .bc-mf__meta { color: #777; font-size: 0.8rem; margin: 0.35rem 0 0; }',
+      '#' + CONFIG.widgetId + ' .bc-mf__debug { color: #a33; font-size: 0.75rem; margin: 0.5rem 0 0; white-space: pre-wrap; }'
+    ].join('\n');
+    document.head.appendChild(css);
+  }
+
+  function rowsHtml(pairs) {
+    if (!pairs || !pairs.length) {
+      return '<p class="bc-mf__empty">No metafields in namespace "' +
+        escapeHtml(CONFIG.namespace) + '"</p>';
+    }
+    var html = '<div class="bc-mf__rows">';
+    for (var i = 0; i < pairs.length; i++) {
+      html +=
+        '<div class="bc-mf__row">' +
+        '<div class="bc-mf__key">' + escapeHtml(pairs[i].key) + '</div>' +
+        '<div class="bc-mf__val">' + escapeHtml(pairs[i].value) + '</div>' +
+        '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function render() {
+    var root = document.getElementById(CONFIG.widgetId);
+    if (!root) return;
+    ensureStyles();
+
+    var variantLabel = state.selectedVariantId
+      ? ('Variant #' + state.selectedVariantId)
+      : 'No variant selected yet';
+    var variantPairs = [];
+    if (state.selectedVariantId && state.variantsById[state.selectedVariantId]) {
+      variantPairs = state.variantsById[state.selectedVariantId].metafields || [];
+      var sku = state.variantsById[state.selectedVariantId].sku;
+      if (sku) variantLabel = sku + ' (#' + state.selectedVariantId + ')';
+    }
+
+    root.innerHTML =
+      '<div class="bc-mf__heading">Metafields (namespace: ' +
+      escapeHtml(CONFIG.namespace) + ')</div>' +
+      '<div class="bc-mf__section">' +
+      '<div class="bc-mf__section-title">Product</div>' +
+      rowsHtml(state.productMetafields) +
+      '</div>' +
+      '<div class="bc-mf__section">' +
+      '<div class="bc-mf__section-title">Variant - ' + escapeHtml(variantLabel) + '</div>' +
+      rowsHtml(variantPairs) +
+      '</div>' +
+      '<p class="bc-mf__meta">Loaded via Storefront GraphQL' +
+      (state.productId ? (' | product #' + state.productId) : '') +
+      '</p>' +
+      (state.debug
+        ? ('<p class="bc-mf__debug">' + escapeHtml(state.debug) + '</p>')
+        : '');
+  }
+
+  function ensureWidget() {
+    if (document.getElementById(CONFIG.widgetId)) return true;
+
+    var after = findAfterTarget();
+    var root = document.createElement('div');
+    root.id = CONFIG.widgetId;
+    root.className = 'bc-pdp-metafields';
+    root.setAttribute('data-bc-pdp-metafields', '1');
+    root.textContent = 'Loading metafields...';
+
+    if (after && after.parentNode) {
+      if (after.nextSibling) {
+        after.parentNode.insertBefore(root, after.nextSibling);
+      } else {
+        after.parentNode.appendChild(root);
+      }
+      return true;
+    }
+
+    var parent = findParentFallback();
+    if (parent) {
+      parent.appendChild(root);
+      return true;
+    }
+    return false;
+  }
+
+  function edgesToPairs(connection) {
+    var out = [];
+    if (!connection || !connection.edges) return out;
+    for (var i = 0; i < connection.edges.length; i++) {
+      var node = connection.edges[i] && connection.edges[i].node;
+      if (node) out.push({ key: node.key, value: node.value });
+    }
+    return out;
+  }
+
+  function collectOptionValueIds(variantNode) {
+    var ids = [];
+    var optEdges = (((variantNode || {}).options || {}).edges) || [];
+    for (var o = 0; o < optEdges.length; o++) {
+      var opt = optEdges[o] && optEdges[o].node;
+      if (!opt) continue;
+      var valEdges = ((opt.values || {}).edges) || [];
+      if (valEdges.length) {
+        for (var vv = 0; vv < valEdges.length; vv++) {
+          var val = valEdges[vv] && valEdges[vv].node;
+          if (val && val.entityId) ids.push(val.entityId);
+        }
+        continue;
+      }
+      var flatVals = Array.isArray(opt.values) ? opt.values : [];
+      for (var f = 0; f < flatVals.length; f++) {
+        if (flatVals[f] && flatVals[f].entityId) ids.push(flatVals[f].entityId);
+      }
+    }
+
+    if (!optEdges.length && Array.isArray((variantNode || {}).options)) {
+      var flatOpts = variantNode.options;
+      for (var i = 0; i < flatOpts.length; i++) {
+        var fo = flatOpts[i];
+        var fvals = (fo && fo.values) || [];
+        for (var j = 0; j < fvals.length; j++) {
+          if (fvals[j] && fvals[j].entityId) ids.push(fvals[j].entityId);
+        }
+      }
+    }
+    return ids;
+  }
+
+  function gql(query, variables) {
+    if (!looksLikeJwt(state.token)) {
+      return Promise.reject(new Error(
+        'Storefront API token missing. Handlebars did not render settings.storefront_api.token and no data-apitoken fallback was found.'
+      ));
+    }
+
+    return fetch('/graphql', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + state.token
+      },
+      body: JSON.stringify({ query: query, variables: variables || {} })
+    }).then(function (res) {
+      if (!res.ok) {
+        throw new Error('GraphQL HTTP ' + res.status);
+      }
+      return res.json();
+    });
+  }
+
+  function loadMetafields(productId) {
+    var query =
+      'query PdpMetafields($productId: Int!) {\n' +
+      '  site {\n' +
+      '    product(entityId: $productId) {\n' +
+      '      entityId\n' +
+      '      name\n' +
+      '      metafields(namespace: "mcp_sample", keys: ["erp_sku", "quality_tier"], first: 50) {\n' +
+      '        edges { node { key value } }\n' +
+      '      }\n' +
+      '      variants(first: 50) {\n' +
+      '        edges {\n' +
+      '          node {\n' +
+      '            entityId\n' +
+      '            sku\n' +
+      '            metafields(namespace: "mcp_sample", keys: ["bin_location", "pick_priority"], first: 50) {\n' +
+      '              edges { node { key value } }\n' +
+      '            }\n' +
+      '            options {\n' +
+      '              edges {\n' +
+      '                node {\n' +
+      '                  entityId\n' +
+      '                  displayName\n' +
+      '                  values {\n' +
+      '                    edges { node { entityId label } }\n' +
+      '                  }\n' +
+      '                }\n' +
+      '              }\n' +
+      '            }\n' +
+      '          }\n' +
+      '        }\n' +
+      '      }\n' +
+      '    }\n' +
+      '  }\n' +
+      '}';
+
+    return gql(query, { productId: productId }).then(function (payload) {
+      var errs = (payload.errors || []).map(function (e) { return e.message; });
+      if (errs.length) {
+        state.debug = 'GraphQL: ' + errs.join(' | ');
+        console.warn('[bc-pdp-metafields] GraphQL errors', payload.errors);
+      } else {
+        state.debug = '';
+      }
+
+      var product = payload.data && payload.data.site && payload.data.site.product;
+      if (!product) {
+        throw new Error(
+          errs.length
+            ? errs[0]
+            : 'Product not returned from Storefront GraphQL'
+        );
+      }
+
+      state.productMetafields = edgesToPairs(product.metafields);
+      state.variantsById = {};
+
+      var edges = (product.variants && product.variants.edges) || [];
+      for (var i = 0; i < edges.length; i++) {
+        var v = edges[i].node;
+        if (!v) continue;
+        state.variantsById[v.entityId] = {
+          sku: v.sku || '',
+          metafields: edgesToPairs(v.metafields),
+          optionValueIds: collectOptionValueIds(v)
+        };
+      }
+
+      if (!state.productMetafields.length && !errs.length) {
+        state.debug =
+          'Query succeeded for product #' + product.entityId +
+          ' ("' + (product.name || '') + '") but metafields edges were empty. ' +
+          'Confirm permission_set is read_and_sf_access/write_and_sf_access and namespace is mcp_sample.';
+      }
+    });
+  }
+
+  function readSelectedOptionValueIds() {
+    var ids = [];
+    var checked = document.querySelectorAll(
+      'input[type="radio"][name^="attribute"]:checked, ' +
+      'input[type="checkbox"][name^="attribute"]:checked'
+    );
+    for (var i = 0; i < checked.length; i++) {
+      var n = parseInt(checked[i].value, 10);
+      if (n > 0) ids.push(n);
+    }
+    var selects = document.querySelectorAll('select[name^="attribute"]');
+    for (var s = 0; s < selects.length; s++) {
+      var n2 = parseInt(selects[s].value, 10);
+      if (n2 > 0) ids.push(n2);
+    }
+    var activeBtns = document.querySelectorAll(
+      '[data-product-attribute-value].is-active, ' +
+      '.form-option.is-active [data-product-attribute-value], ' +
+      'label.is-active [data-product-attribute-value]'
+    );
+    for (var b = 0; b < activeBtns.length; b++) {
+      var n3 = parseInt(activeBtns[b].getAttribute('data-product-attribute-value'), 10);
+      if (n3 > 0 && ids.indexOf(n3) === -1) ids.push(n3);
+    }
+    return ids;
+  }
+
+  function sameIdSet(a, b) {
+    if (a.length !== b.length) return false;
+    var copy = a.slice().sort();
+    var copyB = b.slice().sort();
+    for (var i = 0; i < copy.length; i++) {
+      if (copy[i] !== copyB[i]) return false;
+    }
+    return true;
+  }
+
+  function resolveSelectedVariantId() {
+    var selected = readSelectedOptionValueIds();
+    if (!selected.length) {
+      var keys = Object.keys(state.variantsById);
+      if (keys.length === 1) return parseInt(keys[0], 10);
+      return null;
+    }
+
+    var matchId = null;
+    var ids = Object.keys(state.variantsById);
+    for (var i = 0; i < ids.length; i++) {
+      var id = parseInt(ids[i], 10);
+      var optIds = state.variantsById[id].optionValueIds || [];
+      if (sameIdSet(optIds, selected)) {
+        matchId = id;
+        break;
+      }
+    }
+    return matchId;
+  }
+
+  function refreshVariantSelection() {
+    state.selectedVariantId = resolveSelectedVariantId();
+    render();
+  }
+
+  function debouncedRefresh() {
+    clearTimeout(state.debounceTimer);
+    state.debounceTimer = setTimeout(refreshVariantSelection, CONFIG.debounceMs);
+  }
+
+  function bindOptionListeners() {
+    document.addEventListener('change', function (e) {
+      var t = e.target;
+      if (!t || !t.name) return;
+      if (String(t.name).indexOf('attribute') === 0) {
+        debouncedRefresh();
+      }
+    });
+    document.addEventListener('click', function (e) {
+      var t = e.target;
+      if (!t || !t.closest) return;
+      if (
+        t.closest('[data-product-attribute-value]') ||
+        t.closest('[data-product-attribute]') ||
+        t.closest('.form-option')
+      ) {
+        debouncedRefresh();
+      }
+    });
+  }
+
+  function waitAndMount(done) {
+    var attempts = 0;
+    function tick() {
+      if (ensureWidget()) {
+        done(true);
+        return;
+      }
+      attempts += 1;
+      if (attempts >= CONFIG.pollMax) {
+        console.warn('[bc-pdp-metafields] Mount target not found on this PDP.');
+        done(false);
+        return;
+      }
+      setTimeout(tick, CONFIG.pollMs);
+    }
+    tick();
+  }
+
+  function init() {
+    if (!isProductPage()) return;
+
+    state.productId = resolveProductId();
+    state.token = resolveStorefrontToken();
+
+    waitAndMount(function (ok) {
+      if (!ok) return;
+
+      if (!state.productId) {
+        state.debug = 'Could not resolve product entity id from the DOM.';
+        render();
+        return;
+      }
+
+      loadMetafields(state.productId)
+        .then(function () {
+          refreshVariantSelection();
+          bindOptionListeners();
+        })
+        .catch(function (err) {
+          console.error('[bc-pdp-metafields] Failed to load metafields', err);
+          state.debug = String(err && err.message ? err.message : err);
+          state.productMetafields = [];
+          state.variantsById = {};
+          render();
+        });
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>

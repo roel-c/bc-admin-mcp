@@ -16,6 +16,45 @@ If you also have the **`mcp-proxy`** monorepo open (for example side-by-side in 
 
 There is **no code or runtime dependency** between the two: you do **not** need `mcp-proxy` checked out or running to build or use this server. Opening both folders together is an editor convenience, not a combined product.
 
+## Quick Start
+
+```bash
+git clone https://github.com/roel-c/bc-admin-mcp.git && cd bc-admin-mcp
+cp .env.example .env   # then edit with your BC_STORE_HASH + BC_AUTH_TOKEN
+make build && make run # stdio transport — for Cursor, Claude Desktop, etc.
+```
+
+Point your MCP client at the built binary (see [Integration with Cursor](#integration-with-cursor)
+for a `.cursor/mcp.json` example). Then, from the client:
+
+1. **`discover_tools("")`** — see the live category roots (`catalog`, `orders`, `customers`, `marketing`, `inventory`, `storefront`, `webhooks`, `carts`, plus `b2b` when enabled).
+2. **`discover_tools("<path>")`** — drill down (e.g. `"catalog"` → `"catalog/products"`) until you see tool stubs with a `tier`.
+3. **`execute_tool`** — run one, with the full path and its arguments nested under `arguments`:
+   ```json
+   {
+     "tool_path": "catalog/products/metafields/set",
+     "arguments": { "product_id": 19402, "namespace": "my_integration", "key": "external_ref", "value": "pim-12345", "confirmed": false }
+   }
+   ```
+   Tools tiered R1+ (writes) return a preview until you re-call with `"confirmed": true` — see [Tool Tiers](#tool-tiers-from-docsdevelopmentmd) below.
+
+That's the whole interaction model. Everything past this point is detail: full setup/safety checklist ([Setup](#setup)), the complete tool inventory ([Implemented Tools](#implemented-tools)), and design rationale ([Architecture](#architecture)).
+
+## Documentation Map
+
+Not every doc here needs to be read up front. Use this table to find the right one for what you're doing right now:
+
+| Doc | Read this if... |
+|---|---|
+| **This README** | You're setting up or operating the server |
+| **[docs/AGENT.md](./docs/AGENT.md)** | You're an agent/LLM calling tools — operating rules, safety, tiers, response format; Script Manager frontend injection points to an external Stencil guide |
+| **[docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)** | You need exact numeric caps, OAuth scopes, or tier policy |
+| **[docs/B2B.md](./docs/B2B.md)** | You're using or extending the B2B Edition tools |
+| **[docs/WORKFLOW.md](./docs/WORKFLOW.md)** | You're adding a new tool/endpoint (contributor cadence) |
+| **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | You want design rationale, token budget analysis, or registration mechanics (contributor) |
+| **[docs/BC-API-Reference.md](./docs/BC-API-Reference.md)**, **[docs/BC-API-SPECIFICITY.md](./docs/BC-API-SPECIFICITY.md)** | You need one specific BigCommerce endpoint/field detail — jump to the section, these aren't meant to be read start to end |
+| **[docs/MSF.md](./docs/MSF.md)**, **[docs/SECURITY.md](./docs/SECURITY.md)**, **[docs/FOLLOW-UPS.md](./docs/FOLLOW-UPS.md)** | You want implementation history, the security audit, or tracked technical debt |
+
 ## Architecture
 
 This server uses **progressive disclosure** to minimize token consumption and maximize LLM accuracy. Instead of registering all BigCommerce tools upfront (~40,000+ tokens), only two meta-tools are exposed:
@@ -34,7 +73,7 @@ catalog/     — Products, categories, brands, variants, channels/MSF, and price
 orders/      — V2 order management, fulfillment shipments, payments (capture/void), and refunds.
 customers/   — V3 customer records, addresses, attributes, metafields, settings, consent, stored instruments, credential validation, segments, shopper profiles, and V2 customer groups.
 marketing/   — Promotions engine: automatic promotions, coupon promotions + codes, and store-wide promotion settings.
-inventory/   — Locations, items, and guarded absolute/relative stock adjustments.
+inventory/   — Locations, items, backorders (limit + qty_backordered), and guarded absolute/relative stock adjustments.
 storefront/  — Script Manager script injection and management.
 webhooks/    — Webhook registration CRUD and delivery-event inspection (/v3/hooks).
 carts/       — Server-side cart lifecycle, cart items, cart metafields, and the checkout flow (coupons, addresses, consignments, convert-to-order).
@@ -179,12 +218,15 @@ Use **`confirmed: true`** on the second call after reviewing the preview.
 
 ## Implemented Tools
 
+A human-browsable snapshot of every tool path, for skimming without a running server. **Agents:** prefer live `discover_tools`/`execute_tool` over parsing this table — it's the same data, delivered lazily, and each tool's own description (surfaced at the leaf) carries its exact argument shapes and quirks.
+
 | Tool Path | Tier | Description |
 |-----------|------|-------------|
 | `catalog/products/search` | R0 | Filter search (name, SKU, price range, category, brand, visibility, keyword, MSF **`channel_ids`** → `channel_id:in`) |
 | `catalog/products/get` | R0 | Single product with variant pricing detection |
 | `catalog/products/create` | R1 | Create product with all writable fields, optional inline images, optional MSF `channel_ids` (additive post-create channel assignment) |
 | `catalog/products/update` | R1 | Unified update: any writable field(s) on one or more products; target by product_ids, sku, product_name, or category_id; optional MSF `channel_ids` for additive post-update channel assignment (≤ 500 product×channel pairs) |
+| `catalog/products/bulk_sku_update` | R1 | Batch-update the SKU of multiple specific products in one call — one `product_id` → one new SKU per entry (up to **100** pairs/call). Use instead of `catalog/products/update` when each product needs a *different* SKU |
 | `catalog/products/delete` | R3 | Permanently delete products (destructive, requires confirmation) |
 | `catalog/products/assign_categories` | R1 | Additive product-to-category assignment via dedicated BC endpoint |
 | `catalog/products/unassign_categories` | R2 | Filter-based **DELETE** on `/v3/catalog/products/category-assignments` — remove specific (product, category) links without clobbering other categories; preview → `confirmed` |
@@ -211,6 +253,7 @@ Use **`confirmed: true`** on the second call after reviewing the preview.
 | `catalog/products/variants/metafields/bulk_set_products` | R1 | Same variant metafield on **many products**: `product_ids` (max **50**) + `variant_scope` `all_variants`, `first_variant_only`, or `sku_contains` (with `variant_sku_contains` substring, case-insensitive); max **500** total variant writes per call; preview → confirm |
 | `catalog/products/variants/metafields/bulk_delete_products` | R1 | Delete namespace+key across the same cross-product `variant_scope`; skips missing; same caps as bulk_set_products |
 | `catalog/products/custom_fields/list` | R0 | List custom fields |
+| `catalog/products/custom_fields/create` | R1 | Always **create** a new custom field (never upserts) — use when you need multiple fields with the same name; otherwise prefer `custom_fields/set` |
 | `catalog/products/custom_fields/set` | R1 | Upsert a custom field by name |
 | `catalog/products/custom_fields/delete` | R2 | Delete a custom field |
 | `catalog/products/modifiers/list` | R0 | List modifiers |
@@ -303,11 +346,13 @@ Use **`confirmed: true`** on the second call after reviewing the preview.
 | `inventory/locations/metafields/list` | R0 | `GET /v3/inventory/locations/{location_id}/metafields` with optional page/limit |
 | `inventory/locations/metafields/set` | R1 | Upsert by `namespace` + `key` via `POST/PUT /v3/inventory/locations/{location_id}/metafields`; preview → confirm |
 | `inventory/locations/metafields/delete` | R1 | Delete by `metafield_id` or `namespace` + `key`; preview → confirm |
-| `inventory/items/list` | R0 | `GET /v3/inventory/items` with optional `location_ids`, `product_ids`, `variant_ids`, `skus`; requires a filter or `list_all=true` |
-| `inventory/items/get` | R0 | `GET /v3/inventory/items/{variant_id}` |
-| `inventory/items/update_batch` | R2 | `PUT /v3/inventory/items` using caller-supplied `update` payload (`items[]` or `data[]`, max 10 rows); preview → confirm |
-| `inventory/adjustments/absolute` | R2 | `PUT /v3/inventory/adjustments/absolute` for up to 10 rows per call; preview → confirm |
-| `inventory/adjustments/relative` | R2 | `POST /v3/inventory/adjustments/relative` for up to 10 rows per call; preview → confirm |
+| `inventory/locations/items/list` | R0 | `GET /v3/inventory/locations/{location_id}/items` (includes `qty_backordered`, `settings.backorder_limit`) |
+| `inventory/locations/items/update` | R2 | `PUT /v3/inventory/locations/{location_id}/items` with `settings[]` (e.g. `backorder_limit`); max 10 rows; preview → confirm |
+| `inventory/items/list` | R0 | `GET /v3/inventory/items` with optional `location_ids`, `product_ids`, `variant_ids`, `skus`; requires a filter or `list_all=true`; returns backorder fields |
+| `inventory/items/get` | R0 | Inventory for one variant via list filter (includes per-location `qty_backordered` / `backorder_limit`) |
+| `inventory/items/update_batch` | R2 | `PUT /v3/inventory/items` using caller-supplied `update` payload (`items[]` or `data[]`, max 10 rows); preview → confirm; use `locations/items/update` for `backorder_limit` |
+| `inventory/adjustments/absolute` | R2 | `PUT /v3/inventory/adjustments/absolute` for up to 10 rows; identity = `variant_id` \| `product_id` \| `sku`; optional `quantity` / `qty_backordered`; preview → confirm |
+| `inventory/adjustments/relative` | R2 | `POST /v3/inventory/adjustments/relative` for up to 10 rows; same identity rules; optional `quantity` / `qty_backordered` deltas; preview → confirm |
 | `customers/groups/list` | R0 | List/search customer groups (`list_all` or filters: name, name_like, is_default, is_group_for_guests, date_created*, date_modified*) |
 | `customers/groups/get` | R0 | Single customer group by `group_id` (full category_access + discount_rules) |
 | `customers/groups/count` | R0 | `GET /v2/customer_groups/count` — total customer group count |
@@ -497,7 +542,7 @@ internal/
     catalog/             — Product, category, brand, global variant handlers; shared: metafield_shared.go, list_filter_helpers.go, variant_update_parse.go (see docs/ARCHITECTURE.md section 4)
     orders/              — Order management, fulfillment, payments, refunds
     customers/           — Customer records, addresses, attributes, segments, shopper profiles
-    inventory/           — Location lifecycle, item visibility, adjustments
+    inventory/           — Location lifecycle, item visibility, backorders, adjustments
     promotions/          — Automatic and coupon promotions, coupon codes, settings
     storefront/          — Script Manager scripts
     webhooks/            — Webhook registrations (list/get/events/create/update/delete via /v3/hooks)
@@ -543,13 +588,4 @@ The client layer implements the conservative defaults from [`docs/DEVELOPMENT.md
 
 ## Documentation
 
-- **[docs/WORKFLOW.md](./docs/WORKFLOW.md)** — Implementation workflow for adding endpoints: research → implement → build/test/lint gate → reload → live-validate with cleanup → docs → commit → CI. **Follow this for all new endpoint work.** Also documents the on-demand **Full Surface Check** (§10) — an MCP-only, end-to-end capability review (D2C and B2B variants) you can run anytime, independent of code changes. On multi-storefront stores, both variants require confirming the target channel(s) before creating sample data.
-- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — Full architecture, design decisions, token analysis, security controls, known limitations, expansion roadmap, registration policy (§8), and testing strategy incl. manual discovery/preview drills (§9)
-- **[docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)** — Tool tiers, numeric caps, OAuth scopes, concurrency policy, and the channel assignments vs listings model
-- **[docs/AGENT.md](./docs/AGENT.md)** — Agent operating guidelines: tool tables, the universal `execute_tool` envelope, and response format
-- **[docs/MSF.md](./docs/MSF.md)** — Multi-storefront / channels: API research, shipped tools by phase, and open follow-ups
-- **[docs/B2B.md](./docs/B2B.md)** — B2B Edition API research, unified auth, and phased implementation plan
-- **[docs/SECURITY.md](./docs/SECURITY.md)** — Security review findings (S1–S9 remediated, S10–S12 documented), threat model, and remaining recommendations
-- [docs/BC-API-Reference.md](./docs/BC-API-Reference.md) — Full BigCommerce API endpoint map
-- [docs/BC-API-SPECIFICITY.md](./docs/BC-API-SPECIFICITY.md) — Field-level API quirks, undocumented behaviors, and response shape differences discovered during development
-- [docs/FOLLOW-UPS.md](./docs/FOLLOW-UPS.md) — Tracked technical debt and deferred fixes from architecture/live-test audits
+See the [Documentation Map](#documentation-map) near the top of this file for which doc to read for a given task. One addition worth calling out here: **[docs/WORKFLOW.md](./docs/WORKFLOW.md)** is the implementation workflow for adding endpoints (research → implement → build/test/lint gate → reload → live-validate with cleanup → docs → commit → CI) — **follow it for all new endpoint work** — and it also documents the on-demand **Full Surface Check** (§10), an MCP-only, end-to-end capability review (D2C and B2B variants) you can run anytime, independent of code changes.

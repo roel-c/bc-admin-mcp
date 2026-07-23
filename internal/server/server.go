@@ -119,11 +119,12 @@ func registerCategories(reg *discovery.Registry, b2bEnabled bool) {
 	reg.RegisterCategory("marketing/promotions/coupon/codes", "Coupon code management: list, create_single (R1), generate_bulk (R2, BULK promotions only), delete (R3, ≤40 ids/call).")
 	reg.RegisterCategory("marketing/promotions/settings", "Store-wide promotion settings: get and update global toggles for multi-coupon checkout, zero-price triggers, and discount calculation behavior.")
 
-	reg.RegisterCategory("inventory", "Inventory-domain operations: location lifecycle, item visibility/updates, and guarded absolute/relative adjustments.")
+	reg.RegisterCategory("inventory", "Inventory-domain operations: location lifecycle, item visibility/updates, backorders, and guarded absolute/relative adjustments.")
 	reg.RegisterCategory("inventory/locations", "Inventory location operations via /v3/inventory/locations (list/create/update/delete) and location metafields.")
 	reg.RegisterCategory("inventory/locations/metafields", "Inventory location metafield operations via /v3/inventory/locations/{id}/metafields: list/set/delete.")
-	reg.RegisterCategory("inventory/items", "Inventory item operations via /v3/inventory/items and /v3/inventory/items/{variant_id} (read + guarded batch update).")
-	reg.RegisterCategory("inventory/adjustments", "Inventory adjustment submissions via /v3/inventory/adjustments/absolute and /v3/inventory/adjustments/relative.")
+	reg.RegisterCategory("inventory/locations/items", "Per-location inventory item reads and settings updates via /v3/inventory/locations/{id}/items (including backorder_limit).")
+	reg.RegisterCategory("inventory/items", "Inventory item operations via /v3/inventory/items (read + guarded batch update). Includes qty_backordered and settings.backorder_limit on reads.")
+	reg.RegisterCategory("inventory/adjustments", "Inventory adjustment submissions via /v3/inventory/adjustments/absolute and /v3/inventory/adjustments/relative (supports qty_backordered).")
 
 	reg.RegisterCategory("webhooks", "Webhook registrations for the store: list, get, view events, create, update, delete via /v3/hooks.")
 

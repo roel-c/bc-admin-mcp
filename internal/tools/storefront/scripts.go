@@ -109,7 +109,14 @@ func (s *Scripts) RegisterTools(reg *discovery.Registry) {
 			),
 			mcp.WithString("html",
 				mcp.Description("Inline script HTML. Required when kind=script_tag. Max 65,536 chars. "+
-					"May reference Handlebars context vars ({{page_type}}, {{cart_id}}, {{customer_group_id}}, etc.). "+
+					"May reference Handlebars context vars ({{page_type}}, {{cart_id}}, {{customer_group_id}}, "+
+					"{{settings.storefront_api.token}}, etc.). "+
+					"IMPORTANT: Script Manager runs Handlebars over the full html body — the only safe "+
+					"adjacent double-brace sequences are intentional placeholders. Do not put other '{{' "+
+					"pairs in JS (e.g. token-detection string checks); that corrupts the script at render time. "+
+					"See docs/BC-API-SPECIFICITY.md §14 and scripts/pdp-metafields-display.html. "+
+					"For Script Manager / Storefront GraphQL frontend patterns (display or act on "+
+					"storefront data), consult the external Stencil guide INDEX linked from docs/AGENT.md. "+
 					"Omit for kind=src."),
 			),
 			mcp.WithString("load_method",
@@ -623,7 +630,7 @@ func scriptView(s bigcommerce.Script) map[string]any {
 
 // b2bePortalScaffold returns a ready-to-fill script skeleton for targeting the
 // B2B Edition buyer portal (b2be_portal=true on create). It encapsulates the
-// detection patterns documented in docs/b2be-page-detection.md:
+// detection patterns documented in scripts/b2be-page-detection.md:
 //   - window.B3.setting check (synchronous, all B2BE channel pages)
 //   - iframe.active-frame contentDocument access for portal DOM injection
 //   - Outer-page hash (default BC-hosted scripts) + iframe hash fallback
@@ -746,12 +753,18 @@ func scriptScaffold(visibility string) string {
   function applyCustomization() {
     // YOUR LOGIC HERE — called on init AND after every React re-render.
     //
-    // GraphQL token — embed via Handlebars (rendered server-side by BC):
+    // GraphQL token — embed via Handlebars (rendered server-side by BC).
+    // Only intentional placeholders may use adjacent double braces in this file;
+    // any other pair (including JS string checks for unrendered markers) will be
+    // eaten by Script Manager Handlebars and break the script. See BC-API-SPECIFICITY §14.
     //   var TOKEN = '{{settings.storefront_api.token}}';
     //   fetch('/graphql', { method: 'POST', credentials: 'same-origin',
     //     headers: { 'Content-Type': 'application/json',
     //                'Authorization': 'Bearer ' + TOKEN },
     //     body: JSON.stringify({ query: QUERY, variables: VARS }) })
+    //
+    // Metafields: only permission_set read_and_sf_access / write_and_sf_access
+    // are returned by Storefront GraphQL (namespace + keys required).
     //
     // Sidebar target : document.querySelector('aside.layout-cart') ||
     //                  document.querySelector('[data-test="cart"]') ||
@@ -788,12 +801,18 @@ func scriptScaffold(visibility string) string {
   document.addEventListener('DOMContentLoaded', function () {
     // YOUR LOGIC HERE
     //
-    // GraphQL token — embed via Handlebars (rendered server-side by BC):
+    // GraphQL token — embed via Handlebars (rendered server-side by BC).
+    // Only intentional placeholders may use adjacent double braces in this file;
+    // any other pair (including JS string checks for unrendered markers) will be
+    // eaten by Script Manager Handlebars and break the script. See BC-API-SPECIFICITY §14.
     //   var TOKEN = '{{settings.storefront_api.token}}';
     //   fetch('/graphql', { method: 'POST', credentials: 'same-origin',
     //     headers: { 'Content-Type': 'application/json',
     //                'Authorization': 'Bearer ' + TOKEN },
     //     body: JSON.stringify({ query: QUERY, variables: VARS }) })
+    //
+    // Metafields: only permission_set read_and_sf_access / write_and_sf_access
+    // are returned by Storefront GraphQL (namespace + keys required).
     //
     // Cart REST read : fetch('/api/storefront/carts', { credentials: 'same-origin' })
     // Escape output  : replace &, <, >, ", ' before inserting into innerHTML
