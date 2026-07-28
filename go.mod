@@ -4,7 +4,7 @@ go 1.26.5
 
 require (
 	github.com/mark3labs/mcp-go v0.47.1
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.11.1
 	go.uber.org/mock v0.6.0
 )
 
