@@ -104,10 +104,12 @@ func (m *Management) RegisterTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR2,
 		Summary: "Create one manual order (V2)",
 		Description: "POST /v2/orders with a caller-supplied payload object. " +
-			"Use for lower-frequency manual order creation workflows. Preview first; pass confirmed=true to execute.",
+			"Use for lower-frequency manual order creation workflows. Preview first; pass confirmed=true to execute. " +
+			"Line items may include quantity_backordered when inventory backorders are enabled; " +
+			"oversells beyond ATS return HTTP 409 with available_quantity / available_quantity_for_backorder.",
 		Tool: mcp.NewTool("orders_management_create",
-			mcp.WithDescription("Create one order from a V2 payload object."),
-			mcp.WithObject("order", mcp.Description("Manual order create payload object."), mcp.Required()),
+			mcp.WithDescription("Create one order from a V2 payload object. Supports products[].quantity_backordered for inventory backorders."),
+			mcp.WithObject("order", mcp.Description("Manual order create payload object. Optional products[].quantity_backordered when backorders are enabled."), mcp.Required()),
 			mcp.WithBoolean("confirmed", mcp.Description("Set true after preview to execute.")),
 		),
 		Handler: m.handleCreate,
@@ -118,11 +120,12 @@ func (m *Management) RegisterTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR2,
 		Summary: "Update selected order fields (V2)",
 		Description: "PUT /v2/orders/{id} with a caller-supplied patch object. " +
-			"Use for targeted updates beyond status changes. BigCommerce notes some order updates can clear discounts/promotions on affected line items; review preview carefully.",
+			"Use for targeted updates beyond status changes. BigCommerce notes some order updates can clear discounts/promotions on affected line items; review preview carefully. " +
+			"products[] may include quantity_backordered when inventory backorders are enabled.",
 		Tool: mcp.NewTool("orders_management_update",
-			mcp.WithDescription("Update selected order fields. Preview first; confirmed=true to execute."),
+			mcp.WithDescription("Update selected order fields. Preview first; confirmed=true to execute. Supports products[].quantity_backordered."),
 			mcp.WithNumber("order_id", mcp.Description("Order id."), mcp.Required()),
-			mcp.WithObject("patch", mcp.Description("Partial V2 order update payload object."), mcp.Required()),
+			mcp.WithObject("patch", mcp.Description("Partial V2 order update payload object. Optional products[].quantity_backordered."), mcp.Required()),
 			mcp.WithBoolean("confirmed", mcp.Description("Set true after preview to execute.")),
 		),
 		Handler: m.handleUpdate,

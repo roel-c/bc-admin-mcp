@@ -9,14 +9,20 @@ bc-mcp-server
 
 # Go
 vendor/
+*.test
+*.prof
+*.coverprofile
+coverage.out
+coverage.html
 
 # golangci-lint local cache (only created when the default cache dir is unwritable)
 .golangci-cache/
 
-# IDE
+# IDE and personal workspace configuration
 .idea/
 .vscode/
 .cursor/
+*.code-workspace
 *.swp
 *.swo
 
@@ -26,10 +32,13 @@ Thumbs.db
 
 # Claude Code
 .claude/worktrees/
+.claude/settings.json
 .claude/settings.local.json
 
-# One-off migration/utility scripts (contain hardcoded store credentials)
-scripts/*.py
+# One-off local migration utilities (may contain store credentials)
+/scripts/migrate_products.py
+/scripts/migrate_categories.py
+/scripts/write_metafields.py
 
 # Storefront assets from one-off migration work
 assets/

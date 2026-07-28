@@ -483,10 +483,10 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 
 ### Implemented Tools
 
-> **Canonical, current list:** [README.md](../README.md#implemented-tools) and
-> [`docs/AGENT.md`](./AGENT.md#implemented-tools) — this section intentionally
-> does **not** duplicate the full per-tool table (a full duplicate here drifted
-> out of sync with reality more than once; see git history). Below is a
+> **Canonical, current list:** [README.md](../README.md#implemented-tools)
+> (CI-enforced via `TestDocsSync`). Agents should prefer live `discover_tools`
+> over any static table — see [`docs/AGENT.md`](./AGENT.md). This section
+> intentionally does **not** duplicate the full per-tool table. Below is a
 > domain-level summary of what exists today, for architectural orientation.
 
 | Domain | Representative tools | Full detail |
@@ -495,7 +495,7 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `orders/**` | management CRUD, fulfillment shipments, payment actions/transactions/capture/void, refunds | README.md |
 | `customers/**` | records, groups, addresses, attributes + values, metafields, settings, consent, stored instruments, credential validation, segments, shopper profiles | README.md |
 | `marketing/**` | automatic + coupon promotions, coupon codes, promotion settings | README.md |
-| `inventory/**` | locations (+ metafields), items, absolute/relative adjustments | README.md |
+| `inventory/**` | locations (+ metafields + per-location items/settings), items, absolute/relative adjustments (`qty_backordered`, `backorder_limit`) | README.md |
 | `storefront/**` | Script Manager scripts (list/get/create/update/toggle/delete) | README.md |
 | `webhooks/**` | registrations (list/get/events/create/update/delete) | README.md |
 | `carts/**` | cart CRUD + items + metafields; checkout (coupons, billing address, consignments, convert to order) | README.md, `docs/DEVELOPMENT.md` |
@@ -548,6 +548,12 @@ marketing/                  — Marketing-domain operations
     marketing/promotions/coupon/    — Coupon promotions
       marketing/promotions/coupon/codes/ — Coupon code lifecycle
     marketing/promotions/settings/  — Store-wide promotion settings
+inventory/                  — Locations, per-location item settings (backorder_limit), items, adjustments
+  inventory/locations/      — Location lifecycle + metafields
+    inventory/locations/metafields/ — Location metafield list/set/delete
+    inventory/locations/items/      — Per-location inventory list + settings update (backorder_limit)
+  inventory/items/          — Cross-location inventory list/get/update_batch
+  inventory/adjustments/    — Absolute/relative stock + qty_backordered adjustments
 storefront/                 — Storefront operations
   storefront/scripts/       — Script Manager script injection/management
 webhooks/                   — Webhook registration management (/v3/hooks)
@@ -658,80 +664,25 @@ Follow **[`WORKFLOW.md`](./WORKFLOW.md)** — the research → implement → bui
 
 Multi-storefront / channel work: see **[`MSF.md`](./MSF.md)** for API inventory, MSF detection heuristics, shipped tools, and open follow-ups.
 
-### Priority 1 — High-Value Merchant Operations
+### Current Status
 
-These cover the most common merchant requests based on BC ecosystem data:
+This section used to carry a full per-domain "planned tools" table. Nearly
+every row had shipped, so it had become a fourth restatement of the tool
+inventory rather than an actual roadmap. For what's implemented, see the
+**Implemented Tools** table in [`README.md`](../README.md) (or call
+`discover_tools` live). Record unresolved domain-specific limitations in the
+relevant domain document and cross-cutting design limitations in this file.
 
-| Domain | Tools to Add | BC API | Tier | Notes |
-|--------|-------------|--------|------|-------|
-| `orders/management/list` | Search orders by status, date, customer | GET /v2/orders | R0 | **Implemented** |
-| `orders/management/get` | Full order details with line items | GET /v2/orders/{id} + /products | R0 | **Implemented** |
-| `orders/management/create` | Create one manual order | POST /v2/orders | R2 | **Implemented** — preview→confirm |
-| `orders/management/update` | Targeted partial order update | PUT /v2/orders/{id} | R2 | **Implemented** — preview→confirm, patch payload with side-effect warning |
-| `orders/management/delete` | Delete one order | DELETE /v2/orders/{id} | R3 | **Implemented** — destructive preview→confirm |
-| `orders/management/update_status` | Change order status | PUT /v2/orders/{id} | R1 | **Implemented** |
-| `orders/management/products/get` | Get one order-product row | GET /v2/orders/{id}/products/{product_id} | R0 | **Implemented** |
-| `orders/management/metafields/list` | List order metafields | GET /v3/orders/{id}/metafields | R0 | **Implemented** |
-| `orders/management/metafields/set` | Upsert one order metafield | POST/PUT /v3/orders/{id}/metafields | R1 | **Implemented** — preview→confirm |
-| `orders/management/metafields/delete` | Delete one order metafield | DELETE /v3/orders/{id}/metafields/{metafield_id} | R1 | **Implemented** — preview→confirm |
-| `orders/fulfillment/shipments/create` | Create shipment with tracking | POST /v2/orders/{id}/shipments | R1 | **Implemented** |
-| `orders/fulfillment/shipments/get` | Get one shipment row | GET /v2/orders/{id}/shipments/{shipment_id} | R0 | **Implemented** |
-| `orders/fulfillment/shipments/update` | Update shipment details | PUT /v2/orders/{id}/shipments/{shipment_id} | R1 | **Implemented** — preview→confirm |
-| `orders/fulfillment/shipments/delete` | Delete shipment | DELETE /v2/orders/{id}/shipments/{shipment_id} | R3 | **Implemented** — destructive preview→confirm |
-| `orders/management/messages/list` | List order messages | GET /v2/orders/{id}/messages | R0 | **Implemented** |
-| `orders/management/shipping_addresses/list` | List order shipping addresses | GET /v2/orders/{id}/shipping_addresses | R0 | **Implemented** |
-| `orders/management/shipping_addresses/get` | Get one shipping address row | GET /v2/orders/{id}/shipping_addresses/{shipping_address_id} | R0 | **Implemented** |
-| `orders/management/shipping_addresses/update` | Update one shipping address row | PUT /v2/orders/{id}/shipping_addresses/{shipping_address_id} | R1 | **Implemented** — preview→confirm |
-| `orders/management/coupons/list` | List order coupons | GET /v2/orders/{id}/coupons | R0 | **Implemented** |
-| `orders/management/taxes/list` | List order taxes | GET /v2/orders/{id}/taxes | R0 | **Implemented** |
-| `inventory/adjust` | Absolute or relative stock adjustments | POST /v3/inventory/adjustments | R2 | Batch ≤10, ≤5 concurrent |
+**Genuinely not yet implemented** — the only domain from the original
+roadmap that hasn't shipped:
 
-### Priority 2 — Customer / Marketing Follow-ons
+| Domain | Would add | BC API | Tier |
+|--------|-------------|--------|------|
+| `store/settings/get` | Store info | `GET /v2/store` | R0 |
+| `store/settings/seo` | Read/update SEO settings | `GET/PUT /v3/settings/SEO` | R1 |
+| `store/shipping/zones` | List shipping zones | `GET /v2/shipping/zones` | R0 |
 
-Core customer and promotions surfaces are now shipped under `customers/**` and `marketing/promotions/**`. Remaining follow-on work in this area should focus on:
-
-- Additional order-to-customer orchestration tools as `orders/**` coverage expands
-- Any legacy coupon endpoints still needed beyond the current V3 promotions + coupon-codes tooling
-- Cross-domain workflows that join customers/promotions with inventory or order operations
-
-### Priority 3 — Store Operations
-
-| Domain | Tools to Add | BC API | Tier | Notes |
-|--------|-------------|--------|------|-------|
-| `store/settings/get` | Store info | GET /v2/store | R0 | Planned |
-| `store/settings/seo` | Read/update SEO settings | GET/PUT /v3/settings/SEO | R1 | Planned |
-| `store/shipping/zones` | List shipping zones | GET /v2/shipping/zones | R0 | Planned |
-| `carts/cart/*` | Server-side cart lifecycle, items, metafields, checkout URL | /v3/carts | R0/R1/R2/R3 | **Implemented** — see `internal/tools/carts/` |
-| `carts/checkout/*` | Checkout: coupons, billing address, consignments, convert to order | /v3/checkouts | R0/R1/R2 | **Implemented** — see `internal/tools/carts/checkout_tools.go` |
-| `b2b/**` | Full B2B Management API: companies/users/addresses/attachments/roles/permissions/hierarchy, channels, orders, quotes, invoices/receipts/payment records, payments/credit/payment-terms, sales staff, super admins, shopping lists | api-b2b.bigcommerce.com | R0/R1/R2/R3 | **Implemented** — gated by `BC_B2B_ENABLED`; see `docs/B2B.md` |
-
-### Priority 4 — Advanced / Low Frequency
-
-| Domain | Tools to Add | BC API | Tier | Notes |
-|--------|-------------|--------|------|-------|
-| `catalog/pricelists/*` | Price list CRUD + records/assignments | `/v3/pricelists`, `/v3/pricelists/{id}/records`, `/v3/pricelists/assignments` | R0/R1/R2/R3 | **Implemented** — keep record upserts serial; see tool table in section 4 |
-| `webhooks/*` | list/get/events/create/update/delete webhook registrations | GET/POST/PUT/DELETE /v3/hooks | R0/R1/R3 | **Implemented** — root `webhooks/`; serial write policy; HTTPS destination required; optional `channel_id` scoping; see `internal/tools/webhooks/` |
-| `catalog/products/delete` | Hard delete products | DELETE /v3/catalog/products | R3 | **Implemented** — prefer `is_visible: false` via update (R1) |
-| `orders/payments/actions/list` | List payment actions | GET /v3/orders/{id}/payment_actions | R0 | **Implemented** |
-| `orders/payments/transactions/list` | List transactions for one order | GET /v3/orders/{id}/transactions | R0 | **Implemented** |
-| `orders/refunds/list` | List refunds for one order | GET /v3/orders/{id}/payment_actions/refunds | R0 | **Implemented** |
-| `orders/refunds/legacy_list` | List legacy refunds for one order | GET /v2/orders/{id}/refunds | R0 | **Implemented** |
-| `orders/refunds/quote` | Create refund quote | POST /v3/orders/{id}/payment_actions/refund_quotes | R2 | **Implemented** — preview→confirm |
-| `orders/refunds/create` | Issue refund | POST /v3/orders/{id}/payment_actions/refunds | R3 | **Implemented** — per-order confirmation required |
-| `orders/payments/capture` | Capture payment | POST /v3/orders/{id}/payment_actions/capture | R3 | **Implemented** — per-order confirmation required |
-| `orders/payments/void` | Void payment | POST /v3/orders/{id}/payment_actions/void | R3 | **Implemented** — per-order confirmation required |
-| `inventory/locations/list` | List inventory locations | GET /v3/inventory/locations | R0 | **Implemented** |
-| `inventory/locations/create` | Create inventory location | POST /v3/inventory/locations | R2 | **Implemented** — preview→confirm |
-| `inventory/locations/update` | Update inventory location | PUT /v3/inventory/locations/{id} | R2 | **Implemented** — preview→confirm |
-| `inventory/locations/delete` | Delete inventory location | DELETE /v3/inventory/locations/{id} | R3 | **Implemented** — destructive preview→confirm |
-| `inventory/locations/metafields/list` | List one location's metafields | GET /v3/inventory/locations/{id}/metafields | R0 | **Implemented** |
-| `inventory/locations/metafields/set` | Upsert one location metafield | POST/PUT /v3/inventory/locations/{id}/metafields | R1 | **Implemented** — preview→confirm |
-| `inventory/locations/metafields/delete` | Delete one location metafield | DELETE /v3/inventory/locations/{id}/metafields/{metafield_id} | R1 | **Implemented** — preview→confirm |
-| `inventory/items/list` | List inventory items | GET /v3/inventory/items | R0 | **Implemented** |
-| `inventory/items/get` | Get one variant inventory row | GET /v3/inventory/items/{variant_id} | R0 | **Implemented** |
-| `inventory/items/update_batch` | Batch update item settings | PUT /v3/inventory/items | R2 | **Implemented** — preview→confirm; max 10 rows/call |
-| `inventory/adjustments/absolute` | Submit absolute adjustment batch | PUT /v3/inventory/adjustments/absolute | R2 | **Implemented** — preview→confirm; max 10 rows/call |
-| `inventory/adjustments/relative` | Submit relative adjustment batch | POST /v3/inventory/adjustments/relative | R2 | **Implemented** — preview→confirm; max 10 rows/call |
+Everything else originally scoped here — orders management/fulfillment/payments/refunds, customers, marketing/promotions, inventory, carts/checkout, price lists, webhooks, and B2B — has shipped. Remaining follow-on work tends to be cross-domain orchestration (e.g. joining customers/promotions with inventory or order operations) rather than a new domain; raise those as needed rather than pre-planning them here.
 
 ---
 
@@ -749,7 +700,7 @@ Every registered category must satisfy these invariants — enforced by `interna
 | **Parent chain** | Every tool path must have each parent segment registered (e.g. `catalog/products/metafields/set` requires `catalog`, `catalog/products`, `catalog/products/metafields`). |
 | **Summary ≤ 150 chars** | Category and tool `Summary` strings appear verbatim in LLM responses. Summaries describe what tools exist — not how to use them, not OAuth scopes, not API paths. Guidance belongs in `docs/` or tool descriptions. |
 | **R1+ tools declare `confirmed`** | Registration panics at startup if an R1+ tool lacks a `confirmed` boolean in its schema. |
-| **Future domains stay out** | `carts/`, `store/` remain unregistered until the first tool ships. Placeholder categories with no tools produce empty `discover_tools` leaves and confuse agents. |
+| **Future domains stay out** | `store/` (and any other roadmap-only domain) remains unregistered until the first tool ships. Placeholder categories with no tools produce empty `discover_tools` leaves and confuse agents. `carts/` is shipped. |
 
 Run after any registration change:
 
@@ -873,6 +824,8 @@ make smoke-msf      # MSF/channel slice
 | `tools/catalog` | Search filters, preview/confirm flows, caps, metafield CRUD, MSF surfaces |
 | `tools/orders`, `customers`, `promotions`, `inventory`, `webhooks`, `storefront`, `carts`, `b2b` | Handler parsing, preview/confirm flows (carts covers cart + checkout; b2b covers company/user/address) |
 | `server` (audit) | No empty discovery leaves; all tool parents exist; BFS reachability; R1+ tools expose `confirmed`; carts/checkout + storefront/webhooks subtrees; b2b/ gating; category/tool summary ≤ 150 chars |
+| `server` (wire protocol) | `discover_tools`/`execute_tool` driven through the real `mcp-go` in-process client (not just the registry API) — root set, drill-down, tier exposure, and error paths. See "Integration Tests" below |
+| `server` (docs sync) | Diffs registered tool paths against README.md's Implemented Tools table so an undocumented shipped tool fails CI instead of going unnoticed |
 
 ### Manual Drill — Discovery
 
@@ -898,9 +851,46 @@ Pick any R1 tool (e.g. `catalog/categories/bulk_update`):
 }
 ```
 
-### Integration Tests (gap)
+### Full Surface Check (on-demand, MCP-only)
 
-In-process `mcp-go` transport integration tests (full `discover_tools` → `execute_tool` flow without HTTP) are not yet implemented. The gomock unit suites cover handler logic; end-to-end wiring is validated by the registration audit tests and live smoke scripts.
+For a broader, real-data pass beyond the two drills above — creating sample
+records across every domain (D2C variant) or additionally exercising B2B
+company/hierarchy/catalog-restriction/payment scenarios **plus** quote →
+checkout → order → invoice → offline payment (B2B variant) — see
+[**`WORKFLOW.md` §10**](./WORKFLOW.md#10-full-surface-check-d2c--b2b). It's
+written as a step-by-step runbook (not a script) since it involves
+preview→confirm judgment calls, an explicit keep-or-delete decision point,
+and — on multi-storefront stores — a required upfront channel-selection step;
+run it after a batch of domain changes or before a demo.
+
+### Integration Tests
+
+`internal/server/mcp_wire_protocol_test.go` closes what was previously a gap:
+in-process `mcp-go` transport tests that drive `discover_tools`/`execute_tool`
+through the SDK's actual client (`client.NewInProcessClient`), not just the
+`discovery.Registry` API directly the way the registration audit does. This
+catches wiring/serialization bugs the registry-level and mocked handler-level
+tests can't see — e.g. it would have caught the root-set drift found manually
+during the 2026-07-16 documentation audit if it had existed then. Kept
+hermetic (no BigCommerce credentials, no network) by only exercising
+`discover_tools` and `execute_tool` paths that either short-circuit before
+reaching a handler (unknown `tool_path`, missing `tool_path`) or trip
+client-side validation that runs before any HTTP call (e.g. the
+`assign_categories` pairs cap). Run in isolation with:
+
+```bash
+go test ./internal/server/... -run 'TestMCPWireProtocol' -v -count=1
+```
+
+`internal/server/docs_sync_test.go` is a related but distinct check: it
+diffs every registered tool path against README.md's Implemented Tools
+table and fails if any tool shipped in code never got a doc row — the exact
+drift class (`catalog/products/bulk_sku_update`,
+`catalog/products/custom_fields/create`) found by hand in the same audit.
+
+The gomock unit suites still cover handler logic in isolation; the manual
+Full Surface Check above remains the only thing that validates real
+BigCommerce responses.
 
 ### Mock Strategy
 
@@ -980,7 +970,6 @@ A comprehensive line-by-line security audit was performed across all source file
 - [B2B.md](./B2B.md) — B2B Edition API research, unified auth, and phased implementation plan
 - [BC-API-Reference.md](./BC-API-Reference.md) — Full BigCommerce REST API endpoint map with batch sizes, concurrency limits, and pagination patterns
 - [BC-API-SPECIFICITY.md](./BC-API-SPECIFICITY.md) — Field-level API quirks, undocumented behaviors, and response shape differences
-- [FOLLOW-UPS.md](./FOLLOW-UPS.md) — Tracked technical debt and deferred fixes from architecture/live-test audits
 - [MCP Specification](https://modelcontextprotocol.io/specification/latest) — Protocol reference
 - [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) — SDK documentation
 - [Progressive Disclosure MCP: 85x Token Savings](https://matthewkruczek.ai/blog/progressive-disclosure-mcp-servers.html) — Research on the lazy loading pattern

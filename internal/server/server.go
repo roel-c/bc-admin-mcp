@@ -38,7 +38,7 @@ func New(cfg *config.Config, logger *slog.Logger) *server.MCPServer {
 
 	reg := discovery.NewRegistry()
 	registerCategories(reg, cfg.BigCommerce.B2BEnabled)
-	registerTools(reg, bcClient, b2bClient, cacheStore)
+	registerTools(reg, bcClient, b2bClient, cacheStore, cfg.BigCommerce.UploadDir)
 
 	mcpServer := server.NewMCPServer(
 		cfg.Server.Name,
@@ -119,11 +119,12 @@ func registerCategories(reg *discovery.Registry, b2bEnabled bool) {
 	reg.RegisterCategory("marketing/promotions/coupon/codes", "Coupon code management: list, create_single (R1), generate_bulk (R2, BULK promotions only), delete (R3, ≤40 ids/call).")
 	reg.RegisterCategory("marketing/promotions/settings", "Store-wide promotion settings: get and update global toggles for multi-coupon checkout, zero-price triggers, and discount calculation behavior.")
 
-	reg.RegisterCategory("inventory", "Inventory-domain operations: location lifecycle, item visibility/updates, and guarded absolute/relative adjustments.")
+	reg.RegisterCategory("inventory", "Inventory-domain operations: location lifecycle, item visibility/updates, backorders, and guarded absolute/relative adjustments.")
 	reg.RegisterCategory("inventory/locations", "Inventory location operations via /v3/inventory/locations (list/create/update/delete) and location metafields.")
 	reg.RegisterCategory("inventory/locations/metafields", "Inventory location metafield operations via /v3/inventory/locations/{id}/metafields: list/set/delete.")
-	reg.RegisterCategory("inventory/items", "Inventory item operations via /v3/inventory/items and /v3/inventory/items/{variant_id} (read + guarded batch update).")
-	reg.RegisterCategory("inventory/adjustments", "Inventory adjustment submissions via /v3/inventory/adjustments/absolute and /v3/inventory/adjustments/relative.")
+	reg.RegisterCategory("inventory/locations/items", "Per-location inventory item reads and settings updates via /v3/inventory/locations/{id}/items (including backorder_limit).")
+	reg.RegisterCategory("inventory/items", "Inventory item operations via /v3/inventory/items (read + guarded batch update). Includes qty_backordered and settings.backorder_limit on reads.")
+	reg.RegisterCategory("inventory/adjustments", "Inventory adjustment submissions via /v3/inventory/adjustments/absolute and /v3/inventory/adjustments/relative (supports qty_backordered).")
 
 	reg.RegisterCategory("webhooks", "Webhook registrations for the store: list, get, view events, create, update, delete via /v3/hooks.")
 
@@ -142,7 +143,7 @@ func registerCategories(reg *discovery.Registry, b2bEnabled bool) {
 		reg.RegisterCategory("b2b/companies", "Company account CRUD and lifecycle status management.")
 		reg.RegisterCategory("b2b/companies/users", "Buyer portal user CRUD; roles: admin, senior buyer, junior buyer.")
 		reg.RegisterCategory("b2b/companies/addresses", "Company address CRUD: billing and shipping locations.")
-		reg.RegisterCategory("b2b/companies/attachments", "Company file attachments: list and delete.")
+		reg.RegisterCategory("b2b/companies/attachments", "Company file attachments: list, upload from configured BC_UPLOAD_DIR, and delete.")
 		reg.RegisterCategory("b2b/companies/roles", "Company user roles: list/get/create/update/delete custom roles with permissions.")
 		reg.RegisterCategory("b2b/companies/permissions", "Company permission definitions: list plus custom permission CRUD.")
 		reg.RegisterCategory("b2b/companies/hierarchy", "Account hierarchy: view parents/subsidiaries, attach parent, detach subsidiary.")
@@ -169,7 +170,12 @@ func registerCategories(reg *discovery.Registry, b2bEnabled bool) {
 
 // registerTools wires up all tool implementations into the registry.
 // b2bBC is nil when B2B Edition is disabled; tools are skipped in that case.
-func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, b2bBC *bigcommerce.B2BClient, cache *session.Store) {
+func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, b2bBC *bigcommerce.B2BClient, cache *session.Store, uploadDirs ...string) {
+	var uploadDir string
+	if len(uploadDirs) > 0 {
+		uploadDir = uploadDirs[0]
+	}
+
 	products := catalog.NewProducts(bc, cache)
 	products.RegisterTools(reg)
 
@@ -274,7 +280,7 @@ func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, b2bBC *bigco
 	cartTools.RegisterCheckoutTools(reg)
 
 	if b2bBC != nil {
-		b2bCompanies := b2b.NewCompanyTools(b2bBC, bc, cache)
+		b2bCompanies := b2b.NewCompanyTools(b2bBC, bc, cache, uploadDir)
 		b2bCompanies.RegisterTools(reg)
 	}
 }

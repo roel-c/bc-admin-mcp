@@ -123,6 +123,8 @@ func (c *CustomerRecords) RegisterTools(reg *discovery.Registry) {
 			mcp.WithString("company", mcp.Description("Single create: company.")),
 			mcp.WithString("phone", mcp.Description("Single create: phone.")),
 			mcp.WithNumber("customer_group_id", mcp.Description("Single create: customer_group_id.")),
+			mcp.WithNumber("origin_channel_id", mcp.Description("Single create: BigCommerce storefront channel that owns the identity. Use for channel-specific customers in multi-storefront setups.")),
+			mcp.WithArray("channel_ids", mcp.Description("Single create: explicit storefront channels where this customer can log in."), mcp.Items(map[string]any{"type": "number"})),
 			mcp.WithBoolean("force_password_reset", mcp.Description("Single create: force_password_reset inside authentication.")),
 			mcp.WithString("new_password", mcp.Description("Single create: new password (requires set_password=true and confirmed=true).")),
 			mcp.WithBoolean("set_password", mcp.Description("Must be true when supplying new_password — explicit acknowledgement of password write (R2).")),
@@ -138,7 +140,7 @@ func (c *CustomerRecords) RegisterTools(reg *discovery.Registry) {
 		Description: "PUT /v3/customers — up to 10 per call; sub-resources (addresses, attribute values) are not updated here. " +
 			"new_password requires set_password=true AND confirmed=true.",
 		Tool: mcp.NewTool("customers_update",
-			mcp.WithDescription("Update customers (max 10). Each batch row must include id."),
+			mcp.WithDescription("Update customers (max 10). Each batch row must include id. Batch rows may also set channel-scoped identity fields such as origin_channel_id and channel_ids."),
 			mcp.WithArray("customer_batch", mcp.Description("Array of customer update objects (must include id)."),
 				mcp.Items(map[string]any{"type": "object"}), mcp.Required()),
 			mcp.WithBoolean("set_password", mcp.Description("Must be true when any row sets new_password.")),
@@ -527,6 +529,30 @@ func intSliceFromArgs(args map[string]any, key string) ([]int, error) {
 	return out, nil
 }
 
+func positiveIntSliceFromArgs(args map[string]any, key string) ([]int, error) {
+	raw, ok := args[key]
+	if !ok {
+		return nil, nil
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%s must be an array", key)
+	}
+	out := make([]int, 0, len(arr))
+	for i, item := range arr {
+		f, ok := item.(float64)
+		if !ok {
+			return nil, fmt.Errorf("each %s entry must be a number", key)
+		}
+		id := int(f)
+		if id <= 0 {
+			return nil, fmt.Errorf("%s[%d] must be a positive integer", key, i)
+		}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
 func parseCustomerCreates(args map[string]any) ([]bigcommerce.CustomerCreate, error) {
 	if v, ok := args["customer_batch"]; ok && v != nil {
 		arr, ok := v.([]any)
@@ -549,7 +575,7 @@ func parseCustomerCreates(args map[string]any) ([]bigcommerce.CustomerCreate, er
 			}
 			out = append(out, c)
 		}
-		return out, nil
+		return validateCustomerCreates(out)
 	}
 
 	email, _ := args["email"].(string)
@@ -568,6 +594,14 @@ func parseCustomerCreates(args map[string]any) ([]bigcommerce.CustomerCreate, er
 	if v, ok := args["customer_group_id"].(float64); ok {
 		c.CustomerGroupID = int(v)
 	}
+	if v, ok := args["origin_channel_id"].(float64); ok {
+		c.OriginChannelID = int(v)
+	}
+	if ids, err := positiveIntSliceFromArgs(args, "channel_ids"); err != nil {
+		return nil, err
+	} else if len(ids) > 0 {
+		c.ChannelIDs = ids
+	}
 	var auth *bigcommerce.CustomerAuthentication
 	if v, ok := args["force_password_reset"].(bool); ok {
 		auth = &bigcommerce.CustomerAuthentication{ForcePasswordReset: &v}
@@ -580,7 +614,7 @@ func parseCustomerCreates(args map[string]any) ([]bigcommerce.CustomerCreate, er
 		auth.NewPassword = &p
 	}
 	c.Authentication = auth
-	return []bigcommerce.CustomerCreate{c}, nil
+	return validateCustomerCreates([]bigcommerce.CustomerCreate{c})
 }
 
 func parseCustomerUpdates(args map[string]any) ([]bigcommerce.CustomerUpdate, error) {
@@ -611,7 +645,35 @@ func parseCustomerUpdates(args map[string]any) ([]bigcommerce.CustomerUpdate, er
 		}
 		out = append(out, u)
 	}
-	return out, nil
+	return validateCustomerUpdates(out)
+}
+
+func validateCustomerCreates(in []bigcommerce.CustomerCreate) ([]bigcommerce.CustomerCreate, error) {
+	for i, c := range in {
+		if c.OriginChannelID < 0 {
+			return nil, fmt.Errorf("customer_batch[%d]: origin_channel_id must be a positive integer", i)
+		}
+		for j, id := range c.ChannelIDs {
+			if id <= 0 {
+				return nil, fmt.Errorf("customer_batch[%d]: channel_ids[%d] must be a positive integer", i, j)
+			}
+		}
+	}
+	return in, nil
+}
+
+func validateCustomerUpdates(in []bigcommerce.CustomerUpdate) ([]bigcommerce.CustomerUpdate, error) {
+	for i, u := range in {
+		if u.OriginChannelID < 0 {
+			return nil, fmt.Errorf("customer_batch[%d]: origin_channel_id must be a positive integer", i)
+		}
+		for j, id := range u.ChannelIDs {
+			if id <= 0 {
+				return nil, fmt.Errorf("customer_batch[%d]: channel_ids[%d] must be a positive integer", i, j)
+			}
+		}
+	}
+	return in, nil
 }
 
 func customerCreatesHaveNewPassword(cs []bigcommerce.CustomerCreate) bool {

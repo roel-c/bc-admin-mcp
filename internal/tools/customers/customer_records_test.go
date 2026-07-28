@@ -115,6 +115,41 @@ func (s *CustomerRecordsHandlerSuite) TestCreateExecutesWithPasswordGates() {
 	s.Equal("created", data["status"])
 }
 
+func (s *CustomerRecordsHandlerSuite) TestCreatePassesChannelScopedIdentityFields() {
+	s.mockBC.EXPECT().CreateCustomers(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, payload []bigcommerce.CustomerCreate) ([]bigcommerce.Customer, error) {
+			s.Require().Len(payload, 1)
+			s.Equal(1741970, payload[0].OriginChannelID)
+			s.Equal([]int{1741970}, payload[0].ChannelIDs)
+			s.Equal(22, payload[0].CustomerGroupID)
+			return []bigcommerce.Customer{{ID: 3, Email: "b2b@example.com", FirstName: "B2B", LastName: "Admin"}}, nil
+		})
+
+	res, err := s.callTool("customers/create", map[string]any{
+		"email":             "b2b@example.com",
+		"first_name":        "B2B",
+		"last_name":         "Admin",
+		"customer_group_id": float64(22),
+		"origin_channel_id": float64(1741970),
+		"channel_ids":       []any{float64(1741970)},
+		"confirmed":         true,
+	})
+	s.NoError(err)
+	data := s.parseJSON(res)
+	s.Equal("created", data["status"])
+}
+
+func (s *CustomerRecordsHandlerSuite) TestCreateRejectsInvalidChannelIDs() {
+	res, err := s.callTool("customers/create", map[string]any{
+		"email":       "b2b@example.com",
+		"first_name":  "B2B",
+		"last_name":   "Admin",
+		"channel_ids": []any{float64(0)},
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
 // With set_password=true but no confirmed, a password create must return a
 // redacted PREVIEW (not an error and not a blind execute), and must never echo
 // the plaintext password.
@@ -145,6 +180,31 @@ func (s *CustomerRecordsHandlerSuite) TestAssignGroupPreview() {
 	s.NoError(err)
 	data := s.parseJSON(res)
 	s.Equal("preview", data["status"])
+}
+
+func (s *CustomerRecordsHandlerSuite) TestUpdateAcceptsChannelScopedIdentityFields() {
+	s.mockBC.EXPECT().UpdateCustomers(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, payload []bigcommerce.CustomerUpdate) ([]bigcommerce.Customer, error) {
+			s.Require().Len(payload, 1)
+			s.Equal(68, payload[0].ID)
+			s.Equal(1741970, payload[0].OriginChannelID)
+			s.Equal([]int{1741970}, payload[0].ChannelIDs)
+			return []bigcommerce.Customer{{ID: 68, Email: "b2b@example.com", FirstName: "B2B", LastName: "Admin"}}, nil
+		})
+
+	res, err := s.callTool("customers/update", map[string]any{
+		"customer_batch": []any{
+			map[string]any{
+				"id":                float64(68),
+				"origin_channel_id": float64(1741970),
+				"channel_ids":       []any{float64(1741970)},
+			},
+		},
+		"confirmed": true,
+	})
+	s.NoError(err)
+	data := s.parseJSON(res)
+	s.Equal("updated", data["status"])
 }
 
 type CustomerAddressesHandlerSuite struct {

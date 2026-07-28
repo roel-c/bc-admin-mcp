@@ -24,7 +24,7 @@ var envKeys = []string{
 	"MCP_TRANSPORT", "MCP_AUTH_TOKEN", "BC_QUOTA_SAFETY_BUFFER",
 	"BC_INVENTORY_BATCH_SIZE", "BC_DELAY_BETWEEN_CHUNKS_MS",
 	"BC_MAX_WRITE_CONCURRENCY", "MCP_SERVER_NAME", "MCP_SERVER_VERSION",
-	"MCP_ADDRESS", "MCP_PORT",
+	"MCP_ADDRESS", "MCP_PORT", "BC_UPLOAD_DIR",
 }
 
 func (s *ConfigValidationSuite) SetupTest() {
@@ -169,4 +169,44 @@ func (s *ConfigValidationSuite) TestHTTPTransportWithAuthSucceeds() {
 	cfg, err := config.Load()
 	s.NoError(err)
 	s.Equal("my-secret", cfg.Server.AuthToken)
+}
+
+func (s *ConfigValidationSuite) TestUploadDirectoryDefaultsEmptyAndLoadsFromEnvironment() {
+	cfg, err := config.Load()
+	s.Require().NoError(err)
+	s.Empty(cfg.BigCommerce.UploadDir)
+
+	os.Setenv("BC_UPLOAD_DIR", "/configured/uploads")
+	cfg, err = config.Load()
+	s.Require().NoError(err)
+	s.Equal("/configured/uploads", cfg.BigCommerce.UploadDir)
+}
+
+func (s *ConfigValidationSuite) TestHTTPTransportRejectsNonLoopbackAddress() {
+	os.Setenv("MCP_TRANSPORT", "streamable-http")
+	os.Setenv("MCP_AUTH_TOKEN", "my-secret")
+	os.Setenv("MCP_ADDRESS", "0.0.0.0")
+
+	_, err := config.Load()
+	s.Error(err)
+	s.Contains(err.Error(), "loopback")
+}
+
+func (s *ConfigValidationSuite) TestSSETransportAcceptsLoopbackIPv6() {
+	os.Setenv("MCP_TRANSPORT", "sse")
+	os.Setenv("MCP_AUTH_TOKEN", "my-secret")
+	os.Setenv("MCP_ADDRESS", "::1")
+
+	cfg, err := config.Load()
+	s.NoError(err)
+	s.Equal("::1", cfg.Server.Address)
+}
+
+func (s *ConfigValidationSuite) TestStdioIgnoresNonLoopbackAddress() {
+	os.Setenv("MCP_TRANSPORT", "stdio")
+	os.Setenv("MCP_ADDRESS", "0.0.0.0")
+
+	cfg, err := config.Load()
+	s.NoError(err)
+	s.Equal("0.0.0.0", cfg.Server.Address)
 }

@@ -1,7 +1,0 @@
-{
-  "mcpServers": {
-    "bigcommerce": {
-      "command": "./scripts/launch-mcp.sh"
-    }
-  }
-}

@@ -68,7 +68,7 @@ func (c *Client) ListVariantsByProductIDs(ctx context.Context, productIDs []int)
 }
 
 // BatchUpdateVariants updates many variants via PUT /v3/catalog/variants in
-// chunks of cfg.VariantBatchSize (default 10 per BC-Tool-Boundaries.md).
+// chunks of cfg.VariantBatchSize (default 10 per docs/DEVELOPMENT.md).
 func (c *Client) BatchUpdateVariants(ctx context.Context, updates []CatalogVariantUpdate) (*BatchResult, error) {
 	if len(updates) == 0 {
 		return &BatchResult{}, nil

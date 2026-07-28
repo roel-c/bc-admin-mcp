@@ -23,6 +23,8 @@ type fakeInventoryBC struct {
 	deleteLocationMFFn       func(context.Context, int, int) error
 	listItemsFn              func(context.Context, bigcommerce.InventoryItemListParams) ([]json.RawMessage, error)
 	getItemFn                func(context.Context, int) (json.RawMessage, error)
+	listLocationItemsFn      func(context.Context, int, bigcommerce.InventoryLocationItemListParams) ([]json.RawMessage, error)
+	updateLocationItemsFn    func(context.Context, int, json.RawMessage) (json.RawMessage, error)
 	absoluteFn               func(context.Context, json.RawMessage) (json.RawMessage, error)
 	relativeFn               func(context.Context, json.RawMessage) (json.RawMessage, error)
 	updateItemsFn            func(context.Context, json.RawMessage) (json.RawMessage, error)
@@ -94,6 +96,20 @@ func (f *fakeInventoryBC) ListInventoryItems(ctx context.Context, params bigcomm
 func (f *fakeInventoryBC) GetInventoryItem(ctx context.Context, variantID int) (json.RawMessage, error) {
 	if f.getItemFn != nil {
 		return f.getItemFn(ctx, variantID)
+	}
+	return nil, nil
+}
+
+func (f *fakeInventoryBC) ListInventoryLocationItems(ctx context.Context, locationID int, params bigcommerce.InventoryLocationItemListParams) ([]json.RawMessage, error) {
+	if f.listLocationItemsFn != nil {
+		return f.listLocationItemsFn(ctx, locationID, params)
+	}
+	return nil, nil
+}
+
+func (f *fakeInventoryBC) UpdateInventoryLocationItems(ctx context.Context, locationID int, payload json.RawMessage) (json.RawMessage, error) {
+	if f.updateLocationItemsFn != nil {
+		return f.updateLocationItemsFn(ctx, locationID, payload)
 	}
 	return nil, nil
 }
@@ -439,7 +455,7 @@ func (s *InventoryToolsSuite) TestRelativeAdjustmentValidatesNonZeroQuantity() {
 	})
 	s.NoError(err)
 	s.True(res.IsError)
-	s.Contains(res.Content[0].(mcp.TextContent).Text, "must be non-zero")
+	s.Contains(res.Content[0].(mcp.TextContent).Text, "at least one of quantity or qty_backordered must be non-zero")
 }
 
 func (s *InventoryToolsSuite) TestRelativeAdjustmentConfirmed() {
@@ -470,6 +486,214 @@ func (s *InventoryToolsSuite) TestRelativeAdjustmentConfirmed() {
 	s.NoError(err)
 	s.False(confirmed.IsError)
 	s.Equal(1, relativeCalls)
+}
+
+func (s *InventoryToolsSuite) TestAbsoluteAdjustmentPassesQtyBackordered() {
+	absoluteCalls := 0
+	s.mock.absoluteFn = func(_ context.Context, payload json.RawMessage) (json.RawMessage, error) {
+		absoluteCalls++
+		s.Contains(string(payload), `"qty_backordered":5`)
+		s.Contains(string(payload), `"quantity":0`)
+		return json.RawMessage(`{"transaction_id":"txn_abs_bo"}`), nil
+	}
+
+	confirmed, err := s.callTool("inventory/adjustments/absolute", map[string]any{
+		"reason": "seed_backorders",
+		"items": []any{
+			map[string]any{
+				"location_id":     float64(5),
+				"variant_id":      float64(1712),
+				"quantity":        float64(0),
+				"qty_backordered": float64(5),
+			},
+		},
+		"confirmed": true,
+	})
+	s.NoError(err)
+	s.False(confirmed.IsError)
+	s.Equal(1, absoluteCalls)
+}
+
+func (s *InventoryToolsSuite) TestRelativeAdjustmentAllowsZeroQuantityWithQtyBackordered() {
+	relativeCalls := 0
+	s.mock.relativeFn = func(_ context.Context, payload json.RawMessage) (json.RawMessage, error) {
+		relativeCalls++
+		// BC rejects relative quantity=0; we must omit quantity when only
+		// adjusting qty_backordered.
+		s.NotContains(string(payload), `"quantity"`)
+		s.Contains(string(payload), `"qty_backordered":2`)
+		return json.RawMessage(`{"transaction_id":"txn_rel_bo"}`), nil
+	}
+
+	confirmed, err := s.callTool("inventory/adjustments/relative", map[string]any{
+		"reason": "increase_backorders",
+		"items": []any{
+			map[string]any{
+				"location_id":     float64(5),
+				"variant_id":      float64(1712),
+				"quantity":        float64(0),
+				"qty_backordered": float64(2),
+			},
+		},
+		"confirmed": true,
+	})
+	s.NoError(err)
+	s.False(confirmed.IsError)
+	s.Equal(1, relativeCalls)
+}
+
+func (s *InventoryToolsSuite) TestRelativeAdjustmentQtyBackorderedOnlyBySKU() {
+	relativeCalls := 0
+	s.mock.relativeFn = func(_ context.Context, payload json.RawMessage) (json.RawMessage, error) {
+		relativeCalls++
+		s.Contains(string(payload), `"sku":"MCP-BO-SAMPLE-S-NVY"`)
+		s.Contains(string(payload), `"qty_backordered":-1`)
+		s.NotContains(string(payload), `"variant_id"`)
+		s.NotContains(string(payload), `"quantity"`)
+		return json.RawMessage(`{"transaction_id":"txn_rel_sku"}`), nil
+	}
+
+	confirmed, err := s.callTool("inventory/adjustments/relative", map[string]any{
+		"reason": "reduce_backorder_only",
+		"items": []any{
+			map[string]any{
+				"location_id":     float64(5),
+				"sku":             "MCP-BO-SAMPLE-S-NVY",
+				"qty_backordered": float64(-1),
+			},
+		},
+		"confirmed": true,
+	})
+	s.NoError(err)
+	s.False(confirmed.IsError)
+	s.Equal(1, relativeCalls)
+}
+
+func (s *InventoryToolsSuite) TestAbsoluteAdjustmentRejectsMultipleIdentities() {
+	res, err := s.callTool("inventory/adjustments/absolute", map[string]any{
+		"reason": "bad_identity",
+		"items": []any{
+			map[string]any{
+				"location_id": float64(1),
+				"variant_id":  float64(44),
+				"sku":         "DUP",
+				"quantity":    float64(1),
+			},
+		},
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+	s.Contains(res.Content[0].(mcp.TextContent).Text, "exactly one of variant_id, product_id, or sku")
+}
+
+func (s *InventoryToolsSuite) TestAbsoluteAdjustmentRejectsNegativeQtyBackordered() {
+	res, err := s.callTool("inventory/adjustments/absolute", map[string]any{
+		"reason": "bad_backorder",
+		"items": []any{
+			map[string]any{
+				"location_id":     float64(1),
+				"variant_id":      float64(44),
+				"quantity":        float64(1),
+				"qty_backordered": float64(-1),
+			},
+		},
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+	s.Contains(res.Content[0].(mcp.TextContent).Text, "qty_backordered must be non-negative")
+}
+
+func (s *InventoryToolsSuite) TestListLocationItems() {
+	s.mock.listLocationItemsFn = func(_ context.Context, locationID int, params bigcommerce.InventoryLocationItemListParams) ([]json.RawMessage, error) {
+		s.Equal(5, locationID)
+		s.Equal([]int{1712}, params.VariantIDs)
+		return []json.RawMessage{json.RawMessage(`{"identity":{"variant_id":1712},"qty_backordered":0,"settings":{"backorder_limit":25}}`)}, nil
+	}
+
+	res, err := s.callTool("inventory/locations/items/list", map[string]any{
+		"location_id": float64(5),
+		"variant_ids": []any{float64(1712)},
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	var data map[string]any
+	s.NoError(json.Unmarshal([]byte(res.Content[0].(mcp.TextContent).Text), &data))
+	s.Equal(float64(5), data["location_id"])
+	s.Equal(float64(1), data["total"])
+}
+
+func (s *InventoryToolsSuite) TestUpdateLocationItemsPreviewAndConfirmed() {
+	updateCalls := 0
+	s.mock.updateLocationItemsFn = func(_ context.Context, locationID int, payload json.RawMessage) (json.RawMessage, error) {
+		updateCalls++
+		s.Equal(5, locationID)
+		s.Contains(string(payload), `"backorder_limit":100`)
+		s.Contains(string(payload), `"variant_id":1712`)
+		return json.RawMessage(`{"transaction_id":"txn_loc_items_1"}`), nil
+	}
+
+	preview, err := s.callTool("inventory/locations/items/update", map[string]any{
+		"location_id": float64(5),
+		"settings": []any{
+			map[string]any{
+				"identity":        map[string]any{"variant_id": float64(1712)},
+				"backorder_limit": float64(100),
+			},
+		},
+	})
+	s.NoError(err)
+	s.False(preview.IsError)
+	s.Equal(0, updateCalls)
+
+	confirmed, err := s.callTool("inventory/locations/items/update", map[string]any{
+		"location_id": float64(5),
+		"settings": []any{
+			map[string]any{
+				"identity":        map[string]any{"variant_id": float64(1712)},
+				"backorder_limit": float64(100),
+			},
+		},
+		"confirmed": true,
+	})
+	s.NoError(err)
+	s.False(confirmed.IsError)
+	s.Equal(1, updateCalls)
+	var data map[string]any
+	s.NoError(json.Unmarshal([]byte(confirmed.Content[0].(mcp.TextContent).Text), &data))
+	s.Equal("submitted", data["status"])
+	s.Equal("txn_loc_items_1", data["transaction_id"])
+}
+
+func (s *InventoryToolsSuite) TestUpdateLocationItemsRequiresSettingField() {
+	res, err := s.callTool("inventory/locations/items/update", map[string]any{
+		"location_id": float64(5),
+		"settings": []any{
+			map[string]any{
+				"identity": map[string]any{"variant_id": float64(1712)},
+			},
+		},
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+	s.Contains(res.Content[0].(mcp.TextContent).Text, "at least one setting field")
+}
+
+func (s *InventoryToolsSuite) TestUpdateLocationItemsRejectsMultipleIdentities() {
+	res, err := s.callTool("inventory/locations/items/update", map[string]any{
+		"location_id": float64(5),
+		"settings": []any{
+			map[string]any{
+				"identity": map[string]any{
+					"variant_id": float64(1712),
+					"sku":        "DUP-SKU",
+				},
+				"backorder_limit": float64(10),
+			},
+		},
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+	s.Contains(res.Content[0].(mcp.TextContent).Text, "exactly one of variant_id, product_id, or sku")
 }
 
 func (s *InventoryToolsSuite) TestUpdateItemsBatchPreviewAndConfirmed() {

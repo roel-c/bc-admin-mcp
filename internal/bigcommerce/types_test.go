@@ -181,3 +181,14 @@ func (s *APIErrorScopeHintSuite) TestB2BSuccessMetaMessageNotSurfacedAsError() {
 	msg := e.SafeError()
 	s.NotContains(msg, "SUCCESS")
 }
+
+func (s *APIErrorScopeHintSuite) TestUpstreamErrorRetainsStatusWithoutResponseBody() {
+	err := &bigcommerce.UpstreamError{
+		Service:    "BigCommerce Management API",
+		StatusCode: http.StatusBadGateway,
+	}
+	msg := err.Error()
+	s.Contains(msg, "BigCommerce Management API")
+	s.Contains(msg, "502")
+	s.NotContains(msg, "response body")
+}

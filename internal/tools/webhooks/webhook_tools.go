@@ -103,6 +103,8 @@ func (w *Webhooks) RegisterTools(reg *discovery.Registry) {
 		Description: "POST /v3/hooks — creates a new webhook registration. " +
 			"destination must be an HTTPS URL (BC rejects plain HTTP). " +
 			"scope is passed through to BC; invalid scopes return a BC 422. " +
+			"Inventory backorder-related channel scopes include store/channel/{id}/inventory/product/backorder_limit_reached " +
+			"and store/channel/{id}/inventory/product/stock_changed (also used when backordered quantity changes). " +
 			"channel_id is optional — omit for store-wide webhooks, or provide a channel ID to scope delivery. " +
 			"headers_json is an optional JSON object of string→string custom headers to include in each delivery. " +
 			"is_active defaults to true when omitted. " +
@@ -112,10 +114,11 @@ func (w *Webhooks) RegisterTools(reg *discovery.Registry) {
 		Tool: mcp.NewTool("webhooks_create",
 			mcp.WithDescription(
 				"Register a new BigCommerce webhook. destination must be HTTPS. "+
+					"Supports inventory backorder scopes such as store/channel/{id}/inventory/product/backorder_limit_reached. "+
 					"Preview shows the registration payload; pass confirmed=true to create.",
 			),
 			mcp.WithString("scope",
-				mcp.Description("BigCommerce event scope, e.g. store/order/created, store/product/updated."),
+				mcp.Description("BigCommerce event scope, e.g. store/order/created, store/channel/{channel_id}/inventory/product/backorder_limit_reached."),
 				mcp.Required(),
 			),
 			mcp.WithString("destination",

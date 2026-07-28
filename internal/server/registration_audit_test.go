@@ -355,6 +355,7 @@ func TestFullRegistrationInventoryInitialSubtreeIsFullyRegistered(t *testing.T) 
 		"inventory",
 		"inventory/locations",
 		"inventory/locations/metafields",
+		"inventory/locations/items",
 		"inventory/items",
 		"inventory/adjustments",
 	}
@@ -370,6 +371,8 @@ func TestFullRegistrationInventoryInitialSubtreeIsFullyRegistered(t *testing.T) 
 		"inventory/locations/metafields/list",
 		"inventory/locations/metafields/set",
 		"inventory/locations/metafields/delete",
+		"inventory/locations/items/list",
+		"inventory/locations/items/update",
 		"inventory/items/list",
 		"inventory/items/get",
 		"inventory/items/update_batch",
@@ -468,7 +471,7 @@ func TestFullRegistrationStorefrontAndWebhooksSubtreesAreFullyRegistered(t *test
 
 // TestFullRegistrationB2BRootIsGatedByFlag verifies the b2b/ domain only
 // registers when B2B Edition is enabled — disabled stores must never see it,
-// and enabled stores must get the full Phase B1 subtree.
+// and enabled stores must get the full shipped B2B subtree.
 func TestFullRegistrationB2BRootIsGatedByFlag(t *testing.T) {
 	cfg := testBigCommerceConfig()
 

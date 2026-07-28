@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -23,13 +24,16 @@ type CompanyTools struct {
 	bc        B2BCompanyAPI
 	customers BCCustomerManager
 	cache     *session.Store
+	uploadDir string
 }
 
 // NewCompanyTools constructs a CompanyTools handler. customers is used by the
 // company delete flow to clean up linked BC customer accounts; it may be nil,
-// in which case that cleanup is skipped.
-func NewCompanyTools(bc B2BCompanyAPI, customers BCCustomerManager, cache *session.Store) *CompanyTools {
-	return &CompanyTools{bc: bc, customers: customers, cache: cache}
+// in which case that cleanup is skipped. uploadDir confines attachment uploads
+// to relative paths beneath the configured directory; an empty value disables
+// uploads.
+func NewCompanyTools(bc B2BCompanyAPI, customers BCCustomerManager, cache *session.Store, uploadDir string) *CompanyTools {
+	return &CompanyTools{bc: bc, customers: customers, cache: cache, uploadDir: uploadDir}
 }
 
 // RegisterTools wires all B2B Phase B1 tools into the discovery registry.
@@ -98,6 +102,7 @@ func (ct *CompanyTools) registerCompanyTools(reg *discovery.Registry) {
 			mcp.WithString("admin_first_name", mcp.Description("Admin first name."), mcp.Required()),
 			mcp.WithString("admin_last_name", mcp.Description("Admin last name."), mcp.Required()),
 			mcp.WithNumber("bc_customer_id", mcp.Description("Link existing BC customer as admin instead of creating a new user.")),
+			mcp.WithNumber("customer_group_id", mcp.Description("BigCommerce customer group ID to assign (Independent Companies behavior only — see b2b/companies/get's bc_group_id). Controls the company's buyer catalog visibility/pricing. Omit to use the store's default group; pass 0 for no group. Ignored on legacy Dependent Companies stores, which auto-provision their own group instead.")),
 			mcp.WithString("extra_fields_json", mcp.Description(`Optional JSON array of custom fields: [{"fieldName":"License No","fieldValue":"12345"}]. Use b2b/companies/extra_fields to discover required fields.`)),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create the company.")),
 		),
@@ -120,6 +125,7 @@ func (ct *CompanyTools) registerCompanyTools(reg *discovery.Registry) {
 			mcp.WithString("company_country", mcp.Description("New country.")),
 			mcp.WithString("company_zip", mcp.Description("New zip code.")),
 			mcp.WithString("description", mcp.Description("Company description.")),
+			mcp.WithNumber("customer_group_id", mcp.Description("Reassign the company's BigCommerce customer group (Independent Companies behavior only). Pass 0 to unassign (default catalog/pricing). Not supported on legacy Dependent Companies stores — a company's group there is one-to-one and immutable after creation.")),
 			mcp.WithString("extra_fields_json", mcp.Description(`Optional JSON array of custom fields: [{"fieldName":"License No","fieldValue":"12345"}].`)),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to apply.")),
 		),
@@ -195,9 +201,9 @@ func (ct *CompanyTools) registerCompanyTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR1,
 		Summary: "Upload a local file as an attachment on a company account",
 		Tool: mcp.NewTool("b2b_companies_attachments_add",
-			mcp.WithDescription("Upload a local file to a B2B Edition company account. The file appears in the Attachments tab of the company's backend record. Max 10MB. Preview → confirm."),
+			mcp.WithDescription("Upload a file from the server's configured upload directory to a B2B Edition company account. The file appears in the Attachments tab of the company's backend record. Max 10MB. Preview → confirm."),
 			mcp.WithNumber("company_id", mcp.Description("Company ID"), mcp.Required()),
-			mcp.WithString("file_path", mcp.Description("Absolute path to the local file to upload (e.g. /Users/me/Downloads/purchase_order.pdf)."), mcp.Required()),
+			mcp.WithString("file_path", mcp.Description("Relative path under the configured BC_UPLOAD_DIR (e.g. purchase_orders/purchase_order.pdf)."), mcp.Required()),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to upload.")),
 		),
 		Handler: ct.handleAttachmentAdd,
@@ -265,17 +271,46 @@ func (ct *CompanyTools) handleCompanyCreate(ctx context.Context, request mcp.Cal
 	}
 
 	payload := bigcommerce.B2BCompanyCreate{CompanyName: name}
-	if v, ok := args["company_email"].(string); ok { payload.CompanyEmail = v }
-	if v, ok := args["company_phone"].(string); ok { payload.CompanyPhone = v }
-	if v, ok := args["company_address1"].(string); ok { payload.AddressLine1 = v }
-	if v, ok := args["company_city"].(string); ok { payload.City = v }
-	if v, ok := args["company_state"].(string); ok { payload.State = v }
-	if v, ok := args["company_country"].(string); ok { payload.Country = v }
-	if v, ok := args["company_zip"].(string); ok { payload.ZipCode = v }
-	if v, ok := args["admin_email"].(string); ok { payload.AdminEmail = v }
-	if v, ok := args["admin_first_name"].(string); ok { payload.AdminFirstName = v }
-	if v, ok := args["admin_last_name"].(string); ok { payload.AdminLastName = v }
-	if v, ok := args["bc_customer_id"].(float64); ok && v > 0 { payload.BCCustomerID = int(v) }
+	if v, ok := args["company_email"].(string); ok {
+		payload.CompanyEmail = v
+	}
+	if v, ok := args["company_phone"].(string); ok {
+		payload.CompanyPhone = v
+	}
+	if v, ok := args["company_address1"].(string); ok {
+		payload.AddressLine1 = v
+	}
+	if v, ok := args["company_city"].(string); ok {
+		payload.City = v
+	}
+	if v, ok := args["company_state"].(string); ok {
+		payload.State = v
+	}
+	if v, ok := args["company_country"].(string); ok {
+		payload.Country = v
+	}
+	if v, ok := args["company_zip"].(string); ok {
+		payload.ZipCode = v
+	}
+	if v, ok := args["admin_email"].(string); ok {
+		payload.AdminEmail = v
+	}
+	if v, ok := args["admin_first_name"].(string); ok {
+		payload.AdminFirstName = v
+	}
+	if v, ok := args["admin_last_name"].(string); ok {
+		payload.AdminLastName = v
+	}
+	if v, ok := args["bc_customer_id"].(float64); ok && v > 0 {
+		payload.BCCustomerID = int(v)
+	}
+	if v, ok := args["customer_group_id"].(float64); ok {
+		n := int(v)
+		if n < 0 {
+			return shared.ToolError("customer_group_id must be >= 0"), nil
+		}
+		payload.CustomerGroupID = &n
+	}
 	if ef, eerr := parseB2BExtraFieldsJSON(args, "extra_fields_json"); eerr != nil {
 		return shared.ToolError("%s", eerr.Error()), nil
 	} else {
@@ -336,15 +371,50 @@ func (ct *CompanyTools) handleCompanyUpdate(ctx context.Context, request mcp.Cal
 
 	patch := bigcommerce.B2BCompanyUpdate{}
 	hasField := false
-	if v, ok := args["company_name"].(string); ok && v != "" { patch.CompanyName = v; hasField = true }
-	if v, ok := args["company_email"].(string); ok && v != "" { patch.CompanyEmail = v; hasField = true }
-	if v, ok := args["company_phone"].(string); ok && v != "" { patch.CompanyPhone = v; hasField = true }
-	if v, ok := args["company_address1"].(string); ok && v != "" { patch.AddressLine1 = v; hasField = true }
-	if v, ok := args["company_city"].(string); ok && v != "" { patch.City = v; hasField = true }
-	if v, ok := args["company_state"].(string); ok && v != "" { patch.State = v; hasField = true }
-	if v, ok := args["company_country"].(string); ok && v != "" { patch.Country = v; hasField = true }
-	if v, ok := args["company_zip"].(string); ok && v != "" { patch.ZipCode = v; hasField = true }
-	if v, ok := args["description"].(string); ok && v != "" { patch.Description = v; hasField = true }
+	if v, ok := args["company_name"].(string); ok && v != "" {
+		patch.CompanyName = v
+		hasField = true
+	}
+	if v, ok := args["company_email"].(string); ok && v != "" {
+		patch.CompanyEmail = v
+		hasField = true
+	}
+	if v, ok := args["company_phone"].(string); ok && v != "" {
+		patch.CompanyPhone = v
+		hasField = true
+	}
+	if v, ok := args["company_address1"].(string); ok && v != "" {
+		patch.AddressLine1 = v
+		hasField = true
+	}
+	if v, ok := args["company_city"].(string); ok && v != "" {
+		patch.City = v
+		hasField = true
+	}
+	if v, ok := args["company_state"].(string); ok && v != "" {
+		patch.State = v
+		hasField = true
+	}
+	if v, ok := args["company_country"].(string); ok && v != "" {
+		patch.Country = v
+		hasField = true
+	}
+	if v, ok := args["company_zip"].(string); ok && v != "" {
+		patch.ZipCode = v
+		hasField = true
+	}
+	if v, ok := args["description"].(string); ok && v != "" {
+		patch.Description = v
+		hasField = true
+	}
+	if v, ok := args["customer_group_id"].(float64); ok {
+		n := int(v)
+		if n < 0 {
+			return shared.ToolError("customer_group_id must be >= 0"), nil
+		}
+		patch.CustomerGroupID = &n
+		hasField = true
+	}
 	if ef, eerr := parseB2BExtraFieldsJSON(args, "extra_fields_json"); eerr != nil {
 		return shared.ToolError("%s", eerr.Error()), nil
 	} else if len(ef) > 0 {
@@ -365,12 +435,12 @@ func (ct *CompanyTools) handleCompanyUpdate(ctx context.Context, request mcp.Cal
 
 	if !middleware.IsConfirmedFromArgs(args) {
 		return shared.ToolJSON(map[string]any{
-			"status":      "preview",
-			"action":      "update_b2b_company",
-			"company_id":  id,
+			"status":       "preview",
+			"action":       "update_b2b_company",
+			"company_id":   id,
 			"current_name": current.CompanyName,
-			"patch":       patch,
-			"message":     "Pass confirmed=true to apply.",
+			"patch":        patch,
+			"message":      "Pass confirmed=true to apply.",
 		})
 	}
 
@@ -378,6 +448,15 @@ func (ct *CompanyTools) handleCompanyUpdate(ctx context.Context, request mcp.Cal
 	updated, err := ct.bc.UpdateB2BCompany(ctx, id, patch)
 	if err != nil {
 		return shared.ToolError("failed to update B2B company %d: %v", id, err), nil
+	}
+	// Like create, the B2B update response is sparse (e.g. a customerGroupId
+	// change comes back with bc_group_id still 0 and most other fields
+	// blank) — re-fetch so the caller gets a confirmation that actually
+	// reflects the new state. Fall back to the sparse view if it fails.
+	if updated != nil {
+		if full, gerr := ct.bc.GetB2BCompany(ctx, id); gerr == nil && full != nil {
+			updated = full
+		}
 	}
 	return shared.ToolJSON(map[string]any{"status": "updated", "company": companyView(*updated)})
 }
@@ -618,17 +697,11 @@ func (ct *CompanyTools) handleAttachmentAdd(ctx context.Context, request mcp.Cal
 		return shared.ToolError("file_path is required"), nil
 	}
 
-	info, statErr := os.Stat(filePath)
-	if statErr != nil {
-		return shared.ToolError("cannot access file %q: %v", filePath, statErr), nil
+	resolvedPath, info, resolveErr := ct.resolveAttachmentPath(filePath)
+	if resolveErr != nil {
+		return shared.ToolError("%s", resolveErr.Error()), nil
 	}
-	if info.IsDir() {
-		return shared.ToolError("file_path %q is a directory, not a file", filePath), nil
-	}
-	if info.Size() > maxB2BAttachmentBytes {
-		return shared.ToolError("file is %d bytes; the B2B attachment limit is 10MB", info.Size()), nil
-	}
-	fileName := filepath.Base(filePath)
+	fileName := filepath.Base(resolvedPath)
 
 	if !middleware.IsConfirmedFromArgs(args) {
 		return shared.ToolJSON(map[string]any{
@@ -641,9 +714,21 @@ func (ct *CompanyTools) handleAttachmentAdd(ctx context.Context, request mcp.Cal
 		})
 	}
 
-	data, readErr := os.ReadFile(filePath)
+	file, openErr := os.Open(resolvedPath)
+	if openErr != nil {
+		return shared.ToolError("cannot access attachment file"), nil
+	}
+	defer file.Close()
+	openedInfo, statErr := file.Stat()
+	if statErr != nil || !openedInfo.Mode().IsRegular() {
+		return shared.ToolError("attachment path must identify a regular file"), nil
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, maxB2BAttachmentBytes+1))
 	if readErr != nil {
-		return shared.ToolError("failed to read file %q: %v", filePath, readErr), nil
+		return shared.ToolError("failed to read attachment file"), nil
+	}
+	if len(data) > maxB2BAttachmentBytes {
+		return shared.ToolError("file exceeds the B2B attachment limit of 10MB"), nil
 	}
 	a, err := ct.bc.AddB2BCompanyAttachment(ctx, id, fileName, data)
 	if err != nil {
@@ -655,6 +740,47 @@ func (ct *CompanyTools) handleAttachmentAdd(ctx context.Context, request mcp.Cal
 		"file_name":  fileName,
 		"attachment": a,
 	})
+}
+
+func (ct *CompanyTools) resolveAttachmentPath(filePath string) (string, os.FileInfo, error) {
+	if strings.TrimSpace(ct.uploadDir) == "" {
+		return "", nil, fmt.Errorf("attachment uploads are disabled; configure BC_UPLOAD_DIR")
+	}
+	if filepath.IsAbs(filePath) {
+		return "", nil, fmt.Errorf("file_path must be relative to the configured upload directory")
+	}
+	cleanPath := filepath.Clean(filePath)
+	if cleanPath == "." || cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) {
+		return "", nil, fmt.Errorf("file_path must remain within the configured upload directory")
+	}
+
+	canonicalRoot, err := filepath.EvalSymlinks(ct.uploadDir)
+	if err != nil {
+		return "", nil, fmt.Errorf("configured upload directory is unavailable")
+	}
+	rootInfo, err := os.Stat(canonicalRoot)
+	if err != nil || !rootInfo.IsDir() {
+		return "", nil, fmt.Errorf("configured upload directory is unavailable")
+	}
+	canonicalFile, err := filepath.EvalSymlinks(filepath.Join(canonicalRoot, cleanPath))
+	if err != nil {
+		return "", nil, fmt.Errorf("cannot access attachment file")
+	}
+	relative, err := filepath.Rel(canonicalRoot, canonicalFile)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return "", nil, fmt.Errorf("file_path must remain within the configured upload directory")
+	}
+	info, err := os.Stat(canonicalFile)
+	if err != nil {
+		return "", nil, fmt.Errorf("cannot access attachment file")
+	}
+	if !info.Mode().IsRegular() {
+		return "", nil, fmt.Errorf("attachment path must identify a regular file")
+	}
+	if info.Size() > maxB2BAttachmentBytes {
+		return "", nil, fmt.Errorf("file exceeds the B2B attachment limit of 10MB")
+	}
+	return canonicalFile, info, nil
 }
 
 func (ct *CompanyTools) handleAttachmentDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -801,9 +927,15 @@ func (ct *CompanyTools) registerUserTools(reg *discovery.Registry) {
 func (ct *CompanyTools) handleUserList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
 	params := url.Values{}
-	if v, ok := args["company_id"].(float64); ok && v > 0 { params.Set("companyId", fmt.Sprintf("%d", int(v))) }
-	if v, ok := args["role"].(float64); ok { params.Set("roles", fmt.Sprintf("%d", int(v))) }
-	if v, ok := args["email"].(string); ok && v != "" { params.Set("email", v) }
+	if v, ok := args["company_id"].(float64); ok && v > 0 {
+		params.Set("companyId", fmt.Sprintf("%d", int(v)))
+	}
+	if v, ok := args["role"].(float64); ok {
+		params.Set("roles", fmt.Sprintf("%d", int(v)))
+	}
+	if v, ok := args["email"].(string); ok && v != "" {
+		params.Set("email", v)
+	}
 
 	users, err := ct.bc.ListB2BUsers(ctx, params.Encode())
 	if err != nil {
@@ -840,8 +972,12 @@ func (ct *CompanyTools) handleUserCreate(ctx context.Context, request mcp.CallTo
 		LastName:  lastName,
 		Role:      int(roleRaw),
 	}
-	if v, ok := args["phone"].(string); ok { payload.PhoneNumber = v }
-	if v, ok := args["bc_customer_id"].(float64); ok && v > 0 { payload.BCCustomerID = int(v) }
+	if v, ok := args["phone"].(string); ok {
+		payload.PhoneNumber = v
+	}
+	if v, ok := args["bc_customer_id"].(float64); ok && v > 0 {
+		payload.BCCustomerID = int(v)
+	}
 	extraFields, err := parseB2BExtraFieldsJSON(args, "extra_fields_json")
 	if err != nil {
 		return shared.ToolError("%s", err.Error()), nil
@@ -873,9 +1009,18 @@ func (ct *CompanyTools) handleUserUpdate(ctx context.Context, request mcp.CallTo
 
 	patch := bigcommerce.B2BUserUpdate{}
 	hasField := false
-	if v, ok := args["first_name"].(string); ok && v != "" { patch.FirstName = v; hasField = true }
-	if v, ok := args["last_name"].(string); ok && v != "" { patch.LastName = v; hasField = true }
-	if v, ok := args["phone"].(string); ok && v != "" { patch.PhoneNumber = v; hasField = true }
+	if v, ok := args["first_name"].(string); ok && v != "" {
+		patch.FirstName = v
+		hasField = true
+	}
+	if v, ok := args["last_name"].(string); ok && v != "" {
+		patch.LastName = v
+		hasField = true
+	}
+	if v, ok := args["phone"].(string); ok && v != "" {
+		patch.PhoneNumber = v
+		hasField = true
+	}
 	if v, ok := args["role"].(float64); ok {
 		r := int(v)
 		patch.Role = &r
@@ -1055,9 +1200,9 @@ func (ct *CompanyTools) registerAddressTools(reg *discovery.Registry) {
 			mcp.WithString("label", mcp.Description("Address label (e.g. HQ, Warehouse).")),
 			mcp.WithString("first_name", mcp.Description("Contact first name.")),
 			mcp.WithString("last_name", mcp.Description("Contact last name.")),
-				mcp.WithString("state_code", mcp.Description("2-letter state/province code (e.g. CA, NY, TX). Required by B2B API.")),
+			mcp.WithString("state_code", mcp.Description("2-letter state/province code (e.g. CA, NY, TX). Required by B2B API.")),
 			mcp.WithString("country_code", mcp.Description("ISO 2-letter country code (e.g. US, CA). Defaults to US.")),
-				mcp.WithBoolean("is_billing", mcp.Description("Mark as billing address.")),
+			mcp.WithBoolean("is_billing", mcp.Description("Mark as billing address.")),
 			mcp.WithBoolean("is_shipping", mcp.Description("Mark as shipping address.")),
 			mcp.WithBoolean("is_default_billing", mcp.Description("Set as the company's default billing address.")),
 			mcp.WithBoolean("is_default_shipping", mcp.Description("Set as the company's default shipping address.")),
@@ -1113,11 +1258,21 @@ func (ct *CompanyTools) registerAddressTools(reg *discovery.Registry) {
 func (ct *CompanyTools) handleAddressList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
 	params := url.Values{}
-	if v, ok := args["company_id"].(float64); ok && v > 0 { params.Set("companyId", fmt.Sprintf("%d", int(v))) }
-	if v, ok := args["is_billing"].(bool); ok { params.Set("isBilling", fmt.Sprintf("%v", v)) }
-	if v, ok := args["is_shipping"].(bool); ok { params.Set("isShipping", fmt.Sprintf("%v", v)) }
-	if v, ok := args["country"].(string); ok && v != "" { params.Set("country", v) }
-	if v, ok := args["city"].(string); ok && v != "" { params.Set("city", v) }
+	if v, ok := args["company_id"].(float64); ok && v > 0 {
+		params.Set("companyId", fmt.Sprintf("%d", int(v)))
+	}
+	if v, ok := args["is_billing"].(bool); ok {
+		params.Set("isBilling", fmt.Sprintf("%v", v))
+	}
+	if v, ok := args["is_shipping"].(bool); ok {
+		params.Set("isShipping", fmt.Sprintf("%v", v))
+	}
+	if v, ok := args["country"].(string); ok && v != "" {
+		params.Set("country", v)
+	}
+	if v, ok := args["city"].(string); ok && v != "" {
+		params.Set("city", v)
+	}
 
 	addrs, err := ct.bc.ListB2BAddresses(ctx, params.Encode())
 	if err != nil {
@@ -1149,19 +1304,47 @@ func (ct *CompanyTools) handleAddressCreate(ctx context.Context, request mcp.Cal
 		City:         city,
 		Country:      country,
 	}
-	if v, ok := args["address_line2"].(string); ok { payload.AddressLine2 = v }
-	if v, ok := args["state"].(string); ok { payload.State = v }
-	if v, ok := args["state_code"].(string); ok { payload.StateCode = v }
-	if v, ok := args["country_code"].(string); ok { payload.CountryCode = v } else { payload.CountryCode = "US" }
-	if v, ok := args["zip_code"].(string); ok { payload.ZipCode = v }
-	if v, ok := args["phone"].(string); ok { payload.PhoneNumber = v }
-	if v, ok := args["label"].(string); ok { payload.Label = v }
-	if v, ok := args["first_name"].(string); ok { payload.FirstName = v }
-	if v, ok := args["last_name"].(string); ok { payload.LastName = v }
-	if v, ok := args["is_billing"].(bool); ok { payload.IsBilling = v }
-	if v, ok := args["is_shipping"].(bool); ok { payload.IsShipping = v }
-	if v, ok := args["is_default_billing"].(bool); ok { payload.IsDefaultBilling = v }
-	if v, ok := args["is_default_shipping"].(bool); ok { payload.IsDefaultShipping = v }
+	if v, ok := args["address_line2"].(string); ok {
+		payload.AddressLine2 = v
+	}
+	if v, ok := args["state"].(string); ok {
+		payload.State = v
+	}
+	if v, ok := args["state_code"].(string); ok {
+		payload.StateCode = v
+	}
+	if v, ok := args["country_code"].(string); ok {
+		payload.CountryCode = v
+	} else {
+		payload.CountryCode = "US"
+	}
+	if v, ok := args["zip_code"].(string); ok {
+		payload.ZipCode = v
+	}
+	if v, ok := args["phone"].(string); ok {
+		payload.PhoneNumber = v
+	}
+	if v, ok := args["label"].(string); ok {
+		payload.Label = v
+	}
+	if v, ok := args["first_name"].(string); ok {
+		payload.FirstName = v
+	}
+	if v, ok := args["last_name"].(string); ok {
+		payload.LastName = v
+	}
+	if v, ok := args["is_billing"].(bool); ok {
+		payload.IsBilling = v
+	}
+	if v, ok := args["is_shipping"].(bool); ok {
+		payload.IsShipping = v
+	}
+	if v, ok := args["is_default_billing"].(bool); ok {
+		payload.IsDefaultBilling = v
+	}
+	if v, ok := args["is_default_shipping"].(bool); ok {
+		payload.IsDefaultShipping = v
+	}
 
 	if !middleware.IsConfirmedFromArgs(args) {
 		return shared.ToolJSON(map[string]any{
@@ -1197,19 +1380,47 @@ func (ct *CompanyTools) handleAddressUpdate(ctx context.Context, request mcp.Cal
 	}
 
 	payload := bigcommerce.B2BAddressCreate{CompanyID: cid, AddressLine1: addr1, City: city, Country: country}
-	if v, ok := args["address_line2"].(string); ok { payload.AddressLine2 = v }
-	if v, ok := args["state"].(string); ok { payload.State = v }
-	if v, ok := args["state_code"].(string); ok { payload.StateCode = v }
-	if v, ok := args["country_code"].(string); ok { payload.CountryCode = v } else { payload.CountryCode = "US" }
-	if v, ok := args["zip_code"].(string); ok { payload.ZipCode = v }
-	if v, ok := args["phone"].(string); ok { payload.PhoneNumber = v }
-	if v, ok := args["label"].(string); ok { payload.Label = v }
-	if v, ok := args["first_name"].(string); ok { payload.FirstName = v }
-	if v, ok := args["last_name"].(string); ok { payload.LastName = v }
-	if v, ok := args["is_billing"].(bool); ok { payload.IsBilling = v }
-	if v, ok := args["is_shipping"].(bool); ok { payload.IsShipping = v }
-	if v, ok := args["is_default_billing"].(bool); ok { payload.IsDefaultBilling = v }
-	if v, ok := args["is_default_shipping"].(bool); ok { payload.IsDefaultShipping = v }
+	if v, ok := args["address_line2"].(string); ok {
+		payload.AddressLine2 = v
+	}
+	if v, ok := args["state"].(string); ok {
+		payload.State = v
+	}
+	if v, ok := args["state_code"].(string); ok {
+		payload.StateCode = v
+	}
+	if v, ok := args["country_code"].(string); ok {
+		payload.CountryCode = v
+	} else {
+		payload.CountryCode = "US"
+	}
+	if v, ok := args["zip_code"].(string); ok {
+		payload.ZipCode = v
+	}
+	if v, ok := args["phone"].(string); ok {
+		payload.PhoneNumber = v
+	}
+	if v, ok := args["label"].(string); ok {
+		payload.Label = v
+	}
+	if v, ok := args["first_name"].(string); ok {
+		payload.FirstName = v
+	}
+	if v, ok := args["last_name"].(string); ok {
+		payload.LastName = v
+	}
+	if v, ok := args["is_billing"].(bool); ok {
+		payload.IsBilling = v
+	}
+	if v, ok := args["is_shipping"].(bool); ok {
+		payload.IsShipping = v
+	}
+	if v, ok := args["is_default_billing"].(bool); ok {
+		payload.IsDefaultBilling = v
+	}
+	if v, ok := args["is_default_shipping"].(bool); ok {
+		payload.IsDefaultShipping = v
+	}
 
 	if !middleware.IsConfirmedFromArgs(args) {
 		return shared.ToolJSON(map[string]any{

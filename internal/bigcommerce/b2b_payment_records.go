@@ -11,7 +11,7 @@ import (
 // per-company enablement). Confusingly, both groups' list endpoints share the
 // path "/payments" — the deciding factor is the base URL: this group lives at
 // the /ip base (like invoices/receipts), while payment methods use the
-// standard base. See docs/B2B.md and FOLLOW-UPS.md for details.
+// standard base. See docs/B2B.md for details.
 
 // B2BOfflinePaymentLineItem allocates part of an offline payment to a
 // specific invoice.

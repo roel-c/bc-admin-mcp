@@ -18,6 +18,17 @@ type APIError struct {
 	Method     string // GET / PUT / POST / DELETE
 }
 
+// UpstreamError represents a retryable upstream response without retaining or
+// exposing its response body.
+type UpstreamError struct {
+	Service    string
+	StatusCode int
+}
+
+func (e *UpstreamError) Error() string {
+	return fmt.Sprintf("%s upstream returned status %d", e.Service, e.StatusCode)
+}
+
 func (e *APIError) Error() string {
 	return e.SafeError()
 }
@@ -1238,6 +1249,16 @@ type InventoryItemListParams struct {
 	SKUs        []string
 	Page        int
 	Limit       int
+}
+
+// InventoryLocationItemListParams controls filters/paging for
+// GET /v3/inventory/locations/{location_id}/items.
+type InventoryLocationItemListParams struct {
+	ProductIDs []int
+	VariantIDs []int
+	SKUs       []string
+	Page       int
+	Limit      int
 }
 
 // CustomerAuthentication is the nested authentication object on V3 customer

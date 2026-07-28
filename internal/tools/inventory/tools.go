@@ -136,13 +136,53 @@ func (t *Tools) RegisterTools(reg *discovery.Registry) {
 	})
 
 	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "inventory/locations/items/list",
+		Tier:    middleware.TierR0,
+		Summary: "List inventory items at one location (V3)",
+		Description: "GET /v3/inventory/locations/{location_id}/items. " +
+			"Returns per-item qty_backordered, available_to_sell, and settings.backorder_limit for that location.",
+		Tool: mcp.NewTool("inventory_locations_items_list",
+			mcp.WithDescription("List inventory + backorder fields for items at one location."),
+			mcp.WithNumber("location_id", mcp.Description("Inventory location id."), mcp.Required()),
+			mcp.WithArray("product_ids", mcp.Description("Filter product_id:in."), mcp.Items(map[string]any{"type": "number"})),
+			mcp.WithArray("variant_ids", mcp.Description("Filter variant_id:in."), mcp.Items(map[string]any{"type": "number"})),
+			mcp.WithArray("skus", mcp.Description("Filter sku:in."), mcp.Items(map[string]any{"type": "string"})),
+			mcp.WithNumber("page", mcp.Description("Optional page number (single-page mode).")),
+			mcp.WithNumber("limit", mcp.Description("Optional page size (single-page mode, max 250).")),
+		),
+		Handler: t.handleListLocationItems,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "inventory/locations/items/update",
+		Tier:    middleware.TierR2,
+		Summary: "Update inventory settings at one location (V3)",
+		Description: "PUT /v3/inventory/locations/{location_id}/items with a settings[] payload. " +
+			"Use this to set backorder_limit (and other location settings such as safety_stock). " +
+			"Not the same as inventory/items/update_batch (PUT /v3/inventory/items). " +
+			"High-risk inventory write; preview required. Max 10 settings rows per call.",
+		Tool: mcp.NewTool("inventory_locations_items_update",
+			mcp.WithDescription("Update location inventory settings including backorder_limit. Preview first; confirmed=true to execute."),
+			mcp.WithNumber("location_id", mcp.Description("Inventory location id."), mcp.Required()),
+			mcp.WithArray("settings",
+				mcp.Description("Array of { identity: {variant_id|product_id|sku exactly one}, backorder_limit?, safety_stock?, is_in_stock?, warning_level?, bin_picking_number? } (max 10)."),
+				mcp.Items(map[string]any{"type": "object"}),
+				mcp.Required(),
+			),
+			mcp.WithBoolean("confirmed", mcp.Description("Set true after preview to execute.")),
+		),
+		Handler: t.handleUpdateLocationItems,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
 		Path:    "inventory/items/list",
 		Tier:    middleware.TierR0,
 		Summary: "List inventory items with optional filters (V3)",
 		Description: "GET /v3/inventory/items with optional filters. " +
+			"Each location row includes qty_backordered, available_to_sell, and settings.backorder_limit. " +
 			"Provide at least one filter or set list_all=true.",
 		Tool: mcp.NewTool("inventory_items_list",
-			mcp.WithDescription("List inventory items by variant/product/location/SKU filters."),
+			mcp.WithDescription("List inventory items by variant/product/location/SKU filters (includes backorder fields)."),
 			mcp.WithBoolean("list_all", mcp.Description("When true, allows listing without explicit filters.")),
 			mcp.WithArray("location_ids", mcp.Description("Filter location_id:in."), mcp.Items(map[string]any{"type": "number"})),
 			mcp.WithArray("product_ids", mcp.Description("Filter product_id:in."), mcp.Items(map[string]any{"type": "number"})),
@@ -155,12 +195,14 @@ func (t *Tools) RegisterTools(reg *discovery.Registry) {
 	})
 
 	reg.RegisterTool(&discovery.ToolDef{
-		Path:        "inventory/items/get",
-		Tier:        middleware.TierR0,
-		Summary:     "Get one variant inventory record (V3)",
-		Description: "GET /v3/inventory/items/{variant_id}.",
+		Path:    "inventory/items/get",
+		Tier:    middleware.TierR0,
+		Summary: "Get one variant inventory record (V3)",
+		Description: "GET /v3/inventory/items filtered by variant_id (no single-item path). " +
+			"Response locations[] include qty_backordered, available_to_sell, and settings.backorder_limit. " +
+			"Not the same as catalog availability=preorder.",
 		Tool: mcp.NewTool("inventory_items_get",
-			mcp.WithDescription("Fetch one inventory record by variant id."),
+			mcp.WithDescription("Fetch one inventory record by variant id (includes per-location backorder fields)."),
 			mcp.WithNumber("variant_id", mcp.Description("Variant id."), mcp.Required()),
 		),
 		Handler: t.handleGetItem,
@@ -171,9 +213,10 @@ func (t *Tools) RegisterTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR2,
 		Summary: "Batch update inventory items settings (V3)",
 		Description: "PUT /v3/inventory/items with a caller-supplied payload object. " +
-			"High-risk inventory write; preview required. Supports either payload.items[] or payload.data[] with max 10 rows.",
+			"High-risk inventory write; preview required. Supports either payload.items[] or payload.data[] with max 10 rows. " +
+			"For backorder_limit use inventory/locations/items/update instead.",
 		Tool: mcp.NewTool("inventory_items_update_batch",
-			mcp.WithDescription("Submit a batch inventory items update payload. Preview first; confirmed=true to execute."),
+			mcp.WithDescription("Submit a batch inventory items update payload. Preview first; confirmed=true to execute. Use locations/items/update for backorder_limit."),
 			mcp.WithObject("update", mcp.Description("Inventory items update payload object."), mcp.Required()),
 			mcp.WithBoolean("confirmed", mcp.Description("Set true after preview to execute.")),
 		),
@@ -185,12 +228,13 @@ func (t *Tools) RegisterTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR2,
 		Summary: "Submit absolute inventory adjustment batch (V3)",
 		Description: "PUT /v3/inventory/adjustments/absolute. High-risk inventory write; " +
-			"preview required and max 10 items per call.",
+			"preview required and max 10 items per call. Optional qty_backordered sets absolute backordered quantity. " +
+			"Each row identifies the item with exactly one of variant_id, product_id, or sku.",
 		Tool: mcp.NewTool("inventory_adjustments_absolute",
-			mcp.WithDescription("Set absolute inventory quantities for up to 10 location+variant rows."),
+			mcp.WithDescription("Set absolute on-hand quantity and/or qty_backordered for up to 10 location+item rows."),
 			mcp.WithString("reason", mcp.Description("Adjustment reason/audit note."), mcp.Required()),
 			mcp.WithArray("items",
-				mcp.Description("Array of { location_id, variant_id, quantity } rows (max 10)."),
+				mcp.Description("Array of { location_id, variant_id|product_id|sku (exactly one), quantity?, qty_backordered? } (max 10). At least one of quantity or qty_backordered required; both must be non-negative when present."),
 				mcp.Items(map[string]any{"type": "object"}),
 				mcp.Required(),
 			),
@@ -204,12 +248,13 @@ func (t *Tools) RegisterTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR2,
 		Summary: "Submit relative inventory adjustment batch (V3)",
 		Description: "POST /v3/inventory/adjustments/relative. High-risk inventory write; " +
-			"preview required and max 10 items per call.",
+			"preview required and max 10 items per call. Optional qty_backordered applies a delta to backordered quantity. " +
+			"Each row identifies the item with exactly one of variant_id, product_id, or sku.",
 		Tool: mcp.NewTool("inventory_adjustments_relative",
-			mcp.WithDescription("Adjust inventory by delta quantities for up to 10 location+variant rows."),
+			mcp.WithDescription("Adjust on-hand quantity and/or qty_backordered by deltas for up to 10 location+item rows."),
 			mcp.WithString("reason", mcp.Description("Adjustment reason/audit note."), mcp.Required()),
 			mcp.WithArray("items",
-				mcp.Description("Array of { location_id, variant_id, quantity } rows (max 10). quantity may be positive or negative, but not zero."),
+				mcp.Description("Array of { location_id, variant_id|product_id|sku (exactly one), quantity?, qty_backordered? } (max 10). At least one of quantity or qty_backordered must be non-zero."),
 				mcp.Items(map[string]any{"type": "object"}),
 				mcp.Required(),
 			),
@@ -510,6 +555,75 @@ func (t *Tools) handleDeleteLocationMetafield(ctx context.Context, request mcp.C
 	})
 }
 
+func (t *Tools) handleListLocationItems(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	locationID, err := shared.ReadPositiveInt(args, "location_id")
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	params, err := parseInventoryLocationItemListParams(args)
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	rows, err := t.bc.ListInventoryLocationItems(ctx, locationID, params)
+	if err != nil {
+		return shared.ToolError("failed to list inventory location items: %v", err), nil
+	}
+	return shared.ToolJSON(map[string]any{
+		"location_id": locationID,
+		"total":       len(rows),
+		"items":       rows,
+		"filters": map[string]any{
+			"product_ids": params.ProductIDs,
+			"variant_ids": params.VariantIDs,
+			"skus":        params.SKUs,
+			"page":        params.Page,
+			"limit":       params.Limit,
+		},
+	})
+}
+
+func (t *Tools) handleUpdateLocationItems(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	locationID, err := shared.ReadPositiveInt(args, "location_id")
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	settings, err := parseLocationItemSettings(args)
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	if !middleware.IsConfirmedFromArgs(args) {
+		return shared.ToolJSON(map[string]any{
+			"status":      "preview",
+			"action":      "inventory_locations_items_update",
+			"location_id": locationID,
+			"row_count":   len(settings),
+			"settings":    settings,
+			"message":     "High-risk inventory write. Review settings (e.g. backorder_limit) and pass confirmed=true to execute.",
+			"max_rows":    maxInventoryAdjustmentItems,
+		})
+	}
+	raw, err := json.Marshal(map[string]any{"settings": settings})
+	if err != nil {
+		return shared.ToolError("failed to marshal location items update payload: %v", err), nil
+	}
+	resp, err := t.bc.UpdateInventoryLocationItems(ctx, locationID, raw)
+	if err != nil {
+		return shared.ToolError("failed to update inventory location items: %v", err), nil
+	}
+	out := map[string]any{
+		"status":      "submitted",
+		"location_id": locationID,
+		"row_count":   len(settings),
+		"response":    resp,
+	}
+	if txID := extractTransactionID(resp); txID != "" {
+		out["transaction_id"] = txID
+	}
+	return shared.ToolJSON(out)
+}
+
 func (t *Tools) handleListItems(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
 	params, hasFilter, err := parseInventoryItemListParams(args)
@@ -722,28 +836,93 @@ func parseAdjustmentPayload(args map[string]any, relative bool) (adjustmentPaylo
 		if err != nil {
 			return out, fmt.Errorf("items[%d].%s", i, err.Error())
 		}
-		variantID, err := readPositiveIntFromObject(row, "variant_id")
+		identity, err := parseAdjustmentItemIdentity(row, i)
+		if err != nil {
+			return out, err
+		}
+		quantity, hasQuantity, err := readOptionalIntFromObject(row, "quantity")
 		if err != nil {
 			return out, fmt.Errorf("items[%d].%s", i, err.Error())
 		}
-		quantity, err := readIntFromObject(row, "quantity")
+		qtyBackordered, hasQtyBackordered, err := readOptionalIntFromObject(row, "qty_backordered")
 		if err != nil {
 			return out, fmt.Errorf("items[%d].%s", i, err.Error())
+		}
+		if !hasQuantity && !hasQtyBackordered {
+			return out, fmt.Errorf("items[%d]: at least one of quantity or qty_backordered is required", i)
 		}
 		if relative {
-			if quantity == 0 {
-				return out, fmt.Errorf("items[%d].quantity must be non-zero for relative adjustments", i)
+			if (!hasQuantity || quantity == 0) && (!hasQtyBackordered || qtyBackordered == 0) {
+				return out, fmt.Errorf("items[%d]: at least one of quantity or qty_backordered must be non-zero for relative adjustments", i)
 			}
-		} else if quantity < 0 {
-			return out, fmt.Errorf("items[%d].quantity must be non-negative for absolute adjustments", i)
+			// BigCommerce rejects relative quantity=0 (422). Omit the field when
+			// the caller only intends a qty_backordered delta.
+			if hasQuantity && quantity == 0 {
+				hasQuantity = false
+			}
+		} else {
+			if hasQuantity && quantity < 0 {
+				return out, fmt.Errorf("items[%d].quantity must be non-negative for absolute adjustments", i)
+			}
+			if hasQtyBackordered && qtyBackordered < 0 {
+				return out, fmt.Errorf("items[%d].qty_backordered must be non-negative for absolute adjustments", i)
+			}
 		}
-		out.Items = append(out.Items, map[string]any{
+		itemPayload := map[string]any{
 			"location_id": locationID,
-			"variant_id":  variantID,
-			"quantity":    quantity,
-		})
+		}
+		for k, v := range identity {
+			itemPayload[k] = v
+		}
+		if hasQuantity {
+			itemPayload["quantity"] = quantity
+		}
+		if hasQtyBackordered {
+			itemPayload["qty_backordered"] = qtyBackordered
+		}
+		out.Items = append(out.Items, itemPayload)
 	}
 
+	return out, nil
+}
+
+// parseAdjustmentItemIdentity requires exactly one of variant_id, sku, or
+// product_id per BigCommerce inventory adjustment identity rules.
+func parseAdjustmentItemIdentity(row map[string]any, index int) (map[string]any, error) {
+	out := map[string]any{}
+	count := 0
+	if v, present, err := readOptionalIntFromObject(row, "variant_id"); err != nil {
+		return nil, fmt.Errorf("items[%d].%s", index, err.Error())
+	} else if present {
+		if v <= 0 {
+			return nil, fmt.Errorf("items[%d].variant_id must be positive", index)
+		}
+		out["variant_id"] = v
+		count++
+	}
+	if v, present, err := readOptionalIntFromObject(row, "product_id"); err != nil {
+		return nil, fmt.Errorf("items[%d].%s", index, err.Error())
+	} else if present {
+		if v <= 0 {
+			return nil, fmt.Errorf("items[%d].product_id must be positive", index)
+		}
+		out["product_id"] = v
+		count++
+	}
+	if v, ok := row["sku"]; ok && v != nil {
+		s, ok := v.(string)
+		if !ok || strings.TrimSpace(s) == "" {
+			return nil, fmt.Errorf("items[%d].sku must be a non-empty string", index)
+		}
+		out["sku"] = strings.TrimSpace(s)
+		count++
+	}
+	if count == 0 {
+		return nil, fmt.Errorf("items[%d]: exactly one of variant_id, product_id, or sku is required", index)
+	}
+	if count > 1 {
+		return nil, fmt.Errorf("items[%d]: provide exactly one of variant_id, product_id, or sku (not multiple)", index)
+	}
 	return out, nil
 }
 
@@ -766,19 +945,178 @@ func readPositiveIntFromObject(obj map[string]any, key string) (int, error) {
 	return n, nil
 }
 
-func readIntFromObject(obj map[string]any, key string) (int, error) {
+func readOptionalIntFromObject(obj map[string]any, key string) (int, bool, error) {
 	v, ok := obj[key]
-	if !ok {
-		return 0, fmt.Errorf("%s is required", key)
+	if !ok || v == nil {
+		return 0, false, nil
 	}
 	f, ok := v.(float64)
 	if !ok {
-		return 0, fmt.Errorf("%s must be a number", key)
+		return 0, false, fmt.Errorf("%s must be a number", key)
 	}
 	if f != math.Trunc(f) {
-		return 0, fmt.Errorf("%s must be an integer", key)
+		return 0, false, fmt.Errorf("%s must be an integer", key)
 	}
-	return int(f), nil
+	return int(f), true, nil
+}
+
+func parseInventoryLocationItemListParams(args map[string]any) (bigcommerce.InventoryLocationItemListParams, error) {
+	params := bigcommerce.InventoryLocationItemListParams{}
+	if ids, ok, err := readOptionalPositiveIntArray(args, "product_ids"); err != nil {
+		return params, err
+	} else if ok {
+		params.ProductIDs = ids
+	}
+	if ids, ok, err := readOptionalPositiveIntArray(args, "variant_ids"); err != nil {
+		return params, err
+	} else if ok {
+		params.VariantIDs = ids
+	}
+	if skus, ok, err := readOptionalStringArray(args, "skus"); err != nil {
+		return params, err
+	} else if ok {
+		params.SKUs = skus
+	}
+	if page, ok, err := readOptionalPositiveInt(args, "page"); err != nil {
+		return params, err
+	} else if ok {
+		params.Page = page
+	}
+	if limit, ok, err := readOptionalPositiveInt(args, "limit"); err != nil {
+		return params, err
+	} else if ok {
+		if limit > maxInventoryListLimit {
+			return params, fmt.Errorf("limit must be <= %d", maxInventoryListLimit)
+		}
+		params.Limit = limit
+	}
+	return params, nil
+}
+
+func parseLocationItemSettings(args map[string]any) ([]map[string]any, error) {
+	settingsRaw, ok := args["settings"]
+	if !ok || settingsRaw == nil {
+		return nil, fmt.Errorf("settings is required")
+	}
+	settingsArr, ok := settingsRaw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("settings must be an array of objects")
+	}
+	if len(settingsArr) == 0 {
+		return nil, fmt.Errorf("settings must include at least one row")
+	}
+	if len(settingsArr) > maxInventoryAdjustmentItems {
+		return nil, fmt.Errorf("settings exceeds maximum of %d rows", maxInventoryAdjustmentItems)
+	}
+
+	out := make([]map[string]any, 0, len(settingsArr))
+	for i, entry := range settingsArr {
+		row, ok := entry.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("settings[%d] must be an object", i)
+		}
+		identityRaw, ok := row["identity"]
+		if !ok || identityRaw == nil {
+			return nil, fmt.Errorf("settings[%d].identity is required", i)
+		}
+		identity, ok := identityRaw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("settings[%d].identity must be an object", i)
+		}
+		normalizedIdentity, err := normalizeLocationItemIdentity(identity, i)
+		if err != nil {
+			return nil, err
+		}
+		setting := map[string]any{"identity": normalizedIdentity}
+		hasSettingField := false
+
+		if v, present, err := readOptionalIntFromObject(row, "backorder_limit"); err != nil {
+			return nil, fmt.Errorf("settings[%d].%s", i, err.Error())
+		} else if present {
+			if v < 0 {
+				return nil, fmt.Errorf("settings[%d].backorder_limit must be non-negative", i)
+			}
+			setting["backorder_limit"] = v
+			hasSettingField = true
+		}
+		if v, present, err := readOptionalIntFromObject(row, "safety_stock"); err != nil {
+			return nil, fmt.Errorf("settings[%d].%s", i, err.Error())
+		} else if present {
+			if v < 0 {
+				return nil, fmt.Errorf("settings[%d].safety_stock must be non-negative", i)
+			}
+			setting["safety_stock"] = v
+			hasSettingField = true
+		}
+		if v, present, err := readOptionalIntFromObject(row, "warning_level"); err != nil {
+			return nil, fmt.Errorf("settings[%d].%s", i, err.Error())
+		} else if present {
+			if v < 0 {
+				return nil, fmt.Errorf("settings[%d].warning_level must be non-negative", i)
+			}
+			setting["warning_level"] = v
+			hasSettingField = true
+		}
+		if v, ok := row["is_in_stock"]; ok && v != nil {
+			b, ok := v.(bool)
+			if !ok {
+				return nil, fmt.Errorf("settings[%d].is_in_stock must be a boolean", i)
+			}
+			setting["is_in_stock"] = b
+			hasSettingField = true
+		}
+		if v, ok := row["bin_picking_number"]; ok && v != nil {
+			s, ok := v.(string)
+			if !ok {
+				return nil, fmt.Errorf("settings[%d].bin_picking_number must be a string", i)
+			}
+			setting["bin_picking_number"] = s
+			hasSettingField = true
+		}
+		if !hasSettingField {
+			return nil, fmt.Errorf("settings[%d] must include at least one setting field (e.g. backorder_limit)", i)
+		}
+		out = append(out, setting)
+	}
+	return out, nil
+}
+
+func normalizeLocationItemIdentity(identity map[string]any, index int) (map[string]any, error) {
+	out := map[string]any{}
+	count := 0
+	if v, present, err := readOptionalIntFromObject(identity, "variant_id"); err != nil {
+		return nil, fmt.Errorf("settings[%d].identity.%s", index, err.Error())
+	} else if present {
+		if v <= 0 {
+			return nil, fmt.Errorf("settings[%d].identity.variant_id must be positive", index)
+		}
+		out["variant_id"] = v
+		count++
+	}
+	if v, present, err := readOptionalIntFromObject(identity, "product_id"); err != nil {
+		return nil, fmt.Errorf("settings[%d].identity.%s", index, err.Error())
+	} else if present {
+		if v <= 0 {
+			return nil, fmt.Errorf("settings[%d].identity.product_id must be positive", index)
+		}
+		out["product_id"] = v
+		count++
+	}
+	if v, ok := identity["sku"]; ok && v != nil {
+		s, ok := v.(string)
+		if !ok || strings.TrimSpace(s) == "" {
+			return nil, fmt.Errorf("settings[%d].identity.sku must be a non-empty string", index)
+		}
+		out["sku"] = strings.TrimSpace(s)
+		count++
+	}
+	if count == 0 {
+		return nil, fmt.Errorf("settings[%d].identity requires exactly one of variant_id, product_id, or sku", index)
+	}
+	if count > 1 {
+		return nil, fmt.Errorf("settings[%d].identity: provide exactly one of variant_id, product_id, or sku (not multiple)", index)
+	}
+	return out, nil
 }
 
 func extractTransactionID(raw json.RawMessage) string {

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "bigcommerce": {
+      "command": "/absolute/path/to/bc-admin-mcp/scripts/launch-mcp.sh"
+    }
+  }
+}

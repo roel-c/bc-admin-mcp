@@ -19,7 +19,7 @@ import (
 // to the registry. Only stubs are exposed to the LLM via the meta-tools.
 type ToolDef struct {
 	Path        string          // e.g. "catalog/products/search"
-	Tier        middleware.Tier // R0-R4 from BC-Tool-Boundaries.md
+	Tier        middleware.Tier // R0-R4 from docs/DEVELOPMENT.md
 	Summary     string          // <=150 chars, shown in discover_tools
 	Description string          // Full description, shown on execute
 	Tool        mcp.Tool        // Full MCP tool definition with schema

@@ -11,8 +11,12 @@
 A line-by-line security review was performed on the BigCommerce MCP server
 codebase at the time of review (April 2026). **Nine** primary findings (S1–S9)
 were identified across critical/high/medium severity; additional follow-ups
-(S10–S12) were tracked at lower severity or as recommendations. All S1–S9 findings below were remediated in code at the time of the audit; S10–S12
-are lower severity, documented-only, or post-fix hygiene. This document records
+(S10–S12) were tracked at lower severity or as recommendations. S1–S5 and
+S7–S9 were remediated in code at the time of the audit. S6 received
+registration-time schema validation and handler helpers, but confirmation is
+still enforced by each write handler rather than by a central runtime
+authorization boundary. S10–S12 are lower severity, documented-only, or
+post-fix hygiene. This document records
 each item, its root cause, risk, and the fix or disposition.
 
 ---
@@ -22,11 +26,23 @@ each item, its root cause, risk, and the fix or disposition.
 This project is currently optimized for a **local-first** operating model:
 
 - Public source repository is expected and supported.
-- Each operator creates their own local `.env` file with store credentials.
-- Primary execution path is local `stdio` transport from an MCP-capable client.
-- HTTP/SSE transports are supported but expected to remain local-bound (`127.0.0.1`) unless explicitly hardened for broader deployment.
+- Each operator copies `.env.example` to a local `.env` and uses a dedicated,
+  store-specific API account with least-privilege scopes.
+- The supported onboarding path is Cursor launching
+  `scripts/launch-mcp.sh` locally over `stdio`.
+- B2B tools remain disabled unless `BC_B2B_ENABLED=true` is explicitly set and
+  the API account has the required scope.
+- B2B attachment uploads remain disabled unless `BC_UPLOAD_DIR` is configured;
+  operators should dedicate that directory to intended upload files only.
 
-Controls intended for hosted/multi-tenant or internet-exposed deployments are tracked as deferred follow-up recommendations below.
+HTTP/SSE, hosted, multi-tenant, and internet-exposed deployments are outside
+the supported onboarding posture. Controls for those models are deferred
+recommendations below.
+
+Writes remain enabled. `confirmed=true` is a technical preview gate, not proof
+of independent human authorization; the operator and MCP host must enforce
+approval policy. Cursor and other MCP hosts may retain tool arguments,
+previews, and results, so sensitive values should not be sent unless required.
 
 ---
 
@@ -138,11 +154,16 @@ responses while preventing unbounded allocation.
 | **Risk** | Authorization bypass: a developer writes an R1+ tool handler that forgets to check `IsConfirmed()`, accidentally exposing an unconfirmed write path |
 | **Root Cause** | `TierEnforcer.Check()` only blocked R4; confirmation was purely opt-in per handler |
 
-**Fix applied:**
+**Mitigation applied (not central enforcement):**
 1. Added `CheckConfirmation()` utility method to `TierEnforcer` for handlers
 2. **Registration-time validation:** `RegisterTool()` now panics at startup if
    an R1+ tool's MCP input schema does not declare a `confirmed` boolean
-   parameter. This catches the developer mistake at build time, not runtime.
+   parameter.
+
+This validation runs at server startup, not build time, and only proves that
+the schema declares the flag. It does not prove that a handler calls
+`CheckConfirmation()` or otherwise blocks the write. Handler tests and review
+remain necessary, and `confirmed=true` is not an authorization decision.
 
 ---
 
@@ -288,8 +309,9 @@ The following are intentionally deferred while the project remains local-first:
 | Unauthenticated HTTP/SSE access | Bearer token auth middleware (required for non-stdio transports) |
 | Negative/extreme price adjustments | Price floor at $0.00; percentage bounds -100% to +1000% |
 | Huge catalog → memory exhaustion | Pagination ceiling (default 10k records) |
-| Missing confirmation on write tools | Registration-time schema validation |
+| Missing confirmation on write tools | Startup schema validation plus handler-level confirmation checks and tests; not centrally enforced |
 | Invalid config → crash/undefined behavior | Comprehensive bounds checking at startup |
 | Cache growth → memory exhaustion | Entry and session count limits with eviction |
 | Credential leakage in errors | Sanitized API errors (`SafeError`) and truncated tool-level error text |
 | `.env` committed to VCS | `.gitignore` excludes `.env` files |
+| Attachment path escape / unintended local-file upload | Uploads disabled without `BC_UPLOAD_DIR`; relative paths are canonicalized and confined to regular files under that root |

@@ -1,11 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/roel-c/bc-admin-mcp/internal/config"
@@ -38,7 +39,7 @@ func main() {
 		}
 
 	case config.TransportStreamableHTTP:
-		addr := fmt.Sprintf("%s:%d", cfg.Server.Address, cfg.Server.Port)
+		addr := net.JoinHostPort(cfg.Server.Address, strconv.Itoa(cfg.Server.Port))
 		authMw := middleware.BearerAuth(cfg.Server.AuthToken)
 		httpTransport := server.NewStreamableHTTPServer(mcpServer)
 		handler := authMw(httpTransport)
@@ -49,7 +50,7 @@ func main() {
 		}
 
 	case config.TransportSSE:
-		addr := fmt.Sprintf("%s:%d", cfg.Server.Address, cfg.Server.Port)
+		addr := net.JoinHostPort(cfg.Server.Address, strconv.Itoa(cfg.Server.Port))
 		authMw := middleware.BearerAuth(cfg.Server.AuthToken)
 		sseTransport := server.NewSSEServer(mcpServer)
 		handler := authMw(sseTransport)

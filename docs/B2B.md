@@ -47,7 +47,7 @@ BigCommerce documents 11 server-to-server resource families:
 
 ### Phase B1 — Company Administration ✅ Shipped
 
-**Discovery tree:** `b2b/` → `b2b/companies/` with sub-trees `users/`, `addresses/`, `attachments/`, `roles/`, `permissions/`.
+**Discovery tree (B1):** `b2b/` → `b2b/companies/` with sub-trees `users/`, `addresses/`, `attachments/`, `roles/`, `permissions/`, plus hierarchy helpers under `companies/hierarchy/`. Later phases also ship under the same `b2b/` root: channels, orders, quotes, invoices/receipts, payment records, payments/credit/terms, sales staff, super admins, and shopping lists (see Phases B2–B4 below and the README Implemented Tools table).
 
 **Activation:** Set `BC_B2B_ENABLED=true` in `.env`.
 
@@ -57,8 +57,8 @@ BigCommerce documents 11 server-to-server resource families:
 |------|------|-------------|
 | `b2b/companies/list` | R0 | List companies; filter by status/name/email |
 | `b2b/companies/get` | R0 | Get company details by ID |
-| `b2b/companies/create` | R1 | Create company + initial admin user (supports `extra_fields_json`) |
-| `b2b/companies/update` | R1 | Update profile fields (supports `extra_fields_json`) |
+| `b2b/companies/create` | R1 | Create company + initial admin user (supports `extra_fields_json`, `customer_group_id`, and linking an existing BC customer via `bc_customer_id`) |
+| `b2b/companies/update` | R1 | Update profile fields (supports `extra_fields_json`, `customer_group_id`); response is sparse — the tool re-fetches before returning |
 | `b2b/companies/set_status` | R2 | Approve, reject, deactivate |
 | `b2b/companies/delete` | R3 | Permanently delete company + all users; also deletes the users' linked BC customer accounts by default (`delete_bc_customers=false` to keep) |
 | `b2b/companies/extra_fields` | R0 | List company extra-field (custom field) definitions |
@@ -91,7 +91,7 @@ BigCommerce documents 11 server-to-server resource families:
 | Tool | Tier | Description |
 |------|------|-------------|
 | `b2b/companies/attachments/list` | R0 | List a company's file attachments |
-| `b2b/companies/attachments/add` | R1 | Upload a local file (≤10MB) to the company's Attachments tab |
+| `b2b/companies/attachments/add` | R1 | Upload a relative file (≤10MB) confined under explicit `BC_UPLOAD_DIR`; disabled when unset |
 | `b2b/companies/attachments/delete` | R2 | Delete an attachment by ID |
 
 **Roles & permissions**
@@ -142,6 +142,10 @@ BigCommerce documents 11 server-to-server resource families:
 
 **Extra fields:** Stores can require custom fields on companies/users. Use the `extra_fields` tools to discover definitions, and pass `extra_fields_json` (`[{"fieldName","fieldValue"}]`) on create/update.
 
+**Customer group assignment (catalog/pricing visibility):** a company's buyers see the products/pricing determined by its linked BigCommerce customer group. Pass `customer_group_id` on `b2b/companies/create` or `update` to assign one — but this only takes effect on stores using **Independent Companies** behavior (the default for new stores since Oct 2024). On legacy **Dependent Companies** stores, BC Edition auto-creates and permanently 1:1-links a group per company instead, and `customer_group_id` is ignored. There is no MCP tool to detect which mode a store is in directly; infer it by creating a company and checking whether `bc_group_id` populates without you setting `customer_group_id` (Dependent) or stays `0` (Independent). To restrict a company to a specific catalog slice: create a category scoped to the intended storefront channel, create a customer group with `category_access_type: "specific"` scoped to that category (`customers/groups/create`), then assign that group's ID as `customer_group_id` on the company. Multiple companies (e.g. a parent and its subsidiaries) may share the same group/category restriction — live-validated in `WORKFLOW.md` §10.3.
+
+**MSF storefront-channel scoping:** when the target storefront matters (for example a B2B buyer should belong to `MSF-B2BE`, not another storefront on the same store), do **not** rely on B2B Edition's implicit BC-customer creation. Instead, create the underlying BigCommerce customers first via `customers/create` with `origin_channel_id` and `channel_ids` set to the target storefront channel, then pass those IDs into `b2b/companies/create` or `b2b/companies/users/create` / `bulk_create` as `bc_customer_id`. Operationally, any future **D2C or B2B surface check** in an MSF store should begin with an explicit question: which storefront channel or channels should own the test data? `catalog/channels/list` is the reliable human-readable source for channel names; `b2b/channels/list` confirms which storefront channels B2B Edition sees (B2B runs only).
+
 **Deferred (management API, needs a focused pass):** bulk-create companies (unusual `data.errors`+`meta[]` envelope), batch update `PUT /companies` (redundant with per-id update), and convert customer-group→company (legacy Dependent-behavior migration).
 
 ---
@@ -156,11 +160,11 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 |------|------|-------------|
 | `b2b/quotes/list` | R0 | List quotes; filter by company/salesRep/status/date ranges |
 | `b2b/quotes/get` | R0 | Full detail: line items, addresses, shipping method, message history |
-| `b2b/quotes/create` | R1 | Create a quote (`quote_json`); visible to the buyer immediately unless `allowCheckout=false` |
+| `b2b/quotes/create` | R1 | Create a quote (`quote_json`); **must include `companyId`** for Buyer Portal visibility (contact email/name alone are insufficient); visible to the buyer immediately unless `allowCheckout=false` |
 | `b2b/quotes/update` | R1 | Partial update (`quote_json`); `productList` updates replace the full line-item set |
 | `b2b/quotes/delete` | R3 | Permanently delete (use `update` with `status=archived` to hide instead) |
 | `b2b/quotes/checkout` | R1 | Generate cart + checkout URLs (status New/In Process/Updated by Customer only) |
-| `b2b/quotes/assign_to_order` | R2 | Associate an existing BC order with the quote |
+| `b2b/quotes/assign_to_order` | R2 | Associate an existing BC order with a quote (`POST /rfq/{id}/ordered`). **Required** after Management API `carts/checkout/convert` on a quote cart; storefront/Buyer Portal checkout via the quote `checkoutUrl` links natively instead |
 | `b2b/quotes/pdf_export` | R0 | Backend-detail PDF download link (optional currency override) |
 | `b2b/quotes/extra_fields` | R0 | List quote extra-field definitions |
 | `b2b/quotes/shipping/rates` | R0 | Available static/real-time shipping rates (requires a shipping address on the quote) |
@@ -172,8 +176,13 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 
 **API quirks confirmed live:**
 - Quote IDs are **integers**; invoice/receipt IDs are strings.
+- **`companyId` is required for Buyer Portal visibility.** Without it, quotes
+  show in the Control Panel with empty `companyInfo: {}` but do not appear for
+  company buyers. `contactInfo.email` / `companyName` alone do not link the
+  quote. Ordered quotes cannot be patched with `companyId` afterward
+  (`422 Quote has already been ordered`).
 - `expiredAt` must be `MM/DD/YYYY` (BC's own 422 message has an unrendered `%D` template placeholder — cosmetic bug on their side).
-- `POST /rfq` requires `discount` (top-level) and each `productList` item needs `basePrice` + `discount`, none of which are marked required in the OpenAPI schema.
+- `POST /rfq` requires `discount` (top-level) and each `productList` item needs `basePrice` + `offeredPrice` + `discount` (prefer numbers; include `variantId`), none of which are marked required in the OpenAPI schema.
 - `PUT /rfq/{id}/shipping-rate` (select) returns `data: []` on success, not the updated quote — don't expect quote detail back from that call.
 - `/rfq/{id}/shipping-rates` (plural, GET) vs `/rfq/{id}/shipping-rate` (singular, PUT/DELETE) — mixing them returns BC's own 405.
 
@@ -251,7 +260,19 @@ Confirmed live against a POC store while validating the quote → order → invo
    - **Gateway methods** (credit card) *can* be processed via API using a Payment Access Token against the separate `payments.bigcommerce.com` server — a materially different, more involved flow than anything in this MCP today.
    - The practical path for orders created through `carts/checkout/convert` is to move them out of Incomplete via `orders/management/update_status` (mirrors what a merchant does manually in the admin panel).
 3. **B2B-panel visibility is driven by the cart/order's `customer_id`.** If the checkout's customer belongs to a B2B company user, the resulting order gets a `companyId` (after a short async indexing delay — seen up to ~25s) and appears in **both** the native BigCommerce Orders dashboard and the B2B Admin Panel's Orders section. Orders placed with `customer_id: 0` (guest) only ever appear in the native dashboard, never in the B2B panel — confirmed by comparing a guest order, a guest-but-company-linked order, and a real admin-buyer order side by side.
-4. Once an order has both a real status (not Incomplete) and, for B2B invoicing, a `companyId`, `b2b/invoices/create_from_order` succeeds.
+4. **Quote → order linkage depends on how checkout is completed.**
+   - **Storefront / Buyer Portal:** completing purchase via the
+     `checkoutUrl` from `b2b/quotes/checkout` (typically with
+     `isFromQuote=Y`) links the quote to the order natively — the B2B
+     frontend calls GraphQL `quoteOrdered`.
+   - **MCP / Management API path:** `b2b/quotes/checkout` only creates a
+     cart + URLs. Finishing that cart with `carts/checkout/convert` creates
+     a BC order but leaves the quote **In Process** with empty
+     `bcOrderId`. Call `b2b/quotes/assign_to_order` (`POST
+     /rfq/{quote_id}/ordered` with the **BigCommerce** order ID) to mark
+     the quote Ordered and attach `bcOrderId`. Live-confirmed 2026-07-22
+     during the MCP-only surface check.
+5. Once an order has both a real status (not Incomplete) and, for B2B invoicing, a `companyId`, `b2b/invoices/create_from_order` succeeds.
 
 ---
 
@@ -311,6 +332,12 @@ Backend sales rep (Sales Staff) and frontend sales rep / masquerade (Super Admin
 4. Add `BC_B2B_ENABLED=true` to your `.env`
 5. Restart the MCP server — `b2b/` will appear in `discover_tools("")`
 
+Company attachment uploads remain disabled unless `BC_UPLOAD_DIR` is set to a
+dedicated local directory. `b2b/companies/attachments/add` accepts a relative
+`file_path` under that root, rejects path escapes and non-regular files, and
+limits uploads to 10 MB. Keep unrelated and sensitive files outside this
+directory because Cursor or another MCP host may retain arguments and results.
+
 ## References
 
 - [B2B Edition API Overview](https://docs.bigcommerce.com/developer/api-reference/rest/b2b/overview)
@@ -319,4 +346,3 @@ Backend sales rep (Sales Staff) and frontend sales rep / masquerade (Super Admin
 - `internal/bigcommerce/b2b_client.go` — B2B HTTP client
 - `internal/bigcommerce/b2b_companies.go` — Company/User/Address types and methods
 - `internal/tools/b2b/company_tools.go` — Phase B1 tool handlers
-- `docs/b2be-page-detection.md` — Storefront/buyer portal injection research (Script Manager)

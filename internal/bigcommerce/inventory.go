@@ -316,6 +316,68 @@ func (c *Client) UpdateInventoryItems(ctx context.Context, payload json.RawMessa
 	return decodeV3DataOrBody(body), nil
 }
 
+// ListInventoryLocationItems returns rows from
+// GET /v3/inventory/locations/{location_id}/items.
+// If page/limit is omitted, it auto-paginates using GetAll.
+func (c *Client) ListInventoryLocationItems(ctx context.Context, locationID int, params InventoryLocationItemListParams) ([]json.RawMessage, error) {
+	if locationID <= 0 {
+		return nil, fmt.Errorf("location id must be positive")
+	}
+	path := fmt.Sprintf("inventory/locations/%d/items", locationID)
+	vals := url.Values{}
+	if len(params.ProductIDs) > 0 {
+		vals.Set("product_id:in", joinInts(params.ProductIDs))
+	}
+	if len(params.VariantIDs) > 0 {
+		vals.Set("variant_id:in", joinInts(params.VariantIDs))
+	}
+	if len(params.SKUs) > 0 {
+		vals.Set("sku:in", strings.Join(params.SKUs, ","))
+	}
+	if params.Page > 0 {
+		vals.Set("page", strconv.Itoa(params.Page))
+	}
+	if params.Limit > 0 {
+		vals.Set("limit", strconv.Itoa(params.Limit))
+	}
+	if q := vals.Encode(); q != "" {
+		path += "?" + q
+		if params.Page > 0 || params.Limit > 0 {
+			body, err := c.Get(ctx, path)
+			if err != nil {
+				return nil, fmt.Errorf("list inventory location items: %w", err)
+			}
+			rows, err := decodeV3PageData(body)
+			if err != nil {
+				return nil, fmt.Errorf("parse inventory location items response: %w", err)
+			}
+			return rows, nil
+		}
+	}
+	rows, err := c.GetAll(ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("list inventory location items: %w", err)
+	}
+	return rows, nil
+}
+
+// UpdateInventoryLocationItems submits location-scoped inventory settings via
+// PUT /v3/inventory/locations/{location_id}/items (e.g. backorder_limit).
+func (c *Client) UpdateInventoryLocationItems(ctx context.Context, locationID int, payload json.RawMessage) (json.RawMessage, error) {
+	if locationID <= 0 {
+		return nil, fmt.Errorf("location id must be positive")
+	}
+	if len(payload) == 0 {
+		return nil, fmt.Errorf("inventory location items update payload is required")
+	}
+	path := fmt.Sprintf("inventory/locations/%d/items", locationID)
+	body, err := c.Put(ctx, path, json.RawMessage(payload))
+	if err != nil {
+		return nil, fmt.Errorf("update inventory location items: %w", err)
+	}
+	return decodeV3DataOrBody(body), nil
+}
+
 func decodeV3PageData(body []byte) ([]json.RawMessage, error) {
 	var resp PaginatedResponse
 	if err := json.Unmarshal(body, &resp); err != nil {

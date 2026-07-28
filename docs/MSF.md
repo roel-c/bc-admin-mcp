@@ -79,6 +79,19 @@ See `DEVELOPMENT.md §9` for the full decision rubric.
 
 ---
 
+## Surface checks on MSF stores
+
+When running the D2C or B2B **Full Surface Check** (`WORKFLOW.md` §10) on a store
+with multiple active storefront channels, **ask the operator which channel(s) to
+target before creating any sample data**. Do not assume channel 1 or reuse a
+prior run's channel. Scope catalog writes (`channel_id` / `channel_ids`),
+customer identities (`origin_channel_id` / `channel_ids`), and carts
+(`channel_id`) to the chosen channel. B2B runs additionally confirm the channel
+is B2B-enabled via `b2b/channels/list` and link pre-created BC customers via
+`bc_customer_id`.
+
+---
+
 ## Open Follow-ups
 
 | Item | Status | Notes |

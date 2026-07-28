@@ -109,7 +109,14 @@ func (s *Scripts) RegisterTools(reg *discovery.Registry) {
 			),
 			mcp.WithString("html",
 				mcp.Description("Inline script HTML. Required when kind=script_tag. Max 65,536 chars. "+
-					"May reference Handlebars context vars ({{page_type}}, {{cart_id}}, {{customer_group_id}}, etc.). "+
+					"May reference Handlebars context vars ({{page_type}}, {{cart_id}}, {{customer_group_id}}, "+
+					"{{settings.storefront_api.token}}, etc.). "+
+					"IMPORTANT: Script Manager runs Handlebars over the full html body — the only safe "+
+					"adjacent double-brace sequences are intentional placeholders. Do not put other '{{' "+
+					"pairs in JS (e.g. token-detection string checks); that corrupts the script at render time. "+
+					"See docs/BC-API-SPECIFICITY.md §14. "+
+					"For Script Manager / Storefront GraphQL frontend patterns (display or act on "+
+					"storefront data), consult the external Stencil guide INDEX linked from docs/AGENT.md. "+
 					"Omit for kind=src."),
 			),
 			mcp.WithString("load_method",
@@ -396,7 +403,7 @@ func (s *Scripts) handleCreate(ctx context.Context, request mcp.CallToolRequest)
 	script, err := s.bc.CreateScript(ctx, payload)
 	if err != nil {
 		if apiErr, ok := err.(*bigcommerce.APIError); ok {
-			return toolError("failed to create script (BC %d): %s", apiErr.StatusCode, string(apiErr.Body)), nil
+			return toolError("failed to create script: %s", apiErr.SafeError()), nil
 		}
 		return toolError("failed to create script: %v", err), nil
 	}
@@ -597,20 +604,20 @@ func validateScriptKind(kind, src, html string) error {
 // before calling update/delete.
 func scriptView(s bigcommerce.Script) map[string]any {
 	v := map[string]any{
-		"uuid":              s.UUID,
-		"name":              s.Name,
-		"kind":              s.Kind,
-		"location":          s.Location,
-		"visibility":        s.Visibility,
-		"load_method":       s.LoadMethod,
-		"consent_category":  s.ConsentCategory,
-		"enabled":           s.Enabled,
-		"auto_uninstall":    s.AutoUninstall,
-		"has_html":          s.HTML != "",
-		"has_src":           s.Src != "",
-		"channel_id":        s.ChannelID,
-		"date_created":      s.DateCreated,
-		"date_modified":     s.DateModified,
+		"uuid":             s.UUID,
+		"name":             s.Name,
+		"kind":             s.Kind,
+		"location":         s.Location,
+		"visibility":       s.Visibility,
+		"load_method":      s.LoadMethod,
+		"consent_category": s.ConsentCategory,
+		"enabled":          s.Enabled,
+		"auto_uninstall":   s.AutoUninstall,
+		"has_html":         s.HTML != "",
+		"has_src":          s.Src != "",
+		"channel_id":       s.ChannelID,
+		"date_created":     s.DateCreated,
+		"date_modified":    s.DateModified,
 	}
 	if s.Description != "" {
 		v["description"] = s.Description
@@ -623,7 +630,7 @@ func scriptView(s bigcommerce.Script) map[string]any {
 
 // b2bePortalScaffold returns a ready-to-fill script skeleton for targeting the
 // B2B Edition buyer portal (b2be_portal=true on create). It encapsulates the
-// detection patterns documented in docs/b2be-page-detection.md:
+// B2B Edition detection patterns:
 //   - window.B3.setting check (synchronous, all B2BE channel pages)
 //   - iframe.active-frame contentDocument access for portal DOM injection
 //   - Outer-page hash (default BC-hosted scripts) + iframe hash fallback
@@ -746,12 +753,18 @@ func scriptScaffold(visibility string) string {
   function applyCustomization() {
     // YOUR LOGIC HERE — called on init AND after every React re-render.
     //
-    // GraphQL token — embed via Handlebars (rendered server-side by BC):
+    // GraphQL token — embed via Handlebars (rendered server-side by BC).
+    // Only intentional placeholders may use adjacent double braces in this file;
+    // any other pair (including JS string checks for unrendered markers) will be
+    // eaten by Script Manager Handlebars and break the script. See BC-API-SPECIFICITY §14.
     //   var TOKEN = '{{settings.storefront_api.token}}';
     //   fetch('/graphql', { method: 'POST', credentials: 'same-origin',
     //     headers: { 'Content-Type': 'application/json',
     //                'Authorization': 'Bearer ' + TOKEN },
     //     body: JSON.stringify({ query: QUERY, variables: VARS }) })
+    //
+    // Metafields: only permission_set read_and_sf_access / write_and_sf_access
+    // are returned by Storefront GraphQL (namespace + keys required).
     //
     // Sidebar target : document.querySelector('aside.layout-cart') ||
     //                  document.querySelector('[data-test="cart"]') ||
@@ -788,12 +801,18 @@ func scriptScaffold(visibility string) string {
   document.addEventListener('DOMContentLoaded', function () {
     // YOUR LOGIC HERE
     //
-    // GraphQL token — embed via Handlebars (rendered server-side by BC):
+    // GraphQL token — embed via Handlebars (rendered server-side by BC).
+    // Only intentional placeholders may use adjacent double braces in this file;
+    // any other pair (including JS string checks for unrendered markers) will be
+    // eaten by Script Manager Handlebars and break the script. See BC-API-SPECIFICITY §14.
     //   var TOKEN = '{{settings.storefront_api.token}}';
     //   fetch('/graphql', { method: 'POST', credentials: 'same-origin',
     //     headers: { 'Content-Type': 'application/json',
     //                'Authorization': 'Bearer ' + TOKEN },
     //     body: JSON.stringify({ query: QUERY, variables: VARS }) })
+    //
+    // Metafields: only permission_set read_and_sf_access / write_and_sf_access
+    // are returned by Storefront GraphQL (namespace + keys required).
     //
     // Cart REST read : fetch('/api/storefront/carts', { credentials: 'same-origin' })
     // Escape output  : replace &, <, >, ", ' before inserting into innerHTML

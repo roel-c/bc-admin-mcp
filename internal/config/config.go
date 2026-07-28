@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -40,6 +42,9 @@ type BigCommerceConfig struct {
 	// stores with B2B Edition enabled. Uses the same BC_AUTH_TOKEN +
 	// BC_STORE_HASH credentials; no separate token is required.
 	B2BEnabled bool
+	// UploadDir confines local files exposed to B2B attachment uploads. An
+	// empty value disables attachment uploads.
+	UploadDir string
 }
 
 type ServerConfig struct {
@@ -80,12 +85,13 @@ func Load() (*Config, error) {
 			MaxWriteConcurrency: envInt("BC_MAX_WRITE_CONCURRENCY", 1),
 			CacheTTL:            time.Duration(envInt("BC_CACHE_TTL_SECONDS", 60)) * time.Second,
 			B2BEnabled:          envBool("BC_B2B_ENABLED", false),
+			UploadDir:           os.Getenv("BC_UPLOAD_DIR"),
 		},
 		Server: ServerConfig{
 			Name:      envStr("MCP_SERVER_NAME", "bigcommerce-mcp"),
 			Version:   envStr("MCP_SERVER_VERSION", "0.1.0"),
 			Transport: Transport(envStr("MCP_TRANSPORT", "stdio")),
-			Address:   envStr("MCP_ADDRESS", "127.0.0.1"),
+			Address:   strings.TrimSpace(envStr("MCP_ADDRESS", "127.0.0.1")),
 			Port:      envInt("MCP_PORT", 8080),
 			AuthToken: os.Getenv("MCP_AUTH_TOKEN"),
 		},
@@ -127,6 +133,9 @@ func (c *Config) validate() error {
 	case TransportStdio:
 		// stdio is inherently process-local; no auth needed
 	case TransportStreamableHTTP, TransportSSE:
+		if !isLoopbackAddress(c.Server.Address) {
+			return fmt.Errorf("MCP_ADDRESS must be a loopback address for %s transport", c.Server.Transport)
+		}
 		if c.Server.AuthToken == "" {
 			return fmt.Errorf(
 				"MCP_AUTH_TOKEN is required for %s transport — "+
@@ -138,6 +147,15 @@ func (c *Config) validate() error {
 		return fmt.Errorf("unsupported transport: %s", c.Server.Transport)
 	}
 	return nil
+}
+
+func isLoopbackAddress(address string) bool {
+	address = strings.TrimSpace(address)
+	if strings.EqualFold(address, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(address)
+	return ip != nil && ip.IsLoopback()
 }
 
 func envStr(key, fallback string) string {

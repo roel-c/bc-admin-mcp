@@ -20,12 +20,12 @@ Use these tiers when defining MCP tools (or HTTP actions) so permissions and con
 | Tier | Intent | Examples | Operator confirmation |
 |------|--------|----------|------------------------|
 | **R0 — Read** | Fetch only; no mutation | Store profile, list/get products, orders, customers, categories, inventory levels | None |
-| **R1 — Write (standard)** | Idempotent-ish catalog/settings updates | Product SEO fields, category SEO, inventory location metafields, redirects, `is_visible` toggles | **Preview + confirm** for bulk; single-record may be lighter-touch per policy |
+| **R1 — Write (standard)** | Idempotent-ish catalog/settings updates | Product SEO fields, category SEO, inventory location metafields, redirects, `is_visible` toggles | **Preview + confirm** (`confirmed: true`) for **all** R1 writes |
 | **R2 — Write (high-risk)** | Financial / inventory / pricing | Price list record upserts, inventory adjustments/location create-update, cart/checkout server calls | **Always confirm** scope (list name, record count, before/after) |
-| **R3 — Destructive** | Irreversible or legally sensitive | Product **DELETE**, inventory location delete, order payment capture/refund/void, customer password/auth fields | **Explicit per-resource confirmation**; default deny |
-| **R4 — Forbidden (default)** | Unless task explicitly says so | Hard-delete products, `description` HTML overwrite, payment status changes without order ID + approval | Block at tool layer |
+| **R3 — Destructive** | Irreversible or legally sensitive | Product **DELETE**, inventory location delete, order payment capture/refund/void, customer password/auth fields | **Explicit per-resource confirmation** via the same preview → `confirmed: true` flow; default deny |
+| **R4 — Forbidden (default)** | Unless task explicitly says so | Hard-delete products, `description` HTML overwrite, payment status changes without order ID + approval | Block at tool layer (reserved; no production tools register as R4 today) |
 
-**Principle:** R0 tools can be exposed broadly. R1–R2 should accept a **`confirmed: bool`** or separate **`propose_*`** vs **`apply_*`** tools. R3 should require **`confirmation_token`** or human-approved step.
+**Principle:** R0 tools can be exposed broadly. **R1–R3** all use a single-tool preview → **`confirmed: true`** execute pattern (registration requires a `confirmed` boolean on every R1+ tool). Do not invent separate propose/apply tools or `confirmation_token` fields unless the product explicitly changes.
 
 ---
 
@@ -40,7 +40,7 @@ Use these tiers when defining MCP tools (or HTTP actions) so permissions and con
 | `BC_MAX_RETRIES` | `6` | 429 / 5xx backoff rounds |
 | `BC_PRODUCT_BATCH_SIZE` | `10` | Max items per batch **PUT** `/v3/catalog/products` (validated 1–10) |
 | `BC_VARIANT_BATCH_SIZE` | `10` | Max items per batch **PUT** `/v3/catalog/variants` (validated 1–10) |
-| `BC_INVENTORY_BATCH_SIZE` | `10` | Safe batch size for inventory high-risk writes (`inventory/items/update_batch`, `inventory/adjustments/absolute`, `inventory/adjustments/relative`) |
+| `BC_INVENTORY_BATCH_SIZE` | `10` | Safe batch size for inventory high-risk writes (`inventory/items/update_batch`, `inventory/locations/items/update`, `inventory/adjustments/absolute`, `inventory/adjustments/relative`) |
 | `BC_DEFAULT_PAGE_LIMIT` | `250` | Page size for most V3 list endpoints (validated 1–250) |
 | `BC_MAX_TOTAL_RECORDS` | `10000` | Pagination ceiling for `GetAll` (set `0` for unlimited) |
 | `BC_DELAY_BETWEEN_CHUNKS_MS` | `500` | Inter-chunk pause inside `BatchPut` (on top of the throttle) |
@@ -83,6 +83,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | Tool | Cap | Source |
 |------|-----|--------|
 | `catalog/products/update` | ≤ 500 product × `channel_ids` pairs (additive post-write assignment) | `products_update.go` |
+| `catalog/products/bulk_sku_update` | `product_id`/new-SKU pairs ≤ 100/call | `products_bulk_update_sku.go` |
 | `catalog/products/assign_categories` | `product_ids ≤ 100`, `category_ids ≤ 50`, pairs ≤ 500 | `categories_assignments.go` |
 | `catalog/products/unassign_categories` | `product_ids ≤ 100`, `category_ids ≤ 50` | `categories_assignments.go` |
 | `catalog/products/channel_assignments/list` | `product_ids ≤ 100`, `channel_ids ≤ 20` | `products_channel_assignments.go` |
@@ -115,13 +116,17 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `inventory/locations/metafields/list` | R0; requires `location_id`; optional `page`/`limit` | `internal/tools/inventory/tools.go` |
 | `inventory/locations/metafields/set` | **R1**; upsert by `namespace` + `key`; new metafields default `permission_set=app_only`; preview then confirm | `internal/tools/inventory/tools.go` |
 | `inventory/locations/metafields/delete` | **R1**; delete by `metafield_id` or `namespace` + `key`; preview then confirm | `internal/tools/inventory/tools.go` |
-| `inventory/items/update_batch` | **R2**; requires `update` object with either `items[]` or `data[]`; max **10** rows/call; preview then confirm | `internal/tools/inventory/tools.go` |
+| `inventory/locations/items/list` | R0; requires `location_id`; optional variant/product/sku filters; returns `qty_backordered` + `settings.backorder_limit` | `internal/tools/inventory/tools.go` |
+| `inventory/locations/items/update` | **R2**; requires `location_id` + `settings[]` (max **10**); `identity` = exactly one of `variant_id` / `product_id` / `sku`; set `backorder_limit` / safety_stock / etc.; preview then confirm | `internal/tools/inventory/tools.go` |
+| `inventory/items/update_batch` | **R2**; requires `update` object with either `items[]` or `data[]`; max **10** rows/call; preview then confirm; **not** for `backorder_limit` (use `locations/items/update`) | `internal/tools/inventory/tools.go` |
+| `inventory/adjustments/absolute` | **R2**; max **10** rows; identity = exactly one of `variant_id` / `product_id` / `sku`; optional `quantity` and/or `qty_backordered` (≥ 0); preview then confirm | `internal/tools/inventory/tools.go` |
+| `inventory/adjustments/relative` | **R2**; max **10** rows; same identity rules; optional `quantity` and/or `qty_backordered` deltas; at least one must be non-zero; preview then confirm | `internal/tools/inventory/tools.go` |
 | `customers/groups/list` | offset paginated; respects `BC_DEFAULT_PAGE_LIMIT` and `BC_MAX_TOTAL_RECORDS` (max 50 pages) | `internal/bigcommerce/customer_groups.go` |
 | `customers/groups/create` / `update` | `discount_rules` mixing `price_list` with other rule types is silently pruned (price_list wins) and surfaced as a `warnings` field; PUT overwrites discount_rules in bulk per BC | `internal/tools/customers/groups.go` |
 | `customers/groups/delete` | **R3 destructive** — preview then `confirmed=true`; BC unassigns all members automatically | `internal/tools/customers/groups.go` |
 | `customers/list` | R0; requires a real filter or `list_all=true`; GET `/v3/customers` | `internal/tools/customers/customer_records.go` |
 | `customers/get` | R0; single customer via `id:in` | `internal/tools/customers/customer_records.go` |
-| `customers/create` / `update` | **R2**; `new_password` needs `set_password=true` and `confirmed=true`; BC max **10** per POST/PUT | `internal/tools/customers/customer_records.go` |
+| `customers/create` / `update` | **R2**; `new_password` needs `set_password=true` and `confirmed=true`; BC max **10** per POST/PUT; supports storefront identity fields `origin_channel_id` / `channel_ids` for MSF-aware customer creation | `internal/tools/customers/customer_records.go` |
 | `customers/delete` | **R3**; max **50** ids; preview then confirm | `internal/tools/customers/customer_records.go` |
 | `customers/assign_group` | **R2**; max **100** ids, chunked PUTs of **10**; `group_id` **0** clears assignment | `internal/tools/customers/customer_records.go` |
 | `customers/addresses/list` | R0; filter or `list_all=true` | `internal/tools/customers/customer_addresses_tools.go` |
@@ -183,7 +188,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `webhooks/update` | **R1**; `id` required; at least one of `scope`, `destination`, `is_active`, `headers_json`; fetch-merge-PUT: fetches current state, merges provided fields; `channel_id` immutable after creation; HTTPS validated on `destination`; preview then confirm | `internal/tools/webhooks/webhook_tools.go` |
 | `webhooks/delete` | **R3 destructive**; `id` required; fetches current hook for preview (scope + destination shown); `confirmed=true` to permanently delete | `internal/tools/webhooks/webhook_tools.go` |
 | `storefront/scripts/list` / `get` | R0; Script Manager reads via `/v3/content/scripts` | `internal/tools/storefront/scripts.go` |
-| `storefront/scripts/create` / `update` / `toggle` | **R1**; preview then confirm; `toggle` flips `enabled` without editing the body | `internal/tools/storefront/scripts.go` |
+| `storefront/scripts/create` / `update` / `toggle` | **R1**; preview then confirm; `toggle` flips `enabled` without editing the body. MCP quirks: `docs/BC-API-SPECIFICITY.md` §14. For Script Manager / Storefront GraphQL frontend patterns, see the external [Stencil Customization Guide INDEX](https://github.com/roel-c/bc-stencil-customization-guide/blob/main/INDEX.md) (`docs/AGENT.md`) | `internal/tools/storefront/scripts.go` |
 | `storefront/scripts/delete` | **R3 destructive**; preview then `confirmed=true` | `internal/tools/storefront/scripts.go` |
 | `carts/cart/create` / `update` | **R1**; preview then confirm; `line_items_json` / `custom_items_json` validated (quantity ≥ 1) | `internal/tools/carts/cart_tools.go` |
 | `carts/cart/get` / `checkout_url` | R0; require `cart_id` (UUID) | `internal/tools/carts/cart_tools.go` |
@@ -198,7 +203,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `carts/checkout/consignment_add` / `consignment_update` | **R1**; add assigns items to a shipping address; update selects a `shipping_option_id` | `internal/tools/carts/checkout_tools.go` |
 | `carts/checkout/convert` | **R2**; converts checkout to an order (cart consumed, irreversible); preview warns if billing address or consignment missing; order always lands in **Incomplete** status (no payment taken by this endpoint) — follow up with `orders/management/update_status` | `internal/tools/carts/checkout_tools.go` |
 | `b2b/companies/list` / `get` | R0; B2B Edition; requires `BC_B2B_ENABLED=true` | `internal/tools/b2b/company_tools.go` |
-| `b2b/companies/create` / `update` | **R1**; preview then confirm; create also provisions the initial admin user | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/create` / `update` | **R1**; preview then confirm; create also provisions the initial admin user; optional `customer_group_id` on both (Independent Companies behavior — see DEVELOPMENT §2.6); `update`'s BC response is sparse, so the handler re-fetches before returning | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/set_status` | **R2**; approve / reject / deactivate (status 0–3) | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/delete` | **R3 destructive**; deletes the company, all its users, and (by default) the users' linked BC customer accounts — resolved by `bcCustomerId` or email fallback; `delete_bc_customers=false` keeps them | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/extra_fields` / `update_catalog` | R0 / **R2**; extra-field config discovery; catalog assign (read-only on Independent-behavior stores) | `internal/tools/b2b/company_tools.go` |
@@ -207,7 +212,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `b2b/companies/users/delete` / `extra_fields` | **R2** / R0; delete preserves the underlying BC customer; extra-field config listing | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/addresses/list` / `create` / `update` | R0 / **R1** / **R1**; company billing/shipping addresses | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/addresses/delete` | **R2**; removes an address (existing orders/quotes unaffected) | `internal/tools/b2b/company_tools.go` |
-| `b2b/companies/attachments/list` / `add` / `delete` | R0 / **R1** / **R2**; `add` uploads a local file (≤10MB, multipart) to the Attachments tab | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/attachments/list` / `add` / `delete` | R0 / **R1** / **R2**; `add` uploads a relative file (≤10MB, multipart) confined under explicit `BC_UPLOAD_DIR`; uploads are disabled when unset | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/roles/*` | R0 reads; **R1** create/update; **R2** delete; custom roles only (predefined are read-only); `permissions_json` sets `{code, permissionLevel}` | `internal/tools/b2b/role_tools.go` |
 | `b2b/companies/permissions/*` | R0 list; **R1** create/update; **R2** delete; custom company permissions | `internal/tools/b2b/role_tools.go` |
 | `b2b/companies/hierarchy/*` | R0 get/subsidiaries; **R1** attach_parent; **R2** detach_subsidiary; requires Account Hierarchy enabled on the store | `internal/tools/b2b/hierarchy_tools.go` |
@@ -215,7 +220,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `b2b/orders/get` / `extra_fields` | R0; B2B order view by BC order ID; order extra-field configs | `internal/tools/b2b/channel_order_tools.go` |
 | `b2b/orders/update` / `assign_customer_orders` / `reassign` | **R1** / **R2** / **R2**; PO+extra fields; attach historical orders; reassign by group (Dependent-behavior only) | `internal/tools/b2b/channel_order_tools.go` |
 | `b2b/quotes/list` / `get` / `extra_fields` | R0; quote IDs are integers (invoice/receipt IDs are strings) | `internal/tools/b2b/quote_tools.go` |
-| `b2b/quotes/create` / `update` | **R1**; take a raw `quote_json` body (nested line-item schema is underdocumented — see FOLLOW-UPS FU-7); `expiredAt` must be `MM/DD/YYYY` | `internal/tools/b2b/quote_tools.go` |
+| `b2b/quotes/create` / `update` | **R1**; take a raw `quote_json` body; **`companyId` required for Buyer Portal visibility** (contact email/name alone leave `companyInfo` empty); `expiredAt` must be `MM/DD/YYYY`; productList needs numeric `basePrice`/`offeredPrice`/`discount` + `variantId` | `internal/tools/b2b/quote_tools.go` |
 | `b2b/quotes/delete` | **R3 destructive**; prefer `update` with `status=archived` to hide instead | `internal/tools/b2b/quote_tools.go` |
 | `b2b/quotes/checkout` / `assign_to_order` | **R1** / **R2**; only valid in quote status New/In Process/Updated by Customer | `internal/tools/b2b/quote_tools.go` |
 | `b2b/quotes/shipping/*` | R0 reads; **R1** select; **R2** remove; plural `/shipping-rates` (GET) vs singular `/shipping-rate` (PUT/DELETE) — mixing them 405s | `internal/tools/b2b/quote_tools.go` |
@@ -225,6 +230,35 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `b2b/sales_staff/*` | R0 reads; **R1** `update_assignments` (non-destructive; body field is `assignStatus`) | `internal/tools/b2b/sales_staff_tools.go` |
 | `b2b/super_admins/*`, `b2b/companies/super_admins/*` | R0 reads; **R1** create/bulk_create/update/update_assignments; assignment body field is `isAssigned` (not `assignStatus` — differs from Sales Staff) | `internal/tools/b2b/super_admin_tools.go` |
 | `b2b/shopping_lists/*` | R0 list/get; **R1** create/update; **R3** delete; **R2** items/remove; `create` defaults `status` to `"0"` since the live API rejects a null status despite the schema not marking it required | `internal/tools/b2b/shopping_list_tools.go` |
+
+### 2.6 Independent vs Dependent Companies behavior (customer group assignment)
+
+BigCommerce B2B Edition has two mutually-exclusive behavior modes, set at the
+store level (Independent has been the default for new stores since Oct 2024;
+existing stores must contact BC support to switch, and cannot switch back):
+
+| | **Independent Companies** (current default) | **Dependent Companies** (legacy) |
+|--|--|--|
+| Group on company create | Not auto-created. `bc_group_id` stays `0` unless you pass `customer_group_id` (or a store-configured default group applies) | Auto-created and auto-linked, one-to-one, on every company create/approval |
+| Reassignment | Allowed any time via `customer_group_id` on `b2b/companies/update` | Not allowed — the link is permanent once set |
+| Multiple companies sharing one group | Supported (e.g. a parent + subsidiary sharing one restricted catalog) | Not supported — always 1:1 |
+| Relevant tools | `b2b/companies/create` / `update` (`customer_group_id` param) | Same tools, but `customer_group_id` is ignored — BC manages the group itself |
+
+**Do not assume `bc_group_id` will populate on its own** for an
+API-created company on an Independent-behavior store — confirmed live during
+the full-surface check in `WORKFLOW.md` §10.3: a company sat at `bc_group_id: 0`
+for over an hour with no group ever appearing, because there was nothing to
+wait for. Create the customer group first (`customers/groups/create`,
+optionally with `category_access_type`/`category_access_categories` to
+restrict the buyer's catalog view), then pass its ID as `customer_group_id`
+on the company create/update call.
+
+**`b2b/companies/update`'s underlying BC response is sparse** — a successful
+`customer_group_id` change can come back with `bc_group_id: 0` and most other
+fields blank in the immediate response. The tool re-fetches the company after
+a confirmed update before returning, the same fix already applied to
+`create`'s equally sparse response — so callers should trust the tool's
+`company` object, but be aware the raw BC API alone would be misleading here.
 
 ---
 
@@ -294,7 +328,7 @@ Follow **`{action}_{resource}`** in snake_case (BC-API-Reference §9).
 
 **Write (R1):** `bulk_update_products` (max 10 items + chunking in implementation), `update_category`, …
 
-**High-risk (R2):** `catalog/pricelists/records/upsert` (**serial only**), `catalog/pricelists/assignments/create_batch`, `catalog/pricelists/assignments/upsert`, `catalog/pricelists/assignments/delete`, `inventory/locations/create`, `inventory/locations/update`, `inventory/items/update_batch` (batch ≤ 10), `inventory/adjustments/absolute` (batch ≤ 10), `inventory/adjustments/relative` (batch ≤ 10), …
+**High-risk (R2):** `catalog/pricelists/records/upsert` (**serial only**), `catalog/pricelists/assignments/create_batch`, `catalog/pricelists/assignments/upsert`, `catalog/pricelists/assignments/delete`, `inventory/locations/create`, `inventory/locations/update`, `inventory/locations/items/update` (batch ≤ 10), `inventory/items/update_batch` (batch ≤ 10), `inventory/adjustments/absolute` (batch ≤ 10), `inventory/adjustments/relative` (batch ≤ 10), …
 
 **Parameters:** mirror BC limits — e.g. `maxItems: 10` on bulk product arrays; optional `dry_run: bool` for proposals.
 
