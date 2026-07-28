@@ -6,7 +6,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// Tier maps to the risk tiers defined in BC-Tool-Boundaries.md.
+// Tier maps to the risk tiers defined in docs/DEVELOPMENT.md.
 type Tier string
 
 const (

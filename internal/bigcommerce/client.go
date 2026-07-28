@@ -272,7 +272,7 @@ func (c *Client) GetAll(ctx context.Context, path string) ([]json.RawMessage, er
 
 // BatchPut sends items in batches via PUT to a V3 endpoint. It respects the
 // configured batch size, delay between chunks, and sequential-by-default
-// write policy from BC-Tool-Boundaries.md.
+// write policy from docs/DEVELOPMENT.md.
 func (c *Client) BatchPut(ctx context.Context, path string, items []any, batchSize int) (*BatchResult, error) {
 	result := &BatchResult{}
 

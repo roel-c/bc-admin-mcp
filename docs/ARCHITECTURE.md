@@ -483,10 +483,10 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 
 ### Implemented Tools
 
-> **Canonical, current list:** [README.md](../README.md#implemented-tools) and
-> [`docs/AGENT.md`](./AGENT.md#implemented-tools) — this section intentionally
-> does **not** duplicate the full per-tool table (a full duplicate here drifted
-> out of sync with reality more than once; see git history). Below is a
+> **Canonical, current list:** [README.md](../README.md#implemented-tools)
+> (CI-enforced via `TestDocsSync`). Agents should prefer live `discover_tools`
+> over any static table — see [`docs/AGENT.md`](./AGENT.md). This section
+> intentionally does **not** duplicate the full per-tool table. Below is a
 > domain-level summary of what exists today, for architectural orientation.
 
 | Domain | Representative tools | Full detail |
@@ -700,7 +700,7 @@ Every registered category must satisfy these invariants — enforced by `interna
 | **Parent chain** | Every tool path must have each parent segment registered (e.g. `catalog/products/metafields/set` requires `catalog`, `catalog/products`, `catalog/products/metafields`). |
 | **Summary ≤ 150 chars** | Category and tool `Summary` strings appear verbatim in LLM responses. Summaries describe what tools exist — not how to use them, not OAuth scopes, not API paths. Guidance belongs in `docs/` or tool descriptions. |
 | **R1+ tools declare `confirmed`** | Registration panics at startup if an R1+ tool lacks a `confirmed` boolean in its schema. |
-| **Future domains stay out** | `carts/`, `store/` remain unregistered until the first tool ships. Placeholder categories with no tools produce empty `discover_tools` leaves and confuse agents. |
+| **Future domains stay out** | `store/` (and any other roadmap-only domain) remains unregistered until the first tool ships. Placeholder categories with no tools produce empty `discover_tools` leaves and confuse agents. `carts/` is shipped. |
 
 Run after any registration change:
 

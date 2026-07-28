@@ -20,12 +20,12 @@ Use these tiers when defining MCP tools (or HTTP actions) so permissions and con
 | Tier | Intent | Examples | Operator confirmation |
 |------|--------|----------|------------------------|
 | **R0 — Read** | Fetch only; no mutation | Store profile, list/get products, orders, customers, categories, inventory levels | None |
-| **R1 — Write (standard)** | Idempotent-ish catalog/settings updates | Product SEO fields, category SEO, inventory location metafields, redirects, `is_visible` toggles | **Preview + confirm** for bulk; single-record may be lighter-touch per policy |
+| **R1 — Write (standard)** | Idempotent-ish catalog/settings updates | Product SEO fields, category SEO, inventory location metafields, redirects, `is_visible` toggles | **Preview + confirm** (`confirmed: true`) for **all** R1 writes |
 | **R2 — Write (high-risk)** | Financial / inventory / pricing | Price list record upserts, inventory adjustments/location create-update, cart/checkout server calls | **Always confirm** scope (list name, record count, before/after) |
-| **R3 — Destructive** | Irreversible or legally sensitive | Product **DELETE**, inventory location delete, order payment capture/refund/void, customer password/auth fields | **Explicit per-resource confirmation**; default deny |
-| **R4 — Forbidden (default)** | Unless task explicitly says so | Hard-delete products, `description` HTML overwrite, payment status changes without order ID + approval | Block at tool layer |
+| **R3 — Destructive** | Irreversible or legally sensitive | Product **DELETE**, inventory location delete, order payment capture/refund/void, customer password/auth fields | **Explicit per-resource confirmation** via the same preview → `confirmed: true` flow; default deny |
+| **R4 — Forbidden (default)** | Unless task explicitly says so | Hard-delete products, `description` HTML overwrite, payment status changes without order ID + approval | Block at tool layer (reserved; no production tools register as R4 today) |
 
-**Principle:** R0 tools can be exposed broadly. R1–R2 should accept a **`confirmed: bool`** or separate **`propose_*`** vs **`apply_*`** tools. R3 should require **`confirmation_token`** or human-approved step.
+**Principle:** R0 tools can be exposed broadly. **R1–R3** all use a single-tool preview → **`confirmed: true`** execute pattern (registration requires a `confirmed` boolean on every R1+ tool). Do not invent separate propose/apply tools or `confirmation_token` fields unless the product explicitly changes.
 
 ---
 

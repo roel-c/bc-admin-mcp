@@ -24,8 +24,9 @@ cp .env.example .env   # then edit with your BC_STORE_HASH + BC_AUTH_TOKEN
 make build && make run # stdio transport — for Cursor, Claude Desktop, etc.
 ```
 
-Point your MCP client at the built binary (see [Integration with Cursor](#integration-with-cursor)
-for a `.cursor/mcp.json` example). Then, from the client:
+Point your MCP client at the built binary via [`scripts/launch-mcp.sh`](./scripts/launch-mcp.sh)
+(recommended — loads `.env`) or see [Integration with Cursor](#integration-with-cursor)
+for `.cursor/mcp.json` examples. Then, from the client:
 
 1. **`discover_tools("")`** — see the live category roots (`catalog`, `orders`, `customers`, `marketing`, `inventory`, `storefront`, `webhooks`, `carts`, plus `b2b` when enabled).
 2. **`discover_tools("<path>")`** — drill down (e.g. `"catalog"` → `"catalog/products"`) until you see tool stubs with a `tier`.
@@ -77,7 +78,7 @@ inventory/   — Locations, items, backorders (limit + qty_backordered), and gua
 storefront/  — Script Manager script injection and management.
 webhooks/    — Webhook registration CRUD and delivery-event inspection (/v3/hooks).
 carts/       — Server-side cart lifecycle, cart items, cart metafields, and the checkout flow (coupons, addresses, consignments, convert-to-order).
-b2b/         — (Gated) Company accounts, buyer users, and company addresses via B2B Edition.
+b2b/         — (Gated) B2B Edition: companies/users/addresses, hierarchy, channels, orders, quotes, invoices/receipts, payments/credit/terms, sales staff, super admins, and shopping lists.
 ```
 
 **Variants:** use **`catalog/products/variants`** for product-scoped CRUD, options-linked creates, and variant metafields. Use **`catalog/variants`** for **global** `GET /v3/catalog/variants` list/search and **`PUT /v3/catalog/variants`** batch updates (IMS-style); see tool table rows below.
@@ -89,7 +90,7 @@ b2b/         — (Gated) Company accounts, buyer users, and company addresses vi
 | Tier | Intent | Confirmation |
 |------|--------|-------------|
 | R0 | Read only | None |
-| R1 | Standard writes | Preview + confirm for bulk |
+| R1 | Standard writes | Preview + confirm (**all** R1 writes) |
 | R2 | High-risk (pricing, inventory) | Always confirm |
 | R3 | Destructive | Per-resource confirmation |
 | R4 | Forbidden | Blocked at tool layer |
@@ -167,13 +168,27 @@ make run-http
 
 ### Integration with Cursor
 
-Add to your `.cursor/mcp.json`:
+**Recommended:** build once (`make build`), keep credentials in `.env`, and point Cursor at `scripts/launch-mcp.sh` (it sources `.env` and execs `./bc-mcp-server`). Copy the template from [`scripts/cursor-mcp.json.example`](./scripts/cursor-mcp.json.example) into your project `.cursor/mcp.json`, or use absolute paths:
 
 ```json
 {
   "mcpServers": {
     "bigcommerce": {
-      "command": "/path/to/bc-mcp-server",
+      "command": "/absolute/path/to/bc-admin-mcp/scripts/launch-mcp.sh"
+    }
+  }
+}
+```
+
+After changing `.env`, restart the MCP server (disable/enable the server in Cursor, or fully quit and reopen Cursor). The running process does not hot-reload credentials.
+
+**Alternative:** pass credentials inline (useful for one-off demos; prefer `.env` + launch script so secrets stay out of MCP config files):
+
+```json
+{
+  "mcpServers": {
+    "bigcommerce": {
+      "command": "/absolute/path/to/bc-admin-mcp/bc-mcp-server",
       "env": {
         "BC_STORE_HASH": "your_store_hash",
         "BC_AUTH_TOKEN": "your_api_token"
@@ -273,7 +288,7 @@ A human-browsable snapshot of every tool path, for skimming without a running se
 | `catalog/categories/move` | R2 | Reparent a category (with cycle detection and subtree preview) |
 | `catalog/categories/reorder` | R1 | Reorder sibling categories by providing them in desired display order |
 | `catalog/categories/metafields/list` | R0 | List all metafields on a category |
-| `catalog/categories/metafields/set` | R1 | Create or update a metafield (upsert by namespace+key) |
+| `catalog/categories/metafields/set` | R1 | Create or update a metafield (upsert by namespace+key); default `permission_set` **write** |
 | `catalog/categories/metafields/delete` | R1 | Delete a metafield by ID or namespace+key |
 | `catalog/categories/delete` | R3 | Single delete with child-cascade safeguard |
 | `catalog/categories/bulk_delete` | R3 | Multi-delete with child-cascade safeguard |
@@ -440,7 +455,7 @@ A human-browsable snapshot of every tool path, for skimming without a running se
 | `carts/cart/items/remove` | R2 | `DELETE /v3/carts/{id}/items/{item_id}` — remove a line item; preview → **`confirmed`** |
 | `carts/cart/checkout_url` | R0 | `POST /v3/carts/{id}/redirect_urls` — cart, checkout, and embedded-checkout URLs |
 | `carts/cart/metafields/list` | R0 | `GET /v3/carts/{id}/metafields` — list cart metafields |
-| `carts/cart/metafields/set` | R1 | Upsert cart metafield by namespace+key; preview → **`confirmed`** |
+| `carts/cart/metafields/set` | R1 | Upsert cart metafield by namespace+key; defaults to **`app_only`**; preview → **`confirmed`** |
 | `carts/cart/metafields/delete` | R1 | Delete cart metafield by id or namespace+key; preview → **`confirmed`** |
 | `carts/checkout/get` | R0 | `GET /v3/checkouts/{id}` — billing address, consignments + shipping options, coupons, totals |
 | `carts/checkout/coupon_apply` | R1 | `POST /v3/checkouts/{id}/coupons` — apply a coupon code; preview → **`confirmed`** |
@@ -547,7 +562,7 @@ internal/
     storefront/          — Script Manager scripts
     webhooks/            — Webhook registrations (list/get/events/create/update/delete via /v3/hooks)
     carts/               — Cart lifecycle, cart items, cart metafields, and checkout flow (/v3/carts, /v3/checkouts)
-    b2b/                 — B2B Edition companies, users, addresses (gated by BC_B2B_ENABLED)
+    b2b/                 — B2B Edition companies → shopping lists (gated by BC_B2B_ENABLED; see docs/B2B.md)
     shared/              — Shared tool helpers (ToolError, ToolJSON response builders)
 ```
 

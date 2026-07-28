@@ -471,7 +471,7 @@ func TestFullRegistrationStorefrontAndWebhooksSubtreesAreFullyRegistered(t *test
 
 // TestFullRegistrationB2BRootIsGatedByFlag verifies the b2b/ domain only
 // registers when B2B Edition is enabled — disabled stores must never see it,
-// and enabled stores must get the full Phase B1 subtree.
+// and enabled stores must get the full shipped B2B subtree.
 func TestFullRegistrationB2BRootIsGatedByFlag(t *testing.T) {
 	cfg := testBigCommerceConfig()
 

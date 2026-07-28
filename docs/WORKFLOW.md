@@ -141,9 +141,9 @@ an identifiable prefix (e.g. `mcp-…`) so strays are easy to spot and remove.
 ## 7. Update documentation as the batch lands
 
 Keep these in sync in the same change:
-- Domain doc (e.g. `B2B.md`, `MSF.md`) — the authoritative tool table.
-- `README.md` — the implemented-tools table.
-- `AGENT.md` — the compact tier table the agent reads.
+- Domain doc (e.g. `B2B.md`, `MSF.md`) — the authoritative domain tool table.
+- `README.md` — the implemented-tools table (CI-enforced; every registered path must appear).
+- `AGENT.md` — tier **policy** and operating rules only (no per-tool inventory; agents use live `discover_tools`).
 - `DEVELOPMENT.md` — tool boundaries / caps / scopes if they changed.
 
 ## 8. Commit and push

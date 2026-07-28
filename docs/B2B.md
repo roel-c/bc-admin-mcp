@@ -47,7 +47,7 @@ BigCommerce documents 11 server-to-server resource families:
 
 ### Phase B1 — Company Administration ✅ Shipped
 
-**Discovery tree:** `b2b/` → `b2b/companies/` with sub-trees `users/`, `addresses/`, `attachments/`, `roles/`, `permissions/`.
+**Discovery tree (B1):** `b2b/` → `b2b/companies/` with sub-trees `users/`, `addresses/`, `attachments/`, `roles/`, `permissions/`, plus hierarchy helpers under `companies/hierarchy/`. Later phases also ship under the same `b2b/` root: channels, orders, quotes, invoices/receipts, payment records, payments/credit/terms, sales staff, super admins, and shopping lists (see Phases B2–B4 below and the README Implemented Tools table).
 
 **Activation:** Set `BC_B2B_ENABLED=true` in `.env`.
 

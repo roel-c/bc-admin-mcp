@@ -194,7 +194,7 @@ deeper questions or for contributor work:
 
 - `README.md` — Setup, quick start, and the full Implemented Tools table
 - `docs/DEVELOPMENT.md` — Tool tiers (R0–R4), numeric caps, concurrency policy, OAuth scope grouping, and channel assignment model
-- `docs/B2B.md` — B2B Edition setup and phased implementation plan
+- `docs/B2B.md` — B2B Edition setup and shipped commercial-path tools (gated by `BC_B2B_ENABLED`)
 - **Reference (search by section, don't read linearly):** `docs/BC-API-Reference.md`, `docs/BC-API-SPECIFICITY.md` (inventory backorders: §15)
 - **Script Manager / storefront frontend injection (external):** [Stencil Customization Guide INDEX](https://github.com/roel-c/bc-stencil-customization-guide/blob/main/INDEX.md) — see section above; do not vendor into this repo
 - **Contributor-only (adding/changing tools):** `docs/WORKFLOW.md`, `docs/ARCHITECTURE.md`
