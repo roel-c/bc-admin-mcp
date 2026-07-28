@@ -188,7 +188,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `webhooks/update` | **R1**; `id` required; at least one of `scope`, `destination`, `is_active`, `headers_json`; fetch-merge-PUT: fetches current state, merges provided fields; `channel_id` immutable after creation; HTTPS validated on `destination`; preview then confirm | `internal/tools/webhooks/webhook_tools.go` |
 | `webhooks/delete` | **R3 destructive**; `id` required; fetches current hook for preview (scope + destination shown); `confirmed=true` to permanently delete | `internal/tools/webhooks/webhook_tools.go` |
 | `storefront/scripts/list` / `get` | R0; Script Manager reads via `/v3/content/scripts` | `internal/tools/storefront/scripts.go` |
-| `storefront/scripts/create` / `update` / `toggle` | **R1**; preview then confirm; `toggle` flips `enabled` without editing the body. MCP quirks: `docs/BC-API-SPECIFICITY.md` §14 + `scripts/pdp-metafields-display.html`. For Script Manager / Storefront GraphQL frontend patterns, see the external [Stencil Customization Guide INDEX](https://github.com/roel-c/bc-stencil-customization-guide/blob/main/INDEX.md) (`docs/AGENT.md`) | `internal/tools/storefront/scripts.go` |
+| `storefront/scripts/create` / `update` / `toggle` | **R1**; preview then confirm; `toggle` flips `enabled` without editing the body. MCP quirks: `docs/BC-API-SPECIFICITY.md` §14. For Script Manager / Storefront GraphQL frontend patterns, see the external [Stencil Customization Guide INDEX](https://github.com/roel-c/bc-stencil-customization-guide/blob/main/INDEX.md) (`docs/AGENT.md`) | `internal/tools/storefront/scripts.go` |
 | `storefront/scripts/delete` | **R3 destructive**; preview then `confirmed=true` | `internal/tools/storefront/scripts.go` |
 | `carts/cart/create` / `update` | **R1**; preview then confirm; `line_items_json` / `custom_items_json` validated (quantity ≥ 1) | `internal/tools/carts/cart_tools.go` |
 | `carts/cart/get` / `checkout_url` | R0; require `cart_id` (UUID) | `internal/tools/carts/cart_tools.go` |
@@ -212,7 +212,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `b2b/companies/users/delete` / `extra_fields` | **R2** / R0; delete preserves the underlying BC customer; extra-field config listing | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/addresses/list` / `create` / `update` | R0 / **R1** / **R1**; company billing/shipping addresses | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/addresses/delete` | **R2**; removes an address (existing orders/quotes unaffected) | `internal/tools/b2b/company_tools.go` |
-| `b2b/companies/attachments/list` / `add` / `delete` | R0 / **R1** / **R2**; `add` uploads a local file (≤10MB, multipart) to the Attachments tab | `internal/tools/b2b/company_tools.go` |
+| `b2b/companies/attachments/list` / `add` / `delete` | R0 / **R1** / **R2**; `add` uploads a relative file (≤10MB, multipart) confined under explicit `BC_UPLOAD_DIR`; uploads are disabled when unset | `internal/tools/b2b/company_tools.go` |
 | `b2b/companies/roles/*` | R0 reads; **R1** create/update; **R2** delete; custom roles only (predefined are read-only); `permissions_json` sets `{code, permissionLevel}` | `internal/tools/b2b/role_tools.go` |
 | `b2b/companies/permissions/*` | R0 list; **R1** create/update; **R2** delete; custom company permissions | `internal/tools/b2b/role_tools.go` |
 | `b2b/companies/hierarchy/*` | R0 get/subsidiaries; **R1** attach_parent; **R2** detach_subsidiary; requires Account Hierarchy enabled on the store | `internal/tools/b2b/hierarchy_tools.go` |
@@ -220,7 +220,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `b2b/orders/get` / `extra_fields` | R0; B2B order view by BC order ID; order extra-field configs | `internal/tools/b2b/channel_order_tools.go` |
 | `b2b/orders/update` / `assign_customer_orders` / `reassign` | **R1** / **R2** / **R2**; PO+extra fields; attach historical orders; reassign by group (Dependent-behavior only) | `internal/tools/b2b/channel_order_tools.go` |
 | `b2b/quotes/list` / `get` / `extra_fields` | R0; quote IDs are integers (invoice/receipt IDs are strings) | `internal/tools/b2b/quote_tools.go` |
-| `b2b/quotes/create` / `update` | **R1**; take a raw `quote_json` body (nested line-item schema is underdocumented — see FOLLOW-UPS FU-7); **`companyId` required for Buyer Portal visibility** (contact email/name alone leave `companyInfo` empty); `expiredAt` must be `MM/DD/YYYY`; productList needs numeric `basePrice`/`offeredPrice`/`discount` + `variantId` | `internal/tools/b2b/quote_tools.go` |
+| `b2b/quotes/create` / `update` | **R1**; take a raw `quote_json` body; **`companyId` required for Buyer Portal visibility** (contact email/name alone leave `companyInfo` empty); `expiredAt` must be `MM/DD/YYYY`; productList needs numeric `basePrice`/`offeredPrice`/`discount` + `variantId` | `internal/tools/b2b/quote_tools.go` |
 | `b2b/quotes/delete` | **R3 destructive**; prefer `update` with `status=archived` to hide instead | `internal/tools/b2b/quote_tools.go` |
 | `b2b/quotes/checkout` / `assign_to_order` | **R1** / **R2**; only valid in quote status New/In Process/Updated by Customer | `internal/tools/b2b/quote_tools.go` |
 | `b2b/quotes/shipping/*` | R0 reads; **R1** select; **R2** remove; plural `/shipping-rates` (GET) vs singular `/shipping-rate` (PUT/DELETE) — mixing them 405s | `internal/tools/b2b/quote_tools.go` |
@@ -245,8 +245,8 @@ existing stores must contact BC support to switch, and cannot switch back):
 | Relevant tools | `b2b/companies/create` / `update` (`customer_group_id` param) | Same tools, but `customer_group_id` is ignored — BC manages the group itself |
 
 **Do not assume `bc_group_id` will populate on its own** for an
-API-created company on an Independent-behavior store — confirmed live
-(`FOLLOW-UPS.md` FU-8/`WORKFLOW.md` §10.3): a company sat at `bc_group_id: 0`
+API-created company on an Independent-behavior store — confirmed live during
+the full-surface check in `WORKFLOW.md` §10.3: a company sat at `bc_group_id: 0`
 for over an hour with no group ever appearing, because there was nothing to
 wait for. Create the customer group first (`customers/groups/create`,
 optionally with `category_access_type`/`category_access_categories` to

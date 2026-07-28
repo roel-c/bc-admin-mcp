@@ -306,6 +306,29 @@ func (s *ScriptHandlerSuite) TestCreatePropagatesError() {
 	s.True(result.IsError)
 }
 
+func (s *ScriptHandlerSuite) TestCreateSanitizesAPIErrorBody() {
+	const secret = "internal-upstream-secret"
+	s.mockBC.EXPECT().CreateScript(gomock.Any(), gomock.Any()).Return(nil, &bigcommerce.APIError{
+		StatusCode: 500,
+		Method:     "POST",
+		Path:       "content/scripts",
+		Body:       []byte("<html>" + secret + "</html>"),
+	})
+
+	result, err := s.callTool("storefront/scripts/create", map[string]any{
+		"name":      "Fail Script",
+		"kind":      "src",
+		"src":       "https://cdn.example.com/fail.js",
+		"confirmed": true,
+	})
+	s.NoError(err)
+	s.True(result.IsError)
+	text := result.Content[0].(mcp.TextContent).Text
+	s.Contains(text, "status 500")
+	s.NotContains(text, secret)
+	s.NotContains(text, "<html>")
+}
+
 // --------------------------------------------------------------------------
 // update
 // --------------------------------------------------------------------------

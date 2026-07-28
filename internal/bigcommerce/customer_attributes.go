@@ -59,8 +59,8 @@ func (c *Client) SearchCustomerAttributes(ctx context.Context, params map[string
 // Unlike most V3 list endpoints, GET /v3/customers/attributes does NOT
 // support id / id:in filtering — BigCommerce returns a 422 ("The filter(s):
 // id:in are not valid filter parameter(s)") for any attempt to filter by id.
-// Confirmed live (FOLLOW-UPS.md FU-8); this endpoint only supports
-// name/name:like filters or a full unfiltered list. There is no
+// Confirmed against the live API; this endpoint only supports name/name:like
+// filters or a full unfiltered list. There is no
 // server-side way to narrow by ID, so this fetches the full attribute set
 // and filters client-side. Stores are expected to have a small number of
 // attribute definitions (BC's own UI is designed around this), so this is

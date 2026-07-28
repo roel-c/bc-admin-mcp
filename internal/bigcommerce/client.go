@@ -65,23 +65,37 @@ type Client struct {
 }
 
 func NewClient(cfg config.BigCommerceConfig, logger *slog.Logger) *Client {
+	return newClient(cfg, logger, nil)
+}
+
+// NewClientWithHTTPClient constructs a Management API client with a caller-
+// supplied HTTP client. It is primarily useful for controlled integrations and
+// tests that must provide a custom transport.
+func NewClientWithHTTPClient(cfg config.BigCommerceConfig, logger *slog.Logger, httpClient *http.Client) *Client {
+	return newClient(cfg, logger, httpClient)
+}
+
+func newClient(cfg config.BigCommerceConfig, logger *slog.Logger, httpClient *http.Client) *Client {
 	interval := time.Duration(float64(time.Second) / cfg.RequestsPerSecond)
 	ticker := time.NewTicker(interval)
-	return &Client{
-		httpClient: &http.Client{
+	if httpClient == nil {
+		httpClient = &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
 				MaxIdleConns:        20,
 				MaxIdleConnsPerHost: 20,
 				IdleConnTimeout:     90 * time.Second,
 			},
-		},
-		storeHash: cfg.StoreHash,
-		authToken: cfg.AuthToken,
-		cfg:       cfg,
-		logger:    logger,
-		ticker:    ticker,
-		throttle:  ticker.C,
+		}
+	}
+	return &Client{
+		httpClient: httpClient,
+		storeHash:  cfg.StoreHash,
+		authToken:  cfg.AuthToken,
+		cfg:        cfg,
+		logger:     logger,
+		ticker:     ticker,
+		throttle:   ticker.C,
 	}
 }
 
@@ -159,7 +173,10 @@ func (c *Client) Do(ctx context.Context, method, url string, body any) (*http.Re
 			c.waitForReset(ctx)
 			lastErr = fmt.Errorf("rate limited (429)")
 		case resp.StatusCode >= 500:
-			lastErr = fmt.Errorf("server error %d: %s", resp.StatusCode, string(respBody))
+			lastErr = &UpstreamError{
+				Service:    "BigCommerce Management API",
+				StatusCode: resp.StatusCode,
+			}
 			c.logger.Warn("BigCommerce server error",
 				"status", resp.StatusCode,
 				"attempt", attempt+1,

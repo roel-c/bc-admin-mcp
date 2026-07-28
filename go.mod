@@ -1,6 +1,6 @@
 module github.com/roel-c/bc-admin-mcp
 
-go 1.26.2
+go 1.26.5
 
 require (
 	github.com/mark3labs/mcp-go v0.47.1

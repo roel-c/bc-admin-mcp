@@ -114,7 +114,7 @@ func (s *Scripts) RegisterTools(reg *discovery.Registry) {
 					"IMPORTANT: Script Manager runs Handlebars over the full html body — the only safe "+
 					"adjacent double-brace sequences are intentional placeholders. Do not put other '{{' "+
 					"pairs in JS (e.g. token-detection string checks); that corrupts the script at render time. "+
-					"See docs/BC-API-SPECIFICITY.md §14 and scripts/pdp-metafields-display.html. "+
+					"See docs/BC-API-SPECIFICITY.md §14. "+
 					"For Script Manager / Storefront GraphQL frontend patterns (display or act on "+
 					"storefront data), consult the external Stencil guide INDEX linked from docs/AGENT.md. "+
 					"Omit for kind=src."),
@@ -403,7 +403,7 @@ func (s *Scripts) handleCreate(ctx context.Context, request mcp.CallToolRequest)
 	script, err := s.bc.CreateScript(ctx, payload)
 	if err != nil {
 		if apiErr, ok := err.(*bigcommerce.APIError); ok {
-			return toolError("failed to create script (BC %d): %s", apiErr.StatusCode, string(apiErr.Body)), nil
+			return toolError("failed to create script: %s", apiErr.SafeError()), nil
 		}
 		return toolError("failed to create script: %v", err), nil
 	}
@@ -604,20 +604,20 @@ func validateScriptKind(kind, src, html string) error {
 // before calling update/delete.
 func scriptView(s bigcommerce.Script) map[string]any {
 	v := map[string]any{
-		"uuid":              s.UUID,
-		"name":              s.Name,
-		"kind":              s.Kind,
-		"location":          s.Location,
-		"visibility":        s.Visibility,
-		"load_method":       s.LoadMethod,
-		"consent_category":  s.ConsentCategory,
-		"enabled":           s.Enabled,
-		"auto_uninstall":    s.AutoUninstall,
-		"has_html":          s.HTML != "",
-		"has_src":           s.Src != "",
-		"channel_id":        s.ChannelID,
-		"date_created":      s.DateCreated,
-		"date_modified":     s.DateModified,
+		"uuid":             s.UUID,
+		"name":             s.Name,
+		"kind":             s.Kind,
+		"location":         s.Location,
+		"visibility":       s.Visibility,
+		"load_method":      s.LoadMethod,
+		"consent_category": s.ConsentCategory,
+		"enabled":          s.Enabled,
+		"auto_uninstall":   s.AutoUninstall,
+		"has_html":         s.HTML != "",
+		"has_src":          s.Src != "",
+		"channel_id":       s.ChannelID,
+		"date_created":     s.DateCreated,
+		"date_modified":    s.DateModified,
 	}
 	if s.Description != "" {
 		v["description"] = s.Description
@@ -630,7 +630,7 @@ func scriptView(s bigcommerce.Script) map[string]any {
 
 // b2bePortalScaffold returns a ready-to-fill script skeleton for targeting the
 // B2B Edition buyer portal (b2be_portal=true on create). It encapsulates the
-// detection patterns documented in scripts/b2be-page-detection.md:
+// B2B Edition detection patterns:
 //   - window.B3.setting check (synchronous, all B2BE channel pages)
 //   - iframe.active-frame contentDocument access for portal DOM injection
 //   - Outer-page hash (default BC-hosted scripts) + iframe hash fallback

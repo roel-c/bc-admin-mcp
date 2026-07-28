@@ -36,7 +36,7 @@ Use BigCommerce's own docs index — do not guess payloads.
 - **Defer, with a written rationale**, anything that is: ambiguous in contract,
   a binary/multipart upload with no clean text path (unless explicitly needed),
   redundant with an existing tool, or gated behind a store feature you can't
-  exercise. Record deferrals in the domain doc and/or `FOLLOW-UPS.md`.
+  exercise. Record deferrals in the relevant domain doc.
 - Ask the user for scope/priority when there are meaningful trade-offs
   (e.g. financial write access, sequencing).
 
@@ -175,10 +175,8 @@ you want an end-to-end health check of the live server, after a batch of
 domain changes, or before a demo. It does not require code changes to run —
 skip straight to §10.2/§10.3 if nothing changed since the last live-validate.
 
-Origin: this codifies the pass we first ran ad hoc and wrote up as `FU-8` in
-[`FOLLOW-UPS.md`](./FOLLOW-UPS.md) — read that entry for the full list of live
-API quirks discovered the first time through (several are called out inline
-below too).
+Origin: this codifies the first ad hoc full-surface pass. Live API quirks that
+remain relevant are called out inline below and in the applicable domain docs.
 
 There are two variants:
 
@@ -242,14 +240,14 @@ which channel(s) to target before any data is created** (§10.1).
    → `customers/attributes/create` +
    `customers/attribute_values/upsert`.
    ⚠️ **Quirk:** `customers/addresses/create` requires the **full state
-   name** (`"Texas"`), not an abbreviation (`"TX"` 422s) — see `FU-8`.
+   name** (`"Texas"`), not an abbreviation (`"TX"` 422s).
 3. **Marketing** — `marketing/promotions/automatic/create` (a cart-value %
    discount) → `marketing/promotions/coupon/create` →
    `marketing/promotions/coupon/codes/create_single`.
 4. **Inventory** — `inventory/locations/list` (note the existing default) →
    `inventory/locations/create` (needs `managed_by_external_source`,
    `time_zone`, and `address.email` + `address.geo_coordinates` — see
-   `DEVELOPMENT.md` §2.5 / `FOLLOW-UPS.md` FU-6) →
+   `DEVELOPMENT.md` §2.5) →
    `inventory/adjustments/absolute` then `inventory/adjustments/relative` on
    a product variant → verify with `inventory/items/get`.
 5. **Storefront** — `storefront/scripts/create` (note the scope warning if
@@ -262,7 +260,7 @@ which channel(s) to target before any data is created** (§10.1).
    `available_shipping_options` (should be non-empty for a real address if
    the store has shipping zones configured — if it comes back empty, don't
    assume the store is misconfigured; confirm the client is requesting
-   `include=consignments.available_shipping_options`, see `FU-8`) →
+   `include=consignments.available_shipping_options`) →
    `carts/checkout/consignment_update` to select one → `carts/checkout/convert`.
 8. **Orders** — the converted order lands in **Incomplete** status by design
    (no payment taken by `convert`); follow up with
@@ -291,8 +289,8 @@ which channel(s) to target before any data is created** (§10.1).
     - **Verify order cleanup:** after confirming
       `orders/management/delete`, re-fetch with `orders/management/get`.
       On at least one live store, delete returned `"status":"deleted"` while
-      the order still existed (see `FOLLOW-UPS.md` FU-8) — note survivors
-      rather than assuming cleanup succeeded.
+      the order still existed — note survivors rather than assuming cleanup
+      succeeded.
 
 ### 10.3 B2B Surface Check (extends §10.2)
 

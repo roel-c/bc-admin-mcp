@@ -672,7 +672,6 @@ Both endpoints contrast with the batch `PUT /v3/catalog/products` approach where
 ## 14. Storefront Metafields via GraphQL + Script Manager
 
 **Discovered:** 2026-07-22 (PDP metafields display on MSF-B2BE)
-**Reference example:** `scripts/pdp-metafields-display.html`
 **Related tools:** `catalog/products/metafields/set`, `catalog/products/variants/metafields/set`, `storefront/scripts/create`
 
 ### External frontend guidance (do not duplicate here)

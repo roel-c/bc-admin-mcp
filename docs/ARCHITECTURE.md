@@ -670,8 +670,8 @@ This section used to carry a full per-domain "planned tools" table. Nearly
 every row had shipped, so it had become a fourth restatement of the tool
 inventory rather than an actual roadmap. For what's implemented, see the
 **Implemented Tools** table in [`README.md`](../README.md) (or call
-`discover_tools` live); for tracked bugs/technical debt, see
-[`FOLLOW-UPS.md`](./FOLLOW-UPS.md).
+`discover_tools` live). Record unresolved domain-specific limitations in the
+relevant domain document and cross-cutting design limitations in this file.
 
 **Genuinely not yet implemented** — the only domain from the original
 roadmap that hasn't shipped:
@@ -970,7 +970,6 @@ A comprehensive line-by-line security audit was performed across all source file
 - [B2B.md](./B2B.md) — B2B Edition API research, unified auth, and phased implementation plan
 - [BC-API-Reference.md](./BC-API-Reference.md) — Full BigCommerce REST API endpoint map with batch sizes, concurrency limits, and pagination patterns
 - [BC-API-SPECIFICITY.md](./BC-API-SPECIFICITY.md) — Field-level API quirks, undocumented behaviors, and response shape differences
-- [FOLLOW-UPS.md](./FOLLOW-UPS.md) — Tracked technical debt and deferred fixes from architecture/live-test audits
 - [MCP Specification](https://modelcontextprotocol.io/specification/latest) — Protocol reference
 - [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) — SDK documentation
 - [Progressive Disclosure MCP: 85x Token Savings](https://matthewkruczek.ai/blog/progressive-disclosure-mcp-servers.html) — Research on the lazy loading pattern

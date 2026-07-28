@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ type B2BCompanyToolsSuite struct {
 	mockDeleter *MockBCCustomerManager
 	ct          *b2b.CompanyTools
 	reg         *discovery.Registry
+	uploadDir   string
 }
 
 func TestB2BCompanyToolsSuite(t *testing.T) {
@@ -35,7 +37,8 @@ func (s *B2BCompanyToolsSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.mockBC = NewMockB2BCompanyAPI(s.ctrl)
 	s.mockDeleter = NewMockBCCustomerManager(s.ctrl)
-	s.ct = b2b.NewCompanyTools(s.mockBC, s.mockDeleter, session.NewStore(60*time.Second))
+	s.uploadDir = s.T().TempDir()
+	s.ct = b2b.NewCompanyTools(s.mockBC, s.mockDeleter, session.NewStore(60*time.Second), s.uploadDir)
 	s.reg = discovery.NewRegistry()
 	s.reg.RegisterCategory("b2b", "B2B Edition")
 	s.reg.RegisterCategory("b2b/companies", "Company management")
@@ -564,15 +567,13 @@ func (s *B2BCompanyToolsSuite) TestAttachmentListReturnsAttachments() {
 }
 
 func (s *B2BCompanyToolsSuite) TestAttachmentAddPreviewThenUpload() {
-	// Write a small temp file to upload.
-	dir := s.T().TempDir()
-	fp := dir + "/purchase_order.pdf"
+	fp := filepath.Join(s.uploadDir, "purchase_order.pdf")
 	s.Require().NoError(os.WriteFile(fp, []byte("%PDF-1.7 test"), 0o600))
 
 	// Preview (no confirm) must not call the API.
 	prev, err := s.callTool("b2b/companies/attachments/add", map[string]any{
 		"company_id": float64(42),
-		"file_path":  fp,
+		"file_path":  "purchase_order.pdf",
 	})
 	s.NoError(err)
 	pd := s.parseJSON(prev)
@@ -584,7 +585,7 @@ func (s *B2BCompanyToolsSuite) TestAttachmentAddPreviewThenUpload() {
 		Return(&bigcommerce.B2BAttachment{ID: "att-uuid", AttachmentFile: "https://cdn.example.com/po.pdf"}, nil)
 	res, err := s.callTool("b2b/companies/attachments/add", map[string]any{
 		"company_id": float64(42),
-		"file_path":  fp,
+		"file_path":  "purchase_order.pdf",
 		"confirmed":  true,
 	})
 	s.NoError(err)
@@ -595,11 +596,97 @@ func (s *B2BCompanyToolsSuite) TestAttachmentAddPreviewThenUpload() {
 func (s *B2BCompanyToolsSuite) TestAttachmentAddRejectsMissingFile() {
 	res, err := s.callTool("b2b/companies/attachments/add", map[string]any{
 		"company_id": float64(42),
-		"file_path":  "/no/such/file-xyz.pdf",
+		"file_path":  "no-such-file-xyz.pdf",
 		"confirmed":  true,
 	})
 	s.NoError(err)
 	s.True(res.IsError)
+}
+
+func (s *B2BCompanyToolsSuite) TestAttachmentAddFailsWhenUploadDirectoryNotConfigured() {
+	tools := b2b.NewCompanyTools(s.mockBC, s.mockDeleter, session.NewStore(60*time.Second), "")
+	reg := discovery.NewRegistry()
+	reg.RegisterCategory("b2b/companies/attachments", "Company attachments")
+	tools.RegisterTools(reg)
+	def := reg.GetTool("b2b/companies/attachments/add")
+	s.Require().NotNil(def)
+
+	res, err := def.Handler(context.Background(), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "b2b/companies/attachments/add",
+			Arguments: map[string]any{
+				"company_id": float64(42),
+				"file_path":  "purchase_order.pdf",
+			},
+		},
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+	s.Contains(res.Content[0].(mcp.TextContent).Text, "BC_UPLOAD_DIR")
+}
+
+func (s *B2BCompanyToolsSuite) TestAttachmentAddRejectsAbsolutePathWithoutEchoingIt() {
+	sensitivePath := filepath.Join(s.uploadDir, "sensitive-customer-name.pdf")
+	s.Require().NoError(os.WriteFile(sensitivePath, []byte("secret"), 0o600))
+
+	res, err := s.callTool("b2b/companies/attachments/add", map[string]any{
+		"company_id": float64(42),
+		"file_path":  sensitivePath,
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+	text := res.Content[0].(mcp.TextContent).Text
+	s.NotContains(text, sensitivePath)
+	s.NotContains(text, s.uploadDir)
+}
+
+func (s *B2BCompanyToolsSuite) TestAttachmentAddRejectsTraversal() {
+	res, err := s.callTool("b2b/companies/attachments/add", map[string]any{
+		"company_id": float64(42),
+		"file_path":  "../outside.pdf",
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+func (s *B2BCompanyToolsSuite) TestAttachmentAddRejectsSymlinkEscape() {
+	outsideDir := s.T().TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside.pdf")
+	s.Require().NoError(os.WriteFile(outsideFile, []byte("secret"), 0o600))
+	s.Require().NoError(os.Symlink(outsideFile, filepath.Join(s.uploadDir, "escape.pdf")))
+
+	res, err := s.callTool("b2b/companies/attachments/add", map[string]any{
+		"company_id": float64(42),
+		"file_path":  "escape.pdf",
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+func (s *B2BCompanyToolsSuite) TestAttachmentAddRejectsDirectory() {
+	s.Require().NoError(os.Mkdir(filepath.Join(s.uploadDir, "folder"), 0o700))
+
+	res, err := s.callTool("b2b/companies/attachments/add", map[string]any{
+		"company_id": float64(42),
+		"file_path":  "folder",
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
+func (s *B2BCompanyToolsSuite) TestAttachmentAddRejectsFileOverTenMegabytes() {
+	file, err := os.Create(filepath.Join(s.uploadDir, "large.pdf"))
+	s.Require().NoError(err)
+	s.Require().NoError(file.Truncate(10*1024*1024 + 1))
+	s.Require().NoError(file.Close())
+
+	res, err := s.callTool("b2b/companies/attachments/add", map[string]any{
+		"company_id": float64(42),
+		"file_path":  "large.pdf",
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+	s.Contains(res.Content[0].(mcp.TextContent).Text, "10MB")
 }
 
 func (s *B2BCompanyToolsSuite) TestAttachmentDeleteConfirmed() {
@@ -719,11 +806,11 @@ func (s *B2BCompanyToolsSuite) TestAddressListReturnsAddresses() {
 
 func (s *B2BCompanyToolsSuite) TestAddressCreatePreview() {
 	res, err := s.callTool("b2b/companies/addresses/create", map[string]any{
-		"company_id":   float64(42),
+		"company_id":    float64(42),
 		"address_line1": "123 Main St",
-		"city":         "New York",
-		"country":      "US",
-		"is_billing":   true,
+		"city":          "New York",
+		"country":       "US",
+		"is_billing":    true,
 	})
 	s.NoError(err)
 	data := s.parseJSON(res)
@@ -735,11 +822,11 @@ func (s *B2BCompanyToolsSuite) TestAddressCreateConfirmed() {
 	s.mockBC.EXPECT().CreateB2BAddress(gomock.Any(), gomock.Any()).Return(&a, nil)
 
 	res, err := s.callTool("b2b/companies/addresses/create", map[string]any{
-		"company_id":   float64(42),
+		"company_id":    float64(42),
 		"address_line1": "123 Main St",
-		"city":         "New York",
-		"country":      "US",
-		"confirmed":    true,
+		"city":          "New York",
+		"country":       "US",
+		"confirmed":     true,
 	})
 	s.NoError(err)
 	s.False(res.IsError)

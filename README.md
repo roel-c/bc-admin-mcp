@@ -20,8 +20,9 @@ There is **no code or runtime dependency** between the two: you do **not** need 
 
 ```bash
 git clone https://github.com/roel-c/bc-admin-mcp.git && cd bc-admin-mcp
-cp .env.example .env   # then edit with your BC_STORE_HASH + BC_AUTH_TOKEN
-make build && make run # stdio transport — for Cursor, Claude Desktop, etc.
+cp .env.example .env   # then add store-specific, least-privilege credentials
+make build
+./scripts/launch-mcp.sh # local stdio transport
 ```
 
 Point your MCP client at the built binary via [`scripts/launch-mcp.sh`](./scripts/launch-mcp.sh)
@@ -37,7 +38,7 @@ for `.cursor/mcp.json` examples. Then, from the client:
      "arguments": { "product_id": 19402, "namespace": "my_integration", "key": "external_ref", "value": "pim-12345", "confirmed": false }
    }
    ```
-   Tools tiered R1+ (writes) return a preview until you re-call with `"confirmed": true` — see [Tool Tiers](#tool-tiers-from-docsdevelopmentmd) below.
+   Tools tiered R1+ (writes) return a preview until you re-call with `"confirmed": true` — see [Tool Tiers](#tool-tiers-from-docsdevelopmentmd) below. Writes remain enabled: `confirmed=true` is a technical preview gate, not independent human authorization. The operator must explicitly approve the mutation before the agent sends it.
 
 That's the whole interaction model. Everything past this point is detail: full setup/safety checklist ([Setup](#setup)), the complete tool inventory ([Implemented Tools](#implemented-tools)), and design rationale ([Architecture](#architecture)).
 
@@ -54,7 +55,7 @@ Not every doc here needs to be read up front. Use this table to find the right o
 | **[docs/WORKFLOW.md](./docs/WORKFLOW.md)** | You're adding a new tool/endpoint (contributor cadence) |
 | **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | You want design rationale, token budget analysis, or registration mechanics (contributor) |
 | **[docs/BC-API-Reference.md](./docs/BC-API-Reference.md)**, **[docs/BC-API-SPECIFICITY.md](./docs/BC-API-SPECIFICITY.md)** | You need one specific BigCommerce endpoint/field detail — jump to the section, these aren't meant to be read start to end |
-| **[docs/MSF.md](./docs/MSF.md)**, **[docs/SECURITY.md](./docs/SECURITY.md)**, **[docs/FOLLOW-UPS.md](./docs/FOLLOW-UPS.md)** | You want implementation history, the security audit, or tracked technical debt |
+| **[docs/MSF.md](./docs/MSF.md)**, **[docs/SECURITY.md](./docs/SECURITY.md)** | You want implementation history or the security audit |
 
 ## Architecture
 
@@ -118,7 +119,7 @@ cd bc-admin-mcp
 
 ### Prerequisites
 
-- Go **1.26.2** or newer (see `go.mod`; older toolchains will not build)
+- Go **1.26.5** or newer (see `go.mod`; older toolchains include known standard-library vulnerabilities)
 - BigCommerce API credentials (Store Hash + Auth Token)
 
 ### Configuration
@@ -128,43 +129,50 @@ cp .env.example .env
 # Edit .env with your BigCommerce credentials
 ```
 
-Use your own `.env` locally and keep it uncommitted. This repository is intended
-to be safely shareable publicly (for example GitHub) while each operator uses
-their own private credentials.
+Use your own `.env` locally and keep it uncommitted. Create a store-specific
+BigCommerce API account with only the scopes required for the tools you intend
+to use; do not reuse broad production credentials. This repository is intended
+to be safely shareable while each operator keeps credentials private.
 
-To enable the optional **B2B Edition** tools, set `BC_B2B_ENABLED=true` in `.env`
+**B2B Edition is disabled by default.** To enable its optional tools, set
+`BC_B2B_ENABLED=true` in `.env`
 (the store's API account must have the B2B Edition scope). It reuses the same
 `BC_AUTH_TOKEN` + `BC_STORE_HASH` — see [docs/B2B.md](./docs/B2B.md).
 
+B2B company attachment uploads are also disabled unless `BC_UPLOAD_DIR` points
+to a dedicated local directory. The upload tool accepts only relative paths
+that resolve to regular files inside that directory and rejects files larger
+than 10 MB. Keep unrelated or sensitive files outside the upload directory.
+
 ### Local-Only Operating Model (current posture)
 
-- Run this server on your own machine against your own BigCommerce store token.
-- Default and recommended transport is `stdio` for local MCP clients.
-- If using `streamable-http` or `sse`, bind to `127.0.0.1` and keep `MCP_AUTH_TOKEN` set.
-- Do not expose the MCP endpoint directly to the internet at this stage.
+- The supported onboarding path is Cursor launching the server locally over
+  `stdio` with `scripts/launch-mcp.sh`.
+- Run against an operator-owned, store-specific, least-privilege token.
+- HTTP/SSE and hosted or internet-exposed deployment are outside the supported
+  onboarding posture.
 
 ### Build & Run
 
 ```bash
-# Build
 make build
-
-# Run with stdio transport (for Cursor, Claude Desktop, etc.)
-make run
-
-# Run with Streamable HTTP transport (local machine only; requires MCP_AUTH_TOKEN)
-make run-http
+./scripts/launch-mcp.sh
 ```
 
 ### Local Operator Quickstart + Safety Checklist
 
-- Copy `.env.example` to `.env` and set only your own `BC_STORE_HASH` + `BC_AUTH_TOKEN`.
-- Start with `MCP_TRANSPORT=stdio` for local IDE use; prefer this mode unless you need HTTP/SSE.
-- Treat all R1/R2/R3 tool previews as mandatory review steps before passing `confirmed=true`.
+- Copy `.env.example` to `.env` and set a store-specific `BC_STORE_HASH` and
+  least-privilege `BC_AUTH_TOKEN`.
+- Use local Cursor stdio via `scripts/launch-mcp.sh`.
+- Treat all R1/R2/R3 tool previews as mandatory review steps. Writes remain
+  enabled, and `confirmed=true` only passes the server's technical preview gate;
+  it does not prove that a human approved the operation.
 - Begin with read-only checks (`discover_tools`, list/get tools) before write or delete operations.
 - Keep batch sizes conservative (defaults are tuned for safety); avoid increasing concurrency early.
-- If you run HTTP/SSE locally, keep `MCP_ADDRESS=127.0.0.1` and set a strong `MCP_AUTH_TOKEN`.
 - Never commit `.env`; rotate tokens immediately if credentials are exposed.
+- Assume Cursor or another MCP host may retain tool arguments, previews, and
+  results in chat history or telemetry. Do not put tokens, passwords, payment
+  data, or other unnecessary sensitive values in tool arguments.
 
 ### Integration with Cursor
 
@@ -182,21 +190,9 @@ make run-http
 
 After changing `.env`, restart the MCP server (disable/enable the server in Cursor, or fully quit and reopen Cursor). The running process does not hot-reload credentials.
 
-**Alternative:** pass credentials inline (useful for one-off demos; prefer `.env` + launch script so secrets stay out of MCP config files):
-
-```json
-{
-  "mcpServers": {
-    "bigcommerce": {
-      "command": "/absolute/path/to/bc-admin-mcp/bc-mcp-server",
-      "env": {
-        "BC_STORE_HASH": "your_store_hash",
-        "BC_AUTH_TOKEN": "your_api_token"
-      }
-    }
-  }
-}
-```
+Keep credentials in `.env`, not in `.cursor/mcp.json`. Cursor and other MCP
+hosts may retain configuration, tool arguments, previews, and results; avoid
+sending sensitive values unless a specific operation requires them.
 
 ### Calling tools via `execute_tool` (Cursor / MCP hosts)
 
@@ -222,7 +218,9 @@ Do not flatten tool parameters next to `tool_path` at the top level; the registr
 }
 ```
 
-Use **`confirmed: true`** on the second call after reviewing the preview.
+Use **`confirmed: true`** on the second call only after the operator explicitly
+approves the reviewed preview. This flag is a technical gate, not an
+independent human-authorization mechanism.
 
 ### Operator references
 
@@ -492,7 +490,7 @@ The `b2b/` root only registers when `BC_B2B_ENABLED=true`; it reuses the existin
 | `b2b/companies/addresses/update` | R1 | Full PUT update of a company address; preview → **`confirmed`** |
 | `b2b/companies/addresses/delete` | R2 | Remove a company address; preview → **`confirmed`** |
 | `b2b/companies/attachments/list` | R0 | List a company's file attachments |
-| `b2b/companies/attachments/add` | R1 | Upload a local file (≤10MB) to the company; preview → **`confirmed`** |
+| `b2b/companies/attachments/add` | R1 | Upload a relative file (≤10MB) confined under explicit `BC_UPLOAD_DIR`; disabled when unset; preview → **`confirmed`** |
 | `b2b/companies/attachments/delete` | R2 | Delete an attachment by ID; preview → **`confirmed`** |
 | `b2b/companies/roles/list` \| `get` | R0 | List roles / get a role and its permissions |
 | `b2b/companies/roles/create` \| `update` | R1 | Create / replace a custom role's permissions; preview → **`confirmed`** |
@@ -576,13 +574,17 @@ Run `go test ./...` — multiple testify suites across `internal/tools/catalog`,
 
 ## Security
 
-Security is a first-class concern throughout this project. A comprehensive security review has been performed and all critical/high findings have been remediated. Key controls include:
+Security is a first-class concern throughout this project. A comprehensive
+security review has been performed; its mitigations and residual limitations
+are documented in `docs/SECURITY.md`. Key controls include:
 
 - **Authentication**: Bearer token required for HTTP/SSE transports (`MCP_AUTH_TOKEN`); constant-time comparison prevents timing attacks
 - **Input validation**: All LLM-provided arguments use safe type assertions — malformed input returns an error, never a panic
 - **Price safety**: Price adjustments are bounded (`-100%` to `+1000%`) with a `$0.00` floor
 - **Resource limits**: Response body cap (50 MB), pagination ceiling (default 10k records per `GetAll`; set `BC_MAX_TOTAL_RECORDS=0` for unlimited), cache size limits (1k entries/session, 100 sessions)
-- **Write protection**: R1+ tools must declare a `confirmed` parameter — enforced at registration time (server won't start without it)
+- **Write gating**: R1+ tools must declare a `confirmed` parameter at
+  registration, while handlers enforce preview/confirm behavior; this is a
+  technical safety gate, not central authorization
 - **Secret handling**: Credentials never logged; error messages truncated before returning to LLM; `.gitignore` excludes `.env`
 
 Current release posture is **local-first** (developer-run, operator-owned credentials,

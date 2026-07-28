@@ -77,24 +77,38 @@ type B2BClient struct {
 // NewB2BClient constructs a B2BClient using the store credentials already
 // present in BigCommerceConfig. No additional env vars are needed.
 func NewB2BClient(storeHash, authToken string, maxRetries int, logger *slog.Logger) *B2BClient {
+	return newB2BClient(storeHash, authToken, maxRetries, logger, nil)
+}
+
+// NewB2BClientWithHTTPClient constructs a B2B API client with a caller-
+// supplied HTTP client. It is primarily useful for controlled integrations and
+// tests that must provide a custom transport.
+func NewB2BClientWithHTTPClient(storeHash, authToken string, maxRetries int, logger *slog.Logger, httpClient *http.Client) *B2BClient {
+	return newB2BClient(storeHash, authToken, maxRetries, logger, httpClient)
+}
+
+func newB2BClient(storeHash, authToken string, maxRetries int, logger *slog.Logger, httpClient *http.Client) *B2BClient {
 	// Conservative 1 req/s default — B2B calls are low-frequency admin
 	// operations. Shared quota with the core client is not yet coordinated.
 	ticker := time.NewTicker(time.Second)
-	return &B2BClient{
-		storeHash:  storeHash,
-		authToken:  authToken,
-		maxRetries: maxRetries,
-		httpClient: &http.Client{
+	if httpClient == nil {
+		httpClient = &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
 				MaxIdleConns:        10,
 				MaxIdleConnsPerHost: 10,
 				IdleConnTimeout:     90 * time.Second,
 			},
-		},
-		logger:   logger,
-		ticker:   ticker,
-		throttle: ticker.C,
+		}
+	}
+	return &B2BClient{
+		storeHash:  storeHash,
+		authToken:  authToken,
+		maxRetries: maxRetries,
+		httpClient: httpClient,
+		logger:     logger,
+		ticker:     ticker,
+		throttle:   ticker.C,
 	}
 }
 
@@ -164,7 +178,10 @@ func (c *B2BClient) Do(ctx context.Context, method, url string, body any) ([]byt
 			c.backoff(ctx, attempt)
 			lastErr = fmt.Errorf("B2B rate limited (429)")
 		case resp.StatusCode >= 500:
-			lastErr = fmt.Errorf("B2B server error %d: %s", resp.StatusCode, string(respBody))
+			lastErr = &UpstreamError{
+				Service:    "BigCommerce B2B API",
+				StatusCode: resp.StatusCode,
+			}
 			c.logger.Warn("B2B server error", "status", resp.StatusCode, "attempt", attempt+1)
 			c.backoff(ctx, attempt)
 		default:
@@ -282,7 +299,10 @@ func (c *B2BClient) B2BPostMultipart(ctx context.Context, path, fieldName, fileN
 			c.backoff(ctx, attempt)
 			lastErr = fmt.Errorf("B2B rate limited (429)")
 		case resp.StatusCode >= 500:
-			lastErr = fmt.Errorf("B2B server error %d: %s", resp.StatusCode, string(respBody))
+			lastErr = &UpstreamError{
+				Service:    "BigCommerce B2B API",
+				StatusCode: resp.StatusCode,
+			}
 			c.logger.Warn("B2B server error", "status", resp.StatusCode, "attempt", attempt+1)
 			c.backoff(ctx, attempt)
 		default:

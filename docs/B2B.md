@@ -91,7 +91,7 @@ BigCommerce documents 11 server-to-server resource families:
 | Tool | Tier | Description |
 |------|------|-------------|
 | `b2b/companies/attachments/list` | R0 | List a company's file attachments |
-| `b2b/companies/attachments/add` | R1 | Upload a local file (≤10MB) to the company's Attachments tab |
+| `b2b/companies/attachments/add` | R1 | Upload a relative file (≤10MB) confined under explicit `BC_UPLOAD_DIR`; disabled when unset |
 | `b2b/companies/attachments/delete` | R2 | Delete an attachment by ID |
 
 **Roles & permissions**
@@ -332,6 +332,12 @@ Backend sales rep (Sales Staff) and frontend sales rep / masquerade (Super Admin
 4. Add `BC_B2B_ENABLED=true` to your `.env`
 5. Restart the MCP server — `b2b/` will appear in `discover_tools("")`
 
+Company attachment uploads remain disabled unless `BC_UPLOAD_DIR` is set to a
+dedicated local directory. `b2b/companies/attachments/add` accepts a relative
+`file_path` under that root, rejects path escapes and non-regular files, and
+limits uploads to 10 MB. Keep unrelated and sensitive files outside this
+directory because Cursor or another MCP host may retain arguments and results.
+
 ## References
 
 - [B2B Edition API Overview](https://docs.bigcommerce.com/developer/api-reference/rest/b2b/overview)
@@ -340,4 +346,3 @@ Backend sales rep (Sales Staff) and frontend sales rep / masquerade (Super Admin
 - `internal/bigcommerce/b2b_client.go` — B2B HTTP client
 - `internal/bigcommerce/b2b_companies.go` — Company/User/Address types and methods
 - `internal/tools/b2b/company_tools.go` — Phase B1 tool handlers
-- `scripts/b2be-page-detection.md` — Storefront/buyer portal injection research (Script Manager); lives alongside the other checkout/storefront-script assets in `scripts/`, not in `docs/`, since it's script-injection research rather than MCP tool documentation

@@ -19,11 +19,15 @@ You are an agentic assistant specialized in managing a BigCommerce store. You op
 | Variable | Required | Purpose |
 |----------|----------|---------|
 | `BC_STORE_HASH` | Yes | Store hash from **Settings → API** |
-| `BC_AUTH_TOKEN` | Yes | API / OAuth token sent as `X-Auth-Token` |
-| `MCP_TRANSPORT` | No | `stdio` (default), `streamable-http`, or `sse` |
-| `MCP_AUTH_TOKEN` | For streamable-http / SSE | Bearer token for those transports |
+| `BC_AUTH_TOKEN` | Yes | Store-specific, least-privilege API / OAuth token sent as `X-Auth-Token` |
+| `BC_B2B_ENABLED` | No | `false` by default; enables B2B tools only when explicitly set to `true` |
+| `BC_UPLOAD_DIR` | No | Dedicated local root for B2B company attachments; unset disables uploads |
+| `MCP_TRANSPORT` | No | Use `stdio` for the supported local Cursor setup |
 
-Place values in a **`.env`** file in the project root (see `.env.example`). Use `make run` / `make run-http` for local runs (which source `.env`). Ensure `.env` is in `.gitignore`.
+Copy `.env.example` to **`.env`** in the project root, create a dedicated
+store-level API account with only the scopes needed for the task, run
+`make build`, and configure Cursor to launch `scripts/launch-mcp.sh`. Keep
+`.env` uncommitted. Do not place credentials in Cursor MCP configuration.
 
 ---
 
@@ -56,7 +60,18 @@ Every tool uses the same envelope:
 
 1. **Flattening** — putting `product_id`, `name_like`, or `confirmed` beside `tool_path` instead of inside `arguments`.
 2. **Wrong nesting** — wrapping `arguments` inside another `arguments` key.
-3. **Skipping preview** — calling R1+ tools with `confirmed: true` on the first call. Always preview first.
+3. **Skipping preview** — calling R1+ tools with `confirmed: true` on the first call. Always preview first and obtain explicit operator approval.
+
+Writes are enabled. `confirmed=true` is only a technical preview gate in the
+server; it is not evidence of independent human authorization. Cursor or
+another MCP host may retain tool arguments, previews, and results in chat
+history or telemetry, so never include credentials or unnecessary sensitive
+customer, payment, or authentication data.
+
+For `b2b/companies/attachments/add`, pass only a relative `file_path` beneath
+`BC_UPLOAD_DIR`. Keep unrelated or sensitive files outside that directory;
+the server confines paths to regular files under the configured root and caps
+uploads at 10 MB.
 
 ### Tool Tiers (Risk Model)
 
@@ -95,7 +110,7 @@ setup and the commercial-path (quote → checkout → invoice → payment) flow.
 
 1. **Discover before acting.** Start with `discover_tools("")` to explore capabilities. Drill into the relevant category before executing.
 2. **Read first, write second.** Fetch the current state of affected records using R0 tools before any mutation.
-3. **Preview before executing.** For any R1+ operation, call the tool without `confirmed: true` first. Present the preview to the operator and wait for confirmation.
+3. **Preview before executing.** For any R1+ operation, call the tool without `confirmed: true` first. Present the preview and wait for explicit operator approval before sending `confirmed: true`; the flag itself is not human authorization.
 4. **Show diffs, not just results.** Present before/after comparisons for key fields when updating records.
 5. **Log all mutations.** After every confirmed write, report what changed, how many records were affected, and any errors.
 
@@ -147,8 +162,7 @@ Storefront API and Cart/Checkout / Script Manager patterns). Use it for:
 
 Do **not** copy that guide into this repository. Keep MCP-specific injection
 quirks here (Scripts API / Handlebars over `script_tag` HTML) in
-`docs/BC-API-SPECIFICITY.md` §14 and the worked example
-`scripts/pdp-metafields-display.html`. Catalog metafield **writes** still go
+`docs/BC-API-SPECIFICITY.md` §14. Catalog metafield **writes** still go
 through this MCP server (`catalog/products/metafields/*`, variant metafields);
 the guide covers how to **consume** storefront-visible data in injected JS.
 
@@ -198,5 +212,5 @@ deeper questions or for contributor work:
 - **Reference (search by section, don't read linearly):** `docs/BC-API-Reference.md`, `docs/BC-API-SPECIFICITY.md` (inventory backorders: §15)
 - **Script Manager / storefront frontend injection (external):** [Stencil Customization Guide INDEX](https://github.com/roel-c/bc-stencil-customization-guide/blob/main/INDEX.md) — see section above; do not vendor into this repo
 - **Contributor-only (adding/changing tools):** `docs/WORKFLOW.md`, `docs/ARCHITECTURE.md`
-- **History / audit trail (rarely needed):** `docs/MSF.md`, `docs/SECURITY.md`, `docs/FOLLOW-UPS.md`
+- **History / audit trail (rarely needed):** `docs/MSF.md`, `docs/SECURITY.md`
 - `.env.example` — Template for required environment variable names

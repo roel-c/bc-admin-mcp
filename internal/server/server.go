@@ -38,7 +38,7 @@ func New(cfg *config.Config, logger *slog.Logger) *server.MCPServer {
 
 	reg := discovery.NewRegistry()
 	registerCategories(reg, cfg.BigCommerce.B2BEnabled)
-	registerTools(reg, bcClient, b2bClient, cacheStore)
+	registerTools(reg, bcClient, b2bClient, cacheStore, cfg.BigCommerce.UploadDir)
 
 	mcpServer := server.NewMCPServer(
 		cfg.Server.Name,
@@ -143,7 +143,7 @@ func registerCategories(reg *discovery.Registry, b2bEnabled bool) {
 		reg.RegisterCategory("b2b/companies", "Company account CRUD and lifecycle status management.")
 		reg.RegisterCategory("b2b/companies/users", "Buyer portal user CRUD; roles: admin, senior buyer, junior buyer.")
 		reg.RegisterCategory("b2b/companies/addresses", "Company address CRUD: billing and shipping locations.")
-		reg.RegisterCategory("b2b/companies/attachments", "Company file attachments: list and delete.")
+		reg.RegisterCategory("b2b/companies/attachments", "Company file attachments: list, upload from configured BC_UPLOAD_DIR, and delete.")
 		reg.RegisterCategory("b2b/companies/roles", "Company user roles: list/get/create/update/delete custom roles with permissions.")
 		reg.RegisterCategory("b2b/companies/permissions", "Company permission definitions: list plus custom permission CRUD.")
 		reg.RegisterCategory("b2b/companies/hierarchy", "Account hierarchy: view parents/subsidiaries, attach parent, detach subsidiary.")
@@ -170,7 +170,12 @@ func registerCategories(reg *discovery.Registry, b2bEnabled bool) {
 
 // registerTools wires up all tool implementations into the registry.
 // b2bBC is nil when B2B Edition is disabled; tools are skipped in that case.
-func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, b2bBC *bigcommerce.B2BClient, cache *session.Store) {
+func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, b2bBC *bigcommerce.B2BClient, cache *session.Store, uploadDirs ...string) {
+	var uploadDir string
+	if len(uploadDirs) > 0 {
+		uploadDir = uploadDirs[0]
+	}
+
 	products := catalog.NewProducts(bc, cache)
 	products.RegisterTools(reg)
 
@@ -275,7 +280,7 @@ func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, b2bBC *bigco
 	cartTools.RegisterCheckoutTools(reg)
 
 	if b2bBC != nil {
-		b2bCompanies := b2b.NewCompanyTools(b2bBC, bc, cache)
+		b2bCompanies := b2b.NewCompanyTools(b2bBC, bc, cache, uploadDir)
 		b2bCompanies.RegisterTools(reg)
 	}
 }
