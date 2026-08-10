@@ -50,6 +50,7 @@ func (s *B2BCompanyToolsSuite) TestOrderUpdatePreviewThenConfirm() {
 	s.NoError(err)
 	s.Equal("preview", s.parseJSON(prev)["status"])
 
+	s.mockBC.EXPECT().GetB2BOrder(gomock.Any(), 105).Return(map[string]any{"bcOrderId": 105}, nil)
 	s.mockBC.EXPECT().UpdateB2BOrder(gomock.Any(), 105, gomock.Any()).Return(map[string]any{"bcOrderId": 105}, nil)
 	res, err := s.callTool("b2b/orders/update", map[string]any{
 		"bc_order_id": float64(105),

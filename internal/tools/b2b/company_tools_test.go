@@ -39,6 +39,8 @@ func (s *B2BCompanyToolsSuite) SetupTest() {
 	s.mockDeleter = NewMockBCCustomerManager(s.ctrl)
 	s.uploadDir = s.T().TempDir()
 	s.ct = b2b.NewCompanyTools(s.mockBC, s.mockDeleter, session.NewStore(60*time.Second), s.uploadDir)
+	// Order-index retries must not sleep in unit tests.
+	s.ct.SetSleepForTest(func(context.Context, time.Duration) error { return nil })
 	s.reg = discovery.NewRegistry()
 	s.reg.RegisterCategory("b2b", "B2B Edition")
 	s.reg.RegisterCategory("b2b/companies", "Company management")
@@ -211,6 +213,44 @@ func (s *B2BCompanyToolsSuite) TestCompanyCreateWithCustomerGroupIDPreview() {
 	s.Equal("preview", data["status"])
 	payload := data["payload"].(map[string]any)
 	s.Equal(float64(19), payload["customerGroupId"])
+}
+
+func (s *B2BCompanyToolsSuite) TestCompanyCreateWithChannelIDsPreview() {
+	res, err := s.callTool("b2b/companies/create", map[string]any{
+		"company_name":      "Acme Corp",
+		"company_email":     "info@acme.com",
+		"company_phone":     "5555550100",
+		"company_country":   "US",
+		"admin_email":       "admin@acme.com",
+		"admin_first_name":  "Admin",
+		"admin_last_name":   "User",
+		"origin_channel_id": float64(1741970),
+		"channel_ids":       []any{float64(1741970)},
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+	payload := data["payload"].(map[string]any)
+	s.Equal(float64(1741970), payload["originChannelId"])
+	chs := payload["channelIds"].([]any)
+	s.Require().Len(chs, 1)
+	s.Equal(float64(1741970), chs[0])
+}
+
+func (s *B2BCompanyToolsSuite) TestCompanyCreateRejectsInvalidChannelIDs() {
+	res, err := s.callTool("b2b/companies/create", map[string]any{
+		"company_name":     "Acme Corp",
+		"company_email":    "info@acme.com",
+		"company_phone":    "5555550100",
+		"company_country":  "US",
+		"admin_email":      "admin@acme.com",
+		"admin_first_name": "Admin",
+		"admin_last_name":  "User",
+		"channel_ids":      []any{float64(0)},
+	})
+	s.NoError(err)
+	s.True(res.IsError)
 }
 
 func (s *B2BCompanyToolsSuite) TestCompanyCreateRejectsNegativeCustomerGroupID() {
@@ -462,18 +502,62 @@ func (s *B2BCompanyToolsSuite) TestCompanyDeletePartialSuccessOnCustomerFailure(
 	s.Equal(false, data["bc_customers_deleted"])
 }
 
+// --- b2b/companies/bulk_create ---
+
+func (s *B2BCompanyToolsSuite) TestCompanyBulkCreatePreviewThenConfirm() {
+	prev, err := s.callTool("b2b/companies/bulk_create", map[string]any{
+		"companies_json": `[{"company_name":"Acme HQ","company_email":"hq@acme.com","company_phone":"555","company_country":"US","admin_first_name":"A","admin_last_name":"Admin","admin_email":"a@acme.com"},{"company_name":"Acme West","company_email":"west@acme.com","company_phone":"556","company_country":"US","admin_first_name":"B","admin_last_name":"Admin","admin_email":"b@acme.com"}]`,
+	})
+	s.NoError(err)
+	data := s.parseJSON(prev)
+	s.Equal("preview", data["status"])
+	s.Equal(float64(2), data["count"])
+
+	s.mockBC.EXPECT().BulkCreateB2BCompanies(gomock.Any(), gomock.Any()).Return([]int{101, 102}, nil)
+	s.mockBC.EXPECT().GetB2BCompany(gomock.Any(), 101).Return(&bigcommerce.B2BCompany{CompanyID: 101, CompanyName: "Acme HQ"}, nil)
+	s.mockBC.EXPECT().GetB2BCompany(gomock.Any(), 102).Return(&bigcommerce.B2BCompany{CompanyID: 102, CompanyName: "Acme West"}, nil)
+
+	res, err := s.callTool("b2b/companies/bulk_create", map[string]any{
+		"companies_json": `[{"company_name":"Acme HQ","company_email":"hq@acme.com","company_phone":"555","company_country":"US","admin_first_name":"A","admin_last_name":"Admin","admin_email":"a@acme.com"},{"company_name":"Acme West","company_email":"west@acme.com","company_phone":"556","company_country":"US","admin_first_name":"B","admin_last_name":"Admin","admin_email":"b@acme.com"}]`,
+		"confirmed":      true,
+	})
+	s.NoError(err)
+	out := s.parseJSON(res)
+	s.Equal("created", out["status"])
+	s.Equal(float64(2), out["count"])
+}
+
 // --- b2b/companies/users/list ---
 
 func (s *B2BCompanyToolsSuite) TestUserListReturnsUsers() {
 	s.mockBC.EXPECT().ListB2BUsers(gomock.Any(), "companyId=42").Return([]bigcommerce.B2BUser{
 		{ID: 1, CompanyID: 42, Email: "buyer@acme.com", FirstName: "Jane", LastName: "Doe", Role: 1},
 	}, nil)
+	s.mockDeleter.EXPECT().SearchCustomers(gomock.Any(), map[string]string{
+		"email:in": "buyer@acme.com",
+	}).Return([]bigcommerce.Customer{{ID: 99, Email: "buyer@acme.com"}}, nil)
 
 	res, err := s.callTool("b2b/companies/users/list", map[string]any{"company_id": float64(42)})
 	s.NoError(err)
 	s.False(res.IsError)
 	data := s.parseJSON(res)
 	s.Equal(float64(1), data["total"])
+	users := data["users"].([]any)
+	user := users[0].(map[string]any)
+	s.Equal(float64(99), user["bc_customer_id"])
+}
+
+func (s *B2BCompanyToolsSuite) TestUserListSkipsEnrichmentWhenBCCustomerIDPresent() {
+	s.mockBC.EXPECT().ListB2BUsers(gomock.Any(), "companyId=42").Return([]bigcommerce.B2BUser{
+		{ID: 1, CompanyID: 42, Email: "buyer@acme.com", Role: 1, BCCustomerID: 55},
+	}, nil)
+
+	res, err := s.callTool("b2b/companies/users/list", map[string]any{"company_id": float64(42)})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	user := data["users"].([]any)[0].(map[string]any)
+	s.Equal(float64(55), user["bc_customer_id"])
 }
 
 // --- b2b/companies/users/create ---
@@ -491,9 +575,33 @@ func (s *B2BCompanyToolsSuite) TestUserCreatePreview() {
 	s.Equal("preview", data["status"])
 }
 
+func (s *B2BCompanyToolsSuite) TestUserCreateWithChannelIDsPreview() {
+	res, err := s.callTool("b2b/companies/users/create", map[string]any{
+		"company_id":        float64(42),
+		"email":             "buyer@acme.com",
+		"first_name":        "Jane",
+		"last_name":         "Doe",
+		"role":              float64(1),
+		"origin_channel_id": float64(1741970),
+		"channel_ids":       []any{float64(1741970)},
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	s.Equal("preview", data["status"])
+	payload := data["payload"].(map[string]any)
+	s.Equal(float64(1741970), payload["originChannelId"])
+	chs := payload["channelIds"].([]any)
+	s.Require().Len(chs, 1)
+	s.Equal(float64(1741970), chs[0])
+}
+
 func (s *B2BCompanyToolsSuite) TestUserCreateConfirmed() {
 	u := bigcommerce.B2BUser{ID: 10, CompanyID: 42, Email: "buyer@acme.com", Role: 1}
 	s.mockBC.EXPECT().CreateB2BUser(gomock.Any(), gomock.Any()).Return(&u, nil)
+	s.mockDeleter.EXPECT().SearchCustomers(gomock.Any(), map[string]string{
+		"email:in": "buyer@acme.com",
+	}).Return([]bigcommerce.Customer{{ID: 77, Email: "buyer@acme.com"}}, nil)
 
 	res, err := s.callTool("b2b/companies/users/create", map[string]any{
 		"company_id": float64(42),
@@ -507,6 +615,8 @@ func (s *B2BCompanyToolsSuite) TestUserCreateConfirmed() {
 	s.False(res.IsError)
 	data := s.parseJSON(res)
 	s.Equal("created", data["status"])
+	user := data["user"].(map[string]any)
+	s.Equal(float64(77), user["bc_customer_id"])
 }
 
 // --- b2b/companies/extra_fields + update_catalog + attachments ---
@@ -709,6 +819,9 @@ func (s *B2BCompanyToolsSuite) TestUserGetReturnsUser() {
 	u := bigcommerce.B2BUser{ID: 7, CompanyID: 42, Email: "buyer@acme.com", Role: 1,
 		ExtraFields: []bigcommerce.B2BExtraField{{FieldName: "PO", FieldValue: "123"}}}
 	s.mockBC.EXPECT().GetB2BUser(gomock.Any(), 7).Return(&u, nil)
+	s.mockDeleter.EXPECT().SearchCustomers(gomock.Any(), map[string]string{
+		"email:in": "buyer@acme.com",
+	}).Return([]bigcommerce.Customer{{ID: 51, Email: "buyer@acme.com"}}, nil)
 
 	res, err := s.callTool("b2b/companies/users/get", map[string]any{"user_id": float64(7)})
 	s.NoError(err)
@@ -716,11 +829,24 @@ func (s *B2BCompanyToolsSuite) TestUserGetReturnsUser() {
 	data := s.parseJSON(res)
 	user := data["user"].(map[string]any)
 	s.Equal("buyer@acme.com", user["email"])
+	s.Equal(float64(51), user["bc_customer_id"])
 	s.NotNil(user["extra_fields"])
 }
 
 func (s *B2BCompanyToolsSuite) TestUserGetByCustomerReturnsUser() {
 	u := bigcommerce.B2BUser{ID: 7, CompanyID: 42, Email: "buyer@acme.com", Role: 1, BCCustomerID: 51}
+	s.mockBC.EXPECT().GetB2BUserByCustomerID(gomock.Any(), 51).Return(&u, nil)
+
+	res, err := s.callTool("b2b/companies/users/get_by_customer", map[string]any{"bc_customer_id": float64(51)})
+	s.NoError(err)
+	s.False(res.IsError)
+	data := s.parseJSON(res)
+	user := data["user"].(map[string]any)
+	s.Equal(float64(51), user["bc_customer_id"])
+}
+
+func (s *B2BCompanyToolsSuite) TestUserGetByCustomerFillsBCCustomerIDWhenOmitted() {
+	u := bigcommerce.B2BUser{ID: 7, CompanyID: 42, Email: "buyer@acme.com", Role: 1}
 	s.mockBC.EXPECT().GetB2BUserByCustomerID(gomock.Any(), 51).Return(&u, nil)
 
 	res, err := s.callTool("b2b/companies/users/get_by_customer", map[string]any{"bc_customer_id": float64(51)})

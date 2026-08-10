@@ -471,16 +471,17 @@ The `b2b/` root only registers when `BC_B2B_ENABLED=true`; it reuses the existin
 |-----------|------|-------------|
 | `b2b/companies/list` | R0 | List companies; filter by status/name/email |
 | `b2b/companies/get` | R0 | Company details by ID |
-| `b2b/companies/create` | R1 | Create company + initial admin user; optional `customer_group_id` (Independent Companies behavior only); preview → **`confirmed`** |
+| `b2b/companies/create` | R1 | Create company + initial admin user; optional `customer_group_id` (Independent Companies behavior only); optional MSF `origin_channel_id`/`channel_ids`; preview → **`confirmed`** |
+| `b2b/companies/bulk_create` | R1 | Create up to 10 companies in one call (`companies_json`); preview → **`confirmed`** |
 | `b2b/companies/update` | R1 | Update company profile fields, including reassigning `customer_group_id`; preview → **`confirmed`** |
 | `b2b/companies/set_status` | R2 | Approve, reject, or deactivate a company; preview → **`confirmed`** |
 | `b2b/companies/delete` | R3 | Permanently delete company, all users, and (by default) their linked BC customer accounts (`delete_bc_customers=false` to keep); preview → **`confirmed`** |
 | `b2b/companies/extra_fields` | R0 | List company extra-field (custom field) definitions |
 | `b2b/companies/update_catalog` | R2 | Assign a price list/catalog to a company; preview → **`confirmed`** |
-| `b2b/companies/users/list` | R0 | List buyer users; filter by company/role/email |
+| `b2b/companies/users/list` | R0 | List buyer users; filter by company/role/email; enriches `bc_customer_id` when B2B omits it |
 | `b2b/companies/users/get` | R0 | Get one user by B2B user ID (includes extra fields) |
 | `b2b/companies/users/get_by_customer` | R0 | Resolve the B2B user from a BigCommerce customer ID |
-| `b2b/companies/users/create` | R1 | Create buyer user (0=admin, 1=senior, 2=junior); preview → **`confirmed`** |
+| `b2b/companies/users/create` | R1 | Create buyer user (0=admin, 1=senior, 2=junior); optional MSF `origin_channel_id`/`channel_ids`; preview → **`confirmed`** |
 | `b2b/companies/users/bulk_create` | R1 | Create up to 10 users in one call; preview → **`confirmed`** |
 | `b2b/companies/users/update` | R1 | Update user name, phone, or role; preview → **`confirmed`** |
 | `b2b/companies/users/delete` | R2 | Remove user from the buyer portal; preview → **`confirmed`** |
@@ -517,13 +518,13 @@ The `b2b/` root only registers when `BC_B2B_ENABLED=true`; it reuses the existin
 | `b2b/quotes/shipping/select` | R1 | Assign a shipping rate to a quote; preview → **`confirmed`** |
 | `b2b/quotes/shipping/remove` | R2 | Clear a quote's shipping rate; preview → **`confirmed`** |
 | `b2b/invoices/list` \| `get` \| `download_pdf` \| `extra_fields` | R0 | Invoice reads (served from a distinct `/ip` base URL) |
-| `b2b/invoices/create` \| `create_from_order` \| `update` | R2 | Create from raw JSON / from an existing order / update; preview → **`confirmed`** |
+| `b2b/invoices/create` \| `create_from_order` \| `create_from_orders` \| `update` | R2 | Create from raw JSON / from one or many existing orders (batch max 10) / update; waits for B2B order indexing; preview → **`confirmed`** |
 | `b2b/invoices/delete` | R3 | Permanently delete an invoice; preview → **`confirmed`** |
 | `b2b/receipts/list` \| `get` | R0 | Payment receipt reads |
 | `b2b/receipts/lines/list_all` \| `list_for_receipt` \| `get` | R0 | Receipt line-item reads |
 | `b2b/receipts/delete` \| `lines/delete` | R3 / R2 | Permanently delete a receipt / a single receipt line; preview → **`confirmed`** |
 | `b2b/payment_records/list` \| `get` \| `transactions` \| `operations` | R0 | Reads for payments logged against invoices (`/ip` base URL) |
-| `b2b/payment_records/create_offline` \| `update_offline` \| `perform_operation` \| `update_processing_status` | R2 | Log/update an offline payment, run an operation, or set processing status; preview → **`confirmed`** |
+| `b2b/payment_records/create_offline` \| `update_offline` \| `perform_operation` \| `update_processing_status` | R2 | Log/update an offline payment (**batch multiple invoices** in one `line_items_json`; optional `pay_percent` fills missing amounts from `originalBalance`), run an operation, or set processing status; preview → **`confirmed`** |
 | `b2b/payment_records/delete` | R3 | Permanently delete a payment record; preview → **`confirmed`** |
 | `b2b/payments/list` \| `active_methods` | R0 | Store-wide payment method definitions / cross-company active methods |
 | `b2b/companies/payments/list` \| `update` | R0 / R2 | A company's payment methods and enabled state / enable-disable; preview → **`confirmed`** |

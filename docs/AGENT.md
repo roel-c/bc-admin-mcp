@@ -102,7 +102,15 @@ Navigate live instead:
 For a human-browsable snapshot of every implemented tool path, see the
 **Implemented Tools** table in [`README.md`](../README.md). For the B2B
 domain specifically (gated by `BC_B2B_ENABLED=true`), see `docs/B2B.md` for
-setup and the commercial-path (quote → checkout → invoice → payment) flow.
+setup, the commercial-path (quote → checkout → invoice → payment) flow, and
+the short **order → invoice → partial pay** playbook.
+
+### B2B speed tips (when `BC_B2B_ENABLED=true`)
+
+1. **Use `bc_customer_id` from user list/get** for cart/order `customer_id`. User reads enrich that field when B2B Edition omits it — skip a separate `customers/list` by email unless it is still `0`.
+2. **Batch writes under one preview→confirm** — `b2b/companies/bulk_create`, `b2b/invoices/create_from_orders`, and multi-invoice `b2b/payment_records/create_offline` (optional `pay_percent`). Do not weaken or skip confirmation; cover more work per confirm instead.
+3. **Do not agent-sleep for B2B order indexing** — `b2b/orders/get`, `b2b/orders/update`, and invoice-from-order tools wait/retry briefly server-side.
+4. **Follow the playbook** in `docs/B2B.md` (*Playbook: order → invoice → partial pay*) instead of rediscovering the sequence via `discover_tools` on every run.
 
 ---
 

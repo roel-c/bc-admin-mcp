@@ -98,6 +98,21 @@ func (mr *MockB2BCompanyAPIMockRecorder) AttachB2BCompanyParent(ctx, companyID, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AttachB2BCompanyParent", reflect.TypeOf((*MockB2BCompanyAPI)(nil).AttachB2BCompanyParent), ctx, companyID, parentCompanyID)
 }
 
+// BulkCreateB2BCompanies mocks base method.
+func (m *MockB2BCompanyAPI) BulkCreateB2BCompanies(ctx context.Context, payloads []bigcommerce.B2BCompanyCreate) ([]int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BulkCreateB2BCompanies", ctx, payloads)
+	ret0, _ := ret[0].([]int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// BulkCreateB2BCompanies indicates an expected call of BulkCreateB2BCompanies.
+func (mr *MockB2BCompanyAPIMockRecorder) BulkCreateB2BCompanies(ctx, payloads any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BulkCreateB2BCompanies", reflect.TypeOf((*MockB2BCompanyAPI)(nil).BulkCreateB2BCompanies), ctx, payloads)
+}
+
 // BulkCreateB2BSuperAdmins mocks base method.
 func (m *MockB2BCompanyAPI) BulkCreateB2BSuperAdmins(ctx context.Context, payloads []bigcommerce.B2BSuperAdminCreate) (map[string]any, error) {
 	m.ctrl.T.Helper()

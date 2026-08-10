@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -75,12 +77,13 @@ func (ct *CompanyTools) registerPaymentRecordTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR2,
 		Summary: "Log a new offline payment against one or more invoices",
 		Tool: mcp.NewTool("b2b_payment_records_create_offline",
-			mcp.WithDescription(`Log an offline payment (check, wire, etc.) against one or more invoices. line_items_json: [{"invoiceId":141,"amount":"25.00"}]. Preview → confirm.`),
-			mcp.WithString("line_items_json", mcp.Description(`JSON array: [{"invoiceId":141,"amount":"25.00"}]`), mcp.Required()),
+			mcp.WithDescription(`Log an offline payment (check, wire, etc.) against one or more invoices in a single call. Prefer batching same-company invoices in one line_items_json. Amounts may be explicit ({"invoiceId":141,"amount":"25.00"}) or omitted when pay_percent is set (e.g. 50 = half of each invoice's originalBalance). Preview shows resolved dollar amounts. Preview → confirm.`),
+			mcp.WithString("line_items_json", mcp.Description(`JSON array of one or more invoice applications: [{"invoiceId":141,"amount":"25.00"}] or [{"invoiceId":141}] with pay_percent. Batch same-company invoices together.`), mcp.Required()),
+			mcp.WithNumber("pay_percent", mcp.Description("When set (1–100), fill missing line-item amounts as this percent of each invoice's originalBalance (rounded to 2 decimals). Explicit amount on a line wins.")),
 			mcp.WithString("currency", mcp.Description("Currency code (e.g. USD).")),
 			mcp.WithString("memo", mcp.Description("Free-text memo for this payment.")),
 			mcp.WithString("external_id", mcp.Description("External (ERP) payment ID.")),
-			mcp.WithString("customer_id", mcp.Description("B2B company ID.")),
+			mcp.WithString("customer_id", mcp.Description("B2B company ID (string), not the BC customer ID.")),
 			mcp.WithString("external_customer_id", mcp.Description("External (ERP) customer ID.")),
 			mcp.WithString("payer_name", mcp.Description(`Payer display name (default "Store offline payment").`)),
 			mcp.WithString("payer_customer_id", mcp.Description("Payer's customer ID.")),
@@ -241,6 +244,90 @@ func offlinePaymentPayloadFromArgs(args map[string]any) (bigcommerce.B2BOfflineP
 	return payload, nil
 }
 
+func readPayPercent(args map[string]any) (float64, bool, error) {
+	v, ok := args["pay_percent"]
+	if !ok || v == nil {
+		return 0, false, nil
+	}
+	f, ok := v.(float64)
+	if !ok || f <= 0 || f > 100 {
+		return 0, false, fmt.Errorf("pay_percent must be a number between 1 and 100")
+	}
+	return f, true, nil
+}
+
+func invoiceOriginalBalance(inv map[string]any) (float64, error) {
+	raw, ok := inv["originalBalance"]
+	if !ok || raw == nil {
+		return 0, fmt.Errorf("invoice missing originalBalance")
+	}
+	switch bal := raw.(type) {
+	case map[string]any:
+		val, ok := bal["value"]
+		if !ok {
+			return 0, fmt.Errorf("invoice originalBalance missing value")
+		}
+		switch s := val.(type) {
+		case string:
+			n, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+			if err != nil {
+				return 0, fmt.Errorf("invoice originalBalance.value %q: %w", s, err)
+			}
+			return n, nil
+		case float64:
+			return s, nil
+		default:
+			return 0, fmt.Errorf("invoice originalBalance.value has unexpected type %T", val)
+		}
+	case string:
+		n, err := strconv.ParseFloat(strings.TrimSpace(bal), 64)
+		if err != nil {
+			return 0, fmt.Errorf("invoice originalBalance %q: %w", bal, err)
+		}
+		return n, nil
+	case float64:
+		return bal, nil
+	default:
+		return 0, fmt.Errorf("invoice originalBalance has unexpected type %T", raw)
+	}
+}
+
+func formatMoney2(n float64) string {
+	cents := int64(math.Round(n * 100))
+	whole := cents / 100
+	frac := cents % 100
+	if frac < 0 {
+		frac = -frac
+	}
+	return fmt.Sprintf("%d.%02d", whole, frac)
+}
+
+func (ct *CompanyTools) resolveOfflinePaymentAmounts(ctx context.Context, payload *bigcommerce.B2BOfflinePaymentCreate, payPercent float64, hasPercent bool) error {
+	for i := range payload.LineItems {
+		item := &payload.LineItems[i]
+		if strings.TrimSpace(item.Amount) != "" {
+			continue
+		}
+		if !hasPercent {
+			return fmt.Errorf("line_items_json[%d]: amount is required unless pay_percent is set", i)
+		}
+		if item.InvoiceID <= 0 {
+			return fmt.Errorf("line_items_json[%d]: invoiceId is required", i)
+		}
+		invID := strconv.Itoa(item.InvoiceID)
+		inv, err := ct.bc.GetB2BInvoice(ctx, invID)
+		if err != nil {
+			return fmt.Errorf("line_items_json[%d]: get invoice %s: %w", i, invID, err)
+		}
+		total, err := invoiceOriginalBalance(inv)
+		if err != nil {
+			return fmt.Errorf("line_items_json[%d]: %w", i, err)
+		}
+		item.Amount = formatMoney2(total * payPercent / 100)
+	}
+	return nil
+}
+
 func (ct *CompanyTools) handlePaymentRecordCreateOffline(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
 	payload, err := offlinePaymentPayloadFromArgs(args)
@@ -248,16 +335,28 @@ func (ct *CompanyTools) handlePaymentRecordCreateOffline(ctx context.Context, re
 		return shared.ToolError("%s", err.Error()), nil
 	}
 	if len(payload.LineItems) == 0 {
-		return shared.ToolError("line_items_json is required (a JSON array of {invoiceId, amount} objects)"), nil
+		return shared.ToolError("line_items_json is required (a JSON array of {invoiceId, amount?} objects)"), nil
+	}
+	payPercent, hasPercent, err := readPayPercent(args)
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	if err := ct.resolveOfflinePaymentAmounts(ctx, &payload, payPercent, hasPercent); err != nil {
+		return shared.ToolError("%s", err.Error()), nil
 	}
 
+	preview := map[string]any{
+		"status":        "preview",
+		"action":        "create_b2b_offline_payment",
+		"payload":       payload,
+		"invoice_count": len(payload.LineItems),
+		"message":       fmt.Sprintf("Will log this offline payment against %d invoice(s) in one payment record. Prefer batching same-company invoices. Pass confirmed=true.", len(payload.LineItems)),
+	}
+	if hasPercent {
+		preview["pay_percent"] = payPercent
+	}
 	if !middleware.IsConfirmedFromArgs(args) {
-		return shared.ToolJSON(map[string]any{
-			"status":  "preview",
-			"action":  "create_b2b_offline_payment",
-			"payload": payload,
-			"message": "Will log this offline payment against the listed invoice(s). Pass confirmed=true.",
-		})
+		return shared.ToolJSON(preview)
 	}
 
 	result, err := ct.bc.CreateB2BOfflinePayment(ctx, payload)

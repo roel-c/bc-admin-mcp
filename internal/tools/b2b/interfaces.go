@@ -16,6 +16,7 @@ type B2BCompanyAPI interface {
 	ListB2BCompanies(ctx context.Context, params string) ([]bigcommerce.B2BCompany, error)
 	GetB2BCompany(ctx context.Context, companyID int) (*bigcommerce.B2BCompany, error)
 	CreateB2BCompany(ctx context.Context, payload bigcommerce.B2BCompanyCreate) (*bigcommerce.B2BCompany, error)
+	BulkCreateB2BCompanies(ctx context.Context, payloads []bigcommerce.B2BCompanyCreate) ([]int, error)
 	UpdateB2BCompany(ctx context.Context, companyID int, payload bigcommerce.B2BCompanyUpdate) (*bigcommerce.B2BCompany, error)
 	SetB2BCompanyStatus(ctx context.Context, companyID int, action string) (*bigcommerce.B2BCompany, error)
 	DeleteB2BCompany(ctx context.Context, companyID int) error

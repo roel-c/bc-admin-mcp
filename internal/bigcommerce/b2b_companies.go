@@ -83,6 +83,12 @@ type B2BCompanyCreate struct {
 	// auto-provisions its own group instead. Pointer so an explicit 0 is
 	// distinguishable from "not provided" (omitempty on *int only omits nil).
 	CustomerGroupID *int `json:"customerGroupId,omitempty"`
+	// OriginChannelID is the admin user's origin storefront channel (MSF).
+	// ChannelIDs lists Buyer Portal storefronts for the company/admin.
+	// Omitting these lets B2B Edition apply its own channel-access defaults
+	// (live-observed on MSF stores to expand linked BC customers' channel_ids).
+	OriginChannelID int   `json:"originChannelId,omitempty"`
+	ChannelIDs      []int `json:"channelIds,omitempty"`
 }
 
 // B2BCompanyUpdate is the request body for PUT /companies/{companyId}.
@@ -161,6 +167,11 @@ type B2BExtraFieldDef struct {
 // ---- User types ----
 
 // B2BUser represents a B2B Edition buyer portal user.
+//
+// BCCustomerID is often omitted (or returned as bcId) by list/get endpoints —
+// especially for admins created via company-create. Tool handlers enrich it
+// via email lookup when the API leaves it empty; UnmarshalJSON accepts both
+// bcCustomerId and bcId so bulk-create-style payloads still bind.
 type B2BUser struct {
 	ID           int    `json:"id"`
 	CompanyID    int    `json:"companyId"`
@@ -176,7 +187,28 @@ type B2BUser struct {
 	UpdatedAt    int64           `json:"updatedAt,omitempty"`
 }
 
+// UnmarshalJSON accepts bcCustomerId and the alternate bcId field used by
+// some B2B Edition responses (notably bulk user create).
+func (u *B2BUser) UnmarshalJSON(data []byte) error {
+	type alias B2BUser
+	aux := &struct {
+		*alias
+		BCID json.Number `json:"bcId"`
+	}{alias: (*alias)(u)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if u.BCCustomerID == 0 && aux.BCID != "" {
+		if n, err := aux.BCID.Int64(); err == nil && n > 0 {
+			u.BCCustomerID = int(n)
+		}
+	}
+	return nil
+}
+
 // B2BUserCreate is the request body for POST /users and POST /users/bulk.
+// channelIds is required by the B2B Edition Create Company User API on MSF
+// stores; omitting it lets the platform apply channel-access defaults.
 type B2BUserCreate struct {
 	CompanyID   int    `json:"companyId"`
 	Email       string `json:"email"`
@@ -184,10 +216,12 @@ type B2BUserCreate struct {
 	LastName    string `json:"lastName"`
 	PhoneNumber string `json:"phoneNumber,omitempty"`
 	// Role: 0=company admin, 1=senior buyer, 2=junior buyer
-	Role        int `json:"role"`
+	Role int `json:"role"`
 	// BCCustomerID links an existing BC customer instead of creating a new one.
-	BCCustomerID int             `json:"bcCustomerId,omitempty"`
-	ExtraFields  []B2BExtraField `json:"extraFields,omitempty"`
+	BCCustomerID    int             `json:"bcCustomerId,omitempty"`
+	ExtraFields     []B2BExtraField `json:"extraFields,omitempty"`
+	OriginChannelID int             `json:"originChannelId,omitempty"`
+	ChannelIDs      []int           `json:"channelIds,omitempty"`
 }
 
 // B2BUserUpdate is the request body for PUT /users/{userId}.
@@ -300,6 +334,49 @@ func (c *B2BClient) CreateB2BCompany(ctx context.Context, payload B2BCompanyCrea
 		return nil, err
 	}
 	return &co, nil
+}
+
+// BulkCreateB2BCompanies creates up to 10 companies via POST /companies/bulk.
+// B2B Edition returns the new company IDs in the response meta array
+// ([{companyId}…]); data is not a useful company list on this endpoint.
+func (c *B2BClient) BulkCreateB2BCompanies(ctx context.Context, payloads []B2BCompanyCreate) ([]int, error) {
+	body, err := c.B2BPost(ctx, "companies/bulk", payloads)
+	if err != nil {
+		return nil, fmt.Errorf("bulk create B2B companies: %w", err)
+	}
+	var env struct {
+		Meta []struct {
+			CompanyID int `json:"companyId"`
+		} `json:"meta"`
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		return nil, fmt.Errorf("bulk create B2B companies: parse response: %w", err)
+	}
+	ids := make([]int, 0, len(env.Meta))
+	for _, m := range env.Meta {
+		if m.CompanyID > 0 {
+			ids = append(ids, m.CompanyID)
+		}
+	}
+	if len(ids) > 0 {
+		return ids, nil
+	}
+	// Fallback: some environments may return a company array in data.
+	var companies []B2BCompany
+	if len(env.Data) > 0 && string(env.Data) != "null" {
+		if err := json.Unmarshal(env.Data, &companies); err == nil {
+			for _, co := range companies {
+				if co.CompanyID > 0 {
+					ids = append(ids, co.CompanyID)
+				}
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("bulk create B2B companies: response contained no company IDs")
+	}
+	return ids, nil
 }
 
 // UpdateB2BCompany updates a company's profile fields.

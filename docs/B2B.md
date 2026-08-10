@@ -57,7 +57,8 @@ BigCommerce documents 11 server-to-server resource families:
 |------|------|-------------|
 | `b2b/companies/list` | R0 | List companies; filter by status/name/email |
 | `b2b/companies/get` | R0 | Get company details by ID |
-| `b2b/companies/create` | R1 | Create company + initial admin user (supports `extra_fields_json`, `customer_group_id`, and linking an existing BC customer via `bc_customer_id`) |
+| `b2b/companies/create` | R1 | Create company + initial admin user (supports `extra_fields_json`, `customer_group_id`, MSF `origin_channel_id`/`channel_ids`, and linking an existing BC customer via `bc_customer_id`) |
+| `b2b/companies/bulk_create` | R1 | Create up to 10 companies in one call (`companies_json`; same required fields as create) |
 | `b2b/companies/update` | R1 | Update profile fields (supports `extra_fields_json`, `customer_group_id`); response is sparse — the tool re-fetches before returning |
 | `b2b/companies/set_status` | R2 | Approve, reject, deactivate |
 | `b2b/companies/delete` | R3 | Permanently delete company + all users; also deletes the users' linked BC customer accounts by default (`delete_bc_customers=false` to keep) |
@@ -68,11 +69,11 @@ BigCommerce documents 11 server-to-server resource families:
 
 | Tool | Tier | Description |
 |------|------|-------------|
-| `b2b/companies/users/list` | R0 | List users; filter by company/role/email |
-| `b2b/companies/users/get` | R0 | Get one user by B2B user ID (includes extra fields) |
-| `b2b/companies/users/get_by_customer` | R0 | Resolve the B2B user from a BigCommerce customer ID |
-| `b2b/companies/users/create` | R1 | Create buyer portal user (supports `extra_fields_json`) |
-| `b2b/companies/users/bulk_create` | R1 | Create up to 10 users in one call (`users_json`) |
+| `b2b/companies/users/list` | R0 | List users; filter by company/role/email. `bc_customer_id` is enriched via email when B2B Edition omits it |
+| `b2b/companies/users/get` | R0 | Get one user by B2B user ID (includes extra fields; same `bc_customer_id` enrichment) |
+| `b2b/companies/users/get_by_customer` | R0 | Resolve the B2B user from a BigCommerce customer ID (always returns that ID as `bc_customer_id`) |
+| `b2b/companies/users/create` | R1 | Create buyer portal user (supports `extra_fields_json`, MSF `origin_channel_id`/`channel_ids`) |
+| `b2b/companies/users/bulk_create` | R1 | Create up to 10 users in one call (`users_json`; per-row MSF channel fields supported) |
 | `b2b/companies/users/update` | R1 | Update name, phone, role |
 | `b2b/companies/users/delete` | R2 | Remove from buyer portal (BC customer preserved) |
 | `b2b/companies/users/extra_fields` | R0 | List user extra-field definitions |
@@ -144,7 +145,13 @@ BigCommerce documents 11 server-to-server resource families:
 
 **Customer group assignment (catalog/pricing visibility):** a company's buyers see the products/pricing determined by its linked BigCommerce customer group. Pass `customer_group_id` on `b2b/companies/create` or `update` to assign one — but this only takes effect on stores using **Independent Companies** behavior (the default for new stores since Oct 2024). On legacy **Dependent Companies** stores, BC Edition auto-creates and permanently 1:1-links a group per company instead, and `customer_group_id` is ignored. There is no MCP tool to detect which mode a store is in directly; infer it by creating a company and checking whether `bc_group_id` populates without you setting `customer_group_id` (Dependent) or stays `0` (Independent). To restrict a company to a specific catalog slice: create a category scoped to the intended storefront channel, create a customer group with `category_access_type: "specific"` scoped to that category (`customers/groups/create`), then assign that group's ID as `customer_group_id` on the company. Multiple companies (e.g. a parent and its subsidiaries) may share the same group/category restriction — live-validated in `WORKFLOW.md` §10.3.
 
-**MSF storefront-channel scoping:** when the target storefront matters (for example a B2B buyer should belong to `MSF-B2BE`, not another storefront on the same store), do **not** rely on B2B Edition's implicit BC-customer creation. Instead, create the underlying BigCommerce customers first via `customers/create` with `origin_channel_id` and `channel_ids` set to the target storefront channel, then pass those IDs into `b2b/companies/create` or `b2b/companies/users/create` / `bulk_create` as `bc_customer_id`. Operationally, any future **D2C or B2B surface check** in an MSF store should begin with an explicit question: which storefront channel or channels should own the test data? `catalog/channels/list` is the reliable human-readable source for channel names; `b2b/channels/list` confirms which storefront channels B2B Edition sees (B2B runs only).
+**MSF storefront-channel scoping:** when the target storefront matters (for example a B2B buyer should belong to `MSF-B2BE`, not another storefront on the same store), do **not** rely on B2B Edition's implicit BC-customer creation **or** omit B2B `channelIds`. Instead:
+
+1. Create the underlying BigCommerce customers first via `customers/create` with `origin_channel_id` and `channel_ids` set to the target storefront channel.
+2. Pass those IDs into `b2b/companies/create` or `b2b/companies/users/create` / `bulk_create` as `bc_customer_id`.
+3. Also pass B2B Edition's own `origin_channel_id` / `channel_ids` on company and user create (maps to API `originChannelId` / `channelIds`). These control Buyer Portal **Channel Access**. Omitting them lets B2B Edition apply platform defaults — live-observed on this MSF store to expand linked BC customers' `channel_ids` to include an extra B2B-enabled storefront (e.g. MSF-Demo-UK). The B2B Create Company User API marks `channelIds` as required.
+
+Operationally, any future **D2C or B2B surface check** in an MSF store should begin with an explicit question: which storefront channel or channels should own the test data? `catalog/channels/list` is the reliable human-readable source for channel names; `b2b/channels/list` confirms which storefront channels B2B Edition sees (B2B runs only).
 
 **Deferred (management API, needs a focused pass):** bulk-create companies (unusual `data.errors`+`meta[]` envelope), batch update `PUT /companies` (redundant with per-id update), and convert customer-group→company (legacy Dependent-behavior migration).
 
@@ -201,7 +208,8 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 | `b2b/invoices/download_pdf` | R0 | Download link for the invoice PDF |
 | `b2b/invoices/extra_fields` | R0 | List invoice extra-field definitions |
 | `b2b/invoices/create` | R2 | Create an invoice from a raw JSON body (`invoice_json`) |
-| `b2b/invoices/create_from_order` | R2 | Generate an invoice from an existing order's data (`order_id` = BigCommerce order ID; the tool resolves B2B Edition's own internal order ID internally — see quirk below) |
+| `b2b/invoices/create_from_order` | R2 | Generate an invoice from an existing order (`order_id` = BC order ID; waits for B2B indexing + `companyId`; resolves internal order ID) |
+| `b2b/invoices/create_from_orders` | R2 | Same as create_from_order for up to 10 BC order IDs in one preview→confirm (`partial_success` supported) |
 | `b2b/invoices/update` | R2 | Update an invoice from a raw JSON body; `details` fully replaces rather than merging |
 | `b2b/invoices/delete` | R3 | Permanently delete an invoice |
 
@@ -225,7 +233,7 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 | `b2b/payment_records/get` | R0 | Get a payment record's detail |
 | `b2b/payment_records/transactions` | R0 | List a payment record's transaction history |
 | `b2b/payment_records/operations` | R0 | Get the operations currently allowed on a payment record |
-| `b2b/payment_records/create_offline` | R2 | Log a new offline payment against one or more invoices |
+| `b2b/payment_records/create_offline` | R2 | Log a new offline payment against **one or more** invoices in a single `line_items_json` array — batch same-company invoices; optional `pay_percent` (1–100) fills missing amounts from each invoice's `originalBalance` |
 | `b2b/payment_records/update_offline` | R2 | Update an existing offline payment record |
 | `b2b/payment_records/perform_operation` | R2 | Perform a lifecycle operation (e.g. void) on a payment record |
 | `b2b/payment_records/update_processing_status` | R2 | Directly set a payment record's processing status |
@@ -247,6 +255,30 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 **API quirks confirmed live:**
 - Invoice/receipt/receipt-line/payment-record IDs are **strings**; global `/payments` uses `id`/`paymentCode` while `/companies/{id}/payments` uses `paymentId`/`code` for the same concepts — different field names for the same data, not a documentation error.
 - **`POST /orders/{orderId}/invoices` (`create_from_order`) takes B2B Edition's own internal order ID, not the BigCommerce order ID** — they are different numbers (`GetB2BOrder`'s `id` field vs. its `bcOrderId` field). Passing the BC order ID returns a 404 "Order does not exist" even for a real, existing order. The tool resolves this automatically via a `b2b/orders/get`-equivalent lookup before calling the endpoint, so callers only ever need to supply the familiar BC order ID.
+- **User `bcCustomerId` is often omitted** on list/get (and may appear as `bcId` on bulk-create responses). `b2b/companies/users/list`, `get`, and `create` enrich `bc_customer_id` by matching user emails to core customers so agents can use it as cart/order `customer_id` without a separate `customers/list` round-trip.
+
+---
+
+### Playbook: order → invoice → partial pay (MCP-only)
+
+Use this when placing B2B-visible orders and logging invoice payments without a storefront checkout session. Keep preview→confirm on every R1+ step; prefer batch tools so each confirm covers more work.
+
+1. **Resolve the buyer’s BC customer ID** from `b2b/companies/users/list` (or `get`) — use the enriched `bc_customer_id`. Do **not** re-query `customers/list` by email unless enrichment returned `0`.
+2. **Create the order(s)** with `orders/management/create`: set `customer_id` to that BC customer ID, `channel_id` to the B2B-enabled storefront, `status_id` to a non-Incomplete status (e.g. `7` Awaiting Payment), and include billing + shipping addresses plus `products[]`.
+3. **Set PO numbers** with `b2b/orders/update` — the tool waits briefly for B2B indexing (no agent-side sleep). If `companyId` is still missing after a long wait, call `b2b/orders/assign_customer_orders` for that BC `customer_id`.
+4. **Invoice in one batch** with `b2b/invoices/create_from_orders` (`order_ids` ≤ 10). It waits for indexing + `companyId` per order and reports `partial_success` if some fail. Record invoice ids from the response.
+5. **Pay in one batch per company** — `b2b/payment_records/create_offline` with all invoice ids and either explicit amounts or `pay_percent: 50` (amounts resolved from each invoice’s `originalBalance` and shown in preview):
+   ```json
+   {
+     "line_items_json": "[{\"invoiceId\":12674572},{\"invoiceId\":12674575}]",
+     "pay_percent": 50,
+     "customer_id": "13926566",
+     "currency": "USD"
+   }
+   ```
+6. **Verify** with `b2b/invoices/get` (open balance down; status partially paid or completed) and optionally `b2b/payment_records/get`.
+
+**Don’t:** one offline-payment or invoice call per order when a batch tool fits; guest/`customer_id: 0` orders (they never get a B2B `companyId`); Incomplete orders (invoice create will fail).
 
 ---
 

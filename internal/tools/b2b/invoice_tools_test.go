@@ -85,7 +85,9 @@ func (s *B2BCompanyToolsSuite) TestInvoiceCreateFromOrderConfirmed() {
 	// The Invoice Management API expects B2B Edition's internal order ID
 	// (56469299), not the BigCommerce order ID (135) — the handler must
 	// resolve it via GetB2BOrder before calling CreateB2BInvoiceFromOrder.
-	s.mockBC.EXPECT().GetB2BOrder(gomock.Any(), 135).Return(map[string]any{"id": float64(56469299), "bcOrderId": "135"}, nil)
+	s.mockBC.EXPECT().GetB2BOrder(gomock.Any(), 135).Return(map[string]any{
+		"id": float64(56469299), "bcOrderId": "135", "companyId": float64(42),
+	}, nil)
 	s.mockBC.EXPECT().CreateB2BInvoiceFromOrder(gomock.Any(), 56469299).Return(map[string]any{"id": float64(1)}, nil)
 	res, err := s.callTool("b2b/invoices/create_from_order", map[string]any{"order_id": float64(135), "confirmed": true})
 	s.NoError(err)
@@ -93,11 +95,52 @@ func (s *B2BCompanyToolsSuite) TestInvoiceCreateFromOrderConfirmed() {
 	s.Equal("created", s.parseJSON(res)["status"])
 }
 
+func (s *B2BCompanyToolsSuite) TestInvoiceCreateFromOrderRetriesUntilIndexed() {
+	first := s.mockBC.EXPECT().GetB2BOrder(gomock.Any(), 135).Return(nil, &bigcommerce.APIError{StatusCode: 404, Path: "orders/135"})
+	second := s.mockBC.EXPECT().GetB2BOrder(gomock.Any(), 135).Return(map[string]any{
+		"id": float64(56469299), "bcOrderId": "135", "companyId": float64(42),
+	}, nil)
+	gomock.InOrder(first, second)
+	s.mockBC.EXPECT().CreateB2BInvoiceFromOrder(gomock.Any(), 56469299).Return(map[string]any{"invoiceId": float64(9)}, nil)
+
+	res, err := s.callTool("b2b/invoices/create_from_order", map[string]any{"order_id": float64(135), "confirmed": true})
+	s.NoError(err)
+	s.False(res.IsError)
+	s.Equal("created", s.parseJSON(res)["status"])
+}
+
 func (s *B2BCompanyToolsSuite) TestInvoiceCreateFromOrderRejectsMissingInternalID() {
-	s.mockBC.EXPECT().GetB2BOrder(gomock.Any(), 135).Return(map[string]any{"bcOrderId": "135"}, nil)
+	s.mockBC.EXPECT().GetB2BOrder(gomock.Any(), 135).Return(map[string]any{"bcOrderId": "135", "companyId": float64(42)}, nil)
 	res, err := s.callTool("b2b/invoices/create_from_order", map[string]any{"order_id": float64(135), "confirmed": true})
 	s.NoError(err)
 	s.True(res.IsError)
+}
+
+func (s *B2BCompanyToolsSuite) TestInvoiceCreateFromOrdersPreviewThenConfirm() {
+	prev, err := s.callTool("b2b/invoices/create_from_orders", map[string]any{
+		"order_ids": []any{float64(135), float64(136)},
+	})
+	s.NoError(err)
+	data := s.parseJSON(prev)
+	s.Equal("preview", data["status"])
+	s.Equal(float64(2), data["count"])
+
+	s.mockBC.EXPECT().GetB2BOrder(gomock.Any(), 135).Return(map[string]any{
+		"id": float64(1), "companyId": float64(42),
+	}, nil)
+	s.mockBC.EXPECT().CreateB2BInvoiceFromOrder(gomock.Any(), 1).Return(map[string]any{"invoiceId": float64(10)}, nil)
+	s.mockBC.EXPECT().GetB2BOrder(gomock.Any(), 136).Return(map[string]any{
+		"id": float64(2), "companyId": float64(42),
+	}, nil)
+	s.mockBC.EXPECT().CreateB2BInvoiceFromOrder(gomock.Any(), 2).Return(map[string]any{"invoiceId": float64(11)}, nil)
+
+	res, err := s.callTool("b2b/invoices/create_from_orders", map[string]any{
+		"order_ids": []any{float64(135), float64(136)}, "confirmed": true,
+	})
+	s.NoError(err)
+	out := s.parseJSON(res)
+	s.Equal("created", out["status"])
+	s.Equal(float64(2), out["created_count"])
 }
 
 func (s *B2BCompanyToolsSuite) TestInvoiceUpdateConfirmed() {

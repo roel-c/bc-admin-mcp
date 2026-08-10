@@ -88,11 +88,23 @@ func (ct *CompanyTools) registerInvoiceTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR2,
 		Summary: "Generate an invoice from an existing BigCommerce order",
 		Tool: mcp.NewTool("b2b_invoices_create_from_order",
-			mcp.WithDescription("Generate a B2B invoice using an existing BigCommerce order's data. Internally resolves the BC order ID to B2B Edition's own order ID first. Preview → confirm."),
+			mcp.WithDescription("Generate a B2B invoice using an existing BigCommerce order's data. Resolves the BC order ID to B2B Edition's internal order ID and waits briefly for B2B indexing + companyId. Preview → confirm. For multiple orders prefer b2b/invoices/create_from_orders."),
 			mcp.WithNumber("order_id", mcp.Description("BigCommerce order ID"), mcp.Required()),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create.")),
 		),
 		Handler: ct.handleInvoiceCreateFromOrder,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/invoices/create_from_orders",
+		Tier:    middleware.TierR2,
+		Summary: "Generate invoices from multiple BigCommerce orders in one call",
+		Tool: mcp.NewTool("b2b_invoices_create_from_orders",
+			mcp.WithDescription("Generate B2B invoices for up to 10 BigCommerce order IDs in one preview→confirm. Each order is resolved/waited for B2B indexing independently; failures are reported per order (partial_success). Prefer this over repeated create_from_order calls."),
+			mcp.WithArray("order_ids", mcp.Description("BigCommerce order IDs (max 10)."), mcp.Required(), mcp.Items(map[string]any{"type": "number"})),
+			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create.")),
+		),
+		Handler: ct.handleInvoiceCreateFromOrders,
 	})
 
 	reg.RegisterTool(&discovery.ToolDef{
@@ -355,6 +367,24 @@ func b2bOrderInternalID(order map[string]any) (int, error) {
 	}
 }
 
+func (ct *CompanyTools) createInvoiceFromBCOrder(ctx context.Context, orderID int) (map[string]any, error) {
+	// Wait until B2B Edition indexes the order and attaches companyId — both
+	// are required for create-from-order to succeed after Management API creates.
+	b2bOrder, err := ct.waitForB2BOrder(ctx, orderID, true)
+	if err != nil {
+		return nil, fmt.Errorf("resolve B2B order for BC order %d: %w", orderID, err)
+	}
+	internalID, err := b2bOrderInternalID(b2bOrder)
+	if err != nil {
+		return nil, fmt.Errorf("order %d: %w", orderID, err)
+	}
+	invoice, err := ct.bc.CreateB2BInvoiceFromOrder(ctx, internalID)
+	if err != nil {
+		return nil, fmt.Errorf("create B2B invoice from order %d: %w", orderID, err)
+	}
+	return invoice, nil
+}
+
 func (ct *CompanyTools) handleInvoiceCreateFromOrder(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
 	orderID, err := shared.ReadPositiveInt(args, "order_id")
@@ -367,28 +397,82 @@ func (ct *CompanyTools) handleInvoiceCreateFromOrder(ctx context.Context, reques
 			"status":   "preview",
 			"action":   "create_b2b_invoice_from_order",
 			"order_id": orderID,
-			"message":  fmt.Sprintf("Will generate an invoice from order %d. Pass confirmed=true.", orderID),
+			"message":  fmt.Sprintf("Will generate an invoice from order %d (waits for B2B indexing). Pass confirmed=true.", orderID),
 		})
 	}
 
-	// The Invoice Management API's create-from-order endpoint expects B2B
-	// Edition's own internal order ID, not the BigCommerce order ID — the two
-	// are different numbers (see GetB2BOrder's "id" vs "bcOrderId" fields).
-	// Resolve it first so callers can keep using the familiar BC order ID.
-	b2bOrder, err := ct.bc.GetB2BOrder(ctx, orderID)
+	invoice, err := ct.createInvoiceFromBCOrder(ctx, orderID)
 	if err != nil {
-		return shared.ToolError("failed to resolve B2B order for BC order %d: %v", orderID, err), nil
-	}
-	internalID, err := b2bOrderInternalID(b2bOrder)
-	if err != nil {
-		return shared.ToolError("order %d: %v", orderID, err), nil
-	}
-
-	invoice, err := ct.bc.CreateB2BInvoiceFromOrder(ctx, internalID)
-	if err != nil {
-		return shared.ToolError("failed to create B2B invoice from order %d: %v", orderID, err), nil
+		return shared.ToolError("%s", err.Error()), nil
 	}
 	return shared.ToolJSON(map[string]any{"status": "created", "order_id": orderID, "invoice": invoice})
+}
+
+const maxInvoiceCreateFromOrders = 10
+
+func (ct *CompanyTools) handleInvoiceCreateFromOrders(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	raw, ok := args["order_ids"].([]any)
+	if !ok || len(raw) == 0 {
+		return shared.ToolError("order_ids is required (non-empty array of BigCommerce order IDs)"), nil
+	}
+	if len(raw) > maxInvoiceCreateFromOrders {
+		return shared.ToolError("order_ids: maximum %d per call", maxInvoiceCreateFromOrders), nil
+	}
+	orderIDs := make([]int, 0, len(raw))
+	seen := map[int]bool{}
+	for i, v := range raw {
+		f, ok := v.(float64)
+		if !ok || f != float64(int(f)) || int(f) <= 0 {
+			return shared.ToolError("order_ids[%d] must be a positive integer", i), nil
+		}
+		id := int(f)
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		orderIDs = append(orderIDs, id)
+	}
+	if len(orderIDs) == 0 {
+		return shared.ToolError("order_ids must contain at least one positive integer"), nil
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return shared.ToolJSON(map[string]any{
+			"status":    "preview",
+			"action":    "create_b2b_invoices_from_orders",
+			"order_ids": orderIDs,
+			"count":     len(orderIDs),
+			"message":   fmt.Sprintf("Will generate invoices from %d order(s) in one call (waits for B2B indexing per order). Pass confirmed=true.", len(orderIDs)),
+		})
+	}
+
+	created := make([]map[string]any, 0, len(orderIDs))
+	failures := make([]map[string]any, 0)
+	for _, orderID := range orderIDs {
+		invoice, err := ct.createInvoiceFromBCOrder(ctx, orderID)
+		if err != nil {
+			failures = append(failures, map[string]any{"order_id": orderID, "error": err.Error()})
+			continue
+		}
+		created = append(created, map[string]any{"order_id": orderID, "invoice": invoice})
+	}
+	status := "created"
+	if len(failures) > 0 && len(created) > 0 {
+		status = "partial_success"
+	} else if len(failures) > 0 {
+		status = "failed"
+	}
+	out := map[string]any{
+		"status":        status,
+		"created_count": len(created),
+		"failed_count":  len(failures),
+		"created":       created,
+	}
+	if len(failures) > 0 {
+		out["failures"] = failures
+	}
+	return shared.ToolJSON(out)
 }
 
 func (ct *CompanyTools) handleInvoiceUpdate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

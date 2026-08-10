@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
@@ -25,6 +26,9 @@ type CompanyTools struct {
 	customers BCCustomerManager
 	cache     *session.Store
 	uploadDir string
+	// sleepFn overrides context-aware sleep used by B2B order-index retries.
+	// Nil uses the real timer; tests inject a no-op for fast retries.
+	sleepFn func(context.Context, time.Duration) error
 }
 
 // NewCompanyTools constructs a CompanyTools handler. customers is used by the
@@ -34,6 +38,11 @@ type CompanyTools struct {
 // uploads.
 func NewCompanyTools(bc B2BCompanyAPI, customers BCCustomerManager, cache *session.Store, uploadDir string) *CompanyTools {
 	return &CompanyTools{bc: bc, customers: customers, cache: cache, uploadDir: uploadDir}
+}
+
+// SetSleepForTest replaces the sleep used by B2B order-index retries. Intended for unit tests only.
+func (ct *CompanyTools) SetSleepForTest(fn func(context.Context, time.Duration) error) {
+	ct.sleepFn = fn
 }
 
 // RegisterTools wires all B2B Phase B1 tools into the discovery registry.
@@ -89,7 +98,7 @@ func (ct *CompanyTools) registerCompanyTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR1,
 		Summary: "Create a new B2B company account with an initial admin user",
 		Tool: mcp.NewTool("b2b_companies_create",
-			mcp.WithDescription("Create a B2B company account. Also creates the admin user unless bc_customer_id is provided to link an existing BC customer. Required by the B2B API: company_name, company_email, company_phone, company_country, admin_first_name, admin_last_name, admin_email. Preview → confirm."),
+			mcp.WithDescription("Create a B2B company account. Also creates the admin user unless bc_customer_id is provided to link an existing BC customer. Required by the B2B API: company_name, company_email, company_phone, company_country, admin_first_name, admin_last_name, admin_email. On MSF stores, pass origin_channel_id and channel_ids to scope Buyer Portal channel access (omitting them lets B2B Edition apply its own defaults). Preview → confirm."),
 			mcp.WithString("company_name", mcp.Description("Company name"), mcp.Required()),
 			mcp.WithString("company_email", mcp.Description("Company contact email."), mcp.Required()),
 			mcp.WithString("company_phone", mcp.Description("Company phone number."), mcp.Required()),
@@ -103,10 +112,24 @@ func (ct *CompanyTools) registerCompanyTools(reg *discovery.Registry) {
 			mcp.WithString("admin_last_name", mcp.Description("Admin last name."), mcp.Required()),
 			mcp.WithNumber("bc_customer_id", mcp.Description("Link existing BC customer as admin instead of creating a new user.")),
 			mcp.WithNumber("customer_group_id", mcp.Description("BigCommerce customer group ID to assign (Independent Companies behavior only — see b2b/companies/get's bc_group_id). Controls the company's buyer catalog visibility/pricing. Omit to use the store's default group; pass 0 for no group. Ignored on legacy Dependent Companies stores, which auto-provision their own group instead.")),
+			mcp.WithNumber("origin_channel_id", mcp.Description("MSF: storefront channel ID designated as the Company admin's origin channel.")),
+			mcp.WithArray("channel_ids", mcp.Description("MSF: storefront channel IDs where buyers can access this Company's Buyer Portal. Pass only the intended channel(s); omitting lets B2B Edition apply platform defaults."), mcp.Items(map[string]any{"type": "number"})),
 			mcp.WithString("extra_fields_json", mcp.Description(`Optional JSON array of custom fields: [{"fieldName":"License No","fieldValue":"12345"}]. Use b2b/companies/extra_fields to discover required fields.`)),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create the company.")),
 		),
 		Handler: ct.handleCompanyCreate,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "b2b/companies/bulk_create",
+		Tier:    middleware.TierR1,
+		Summary: "Create up to 10 B2B company accounts in one call",
+		Tool: mcp.NewTool("b2b_companies_bulk_create",
+			mcp.WithDescription("Create up to 10 B2B company accounts (each with an admin user) via POST /companies/bulk. Provide companies_json: a JSON array of company objects with the same required fields as b2b/companies/create. One preview covers the whole batch. Preview → confirm."),
+			mcp.WithString("companies_json", mcp.Description(`JSON array (max 10): [{"company_name":"Acme","company_email":"a@b.com","company_phone":"555","company_country":"US","admin_first_name":"A","admin_last_name":"B","admin_email":"admin@b.com","origin_channel_id":1,"channel_ids":[1]}]`), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create the companies.")),
+		),
+		Handler: ct.handleCompanyBulkCreate,
 	})
 
 	reg.RegisterTool(&discovery.ToolDef{
@@ -311,6 +334,14 @@ func (ct *CompanyTools) handleCompanyCreate(ctx context.Context, request mcp.Cal
 		}
 		payload.CustomerGroupID = &n
 	}
+	if v, ok := args["origin_channel_id"].(float64); ok && v > 0 {
+		payload.OriginChannelID = int(v)
+	}
+	if ids, err := parseB2BChannelIDsArg(args, "channel_ids"); err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	} else if len(ids) > 0 {
+		payload.ChannelIDs = ids
+	}
 	if ef, eerr := parseB2BExtraFieldsJSON(args, "extra_fields_json"); eerr != nil {
 		return shared.ToolError("%s", eerr.Error()), nil
 	} else {
@@ -360,6 +391,70 @@ func (ct *CompanyTools) handleCompanyCreate(ctx context.Context, request mcp.Cal
 		}
 	}
 	return shared.ToolJSON(map[string]any{"status": "created", "company": companyView(*co)})
+}
+
+const maxCompanyBulkCreate = 10
+
+func (ct *CompanyTools) handleCompanyBulkCreate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	raw, _ := args["companies_json"].(string)
+	if strings.TrimSpace(raw) == "" {
+		return shared.ToolError("companies_json is required (a JSON array of company objects)"), nil
+	}
+	payloads, err := parseB2BCompanyBatch(raw)
+	if err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	}
+	if len(payloads) == 0 {
+		return shared.ToolError("companies_json must contain at least one company"), nil
+	}
+	if len(payloads) > maxCompanyBulkCreate {
+		return shared.ToolError("companies_json: maximum %d companies per call", maxCompanyBulkCreate), nil
+	}
+	for i, p := range payloads {
+		if strings.TrimSpace(p.CompanyName) == "" {
+			return shared.ToolError("companies_json[%d]: company_name is required", i), nil
+		}
+		if strings.TrimSpace(p.CompanyEmail) == "" || strings.TrimSpace(p.CompanyPhone) == "" || strings.TrimSpace(p.Country) == "" {
+			return shared.ToolError("companies_json[%d]: company_email, company_phone, and company_country are required", i), nil
+		}
+		if strings.TrimSpace(p.AdminEmail) == "" || strings.TrimSpace(p.AdminFirstName) == "" || strings.TrimSpace(p.AdminLastName) == "" {
+			return shared.ToolError("companies_json[%d]: admin_email, admin_first_name, and admin_last_name are required", i), nil
+		}
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		names := make([]string, len(payloads))
+		for i, p := range payloads {
+			names[i] = p.CompanyName
+		}
+		return shared.ToolJSON(map[string]any{
+			"status":         "preview",
+			"action":         "bulk_create_b2b_companies",
+			"count":          len(payloads),
+			"company_names":  names,
+			"payload":        payloads,
+			"message":        fmt.Sprintf("Will create %d B2B company account(s) in one call. Pass confirmed=true.", len(payloads)),
+		})
+	}
+
+	ids, err := ct.bc.BulkCreateB2BCompanies(ctx, payloads)
+	if err != nil {
+		return shared.ToolError("failed to bulk create B2B companies: %v", err), nil
+	}
+	views := make([]map[string]any, 0, len(ids))
+	for i, id := range ids {
+		item := map[string]any{"company_id": id}
+		if i < len(payloads) {
+			item["company_name"] = payloads[i].CompanyName
+			item["admin_email"] = payloads[i].AdminEmail
+		}
+		if full, gerr := ct.bc.GetB2BCompany(ctx, id); gerr == nil && full != nil {
+			item["company"] = companyView(*full)
+		}
+		views = append(views, item)
+	}
+	return shared.ToolJSON(map[string]any{"status": "created", "count": len(views), "created": views})
 }
 
 func (ct *CompanyTools) handleCompanyUpdate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -534,35 +629,14 @@ func (ct *CompanyTools) handleCompanyDelete(ctx context.Context, request mcp.Cal
 			usersLookupErr = uerr.Error()
 		}
 
-		// The B2B user's bcCustomerId is frequently 0 (e.g. admins created via
-		// company-create), so resolve the remaining links by matching each
-		// user's email against the core customer store in a single query.
-		var emails []string
-		for _, u := range users {
-			if u.BCCustomerID <= 0 && strings.TrimSpace(u.Email) != "" {
-				emails = append(emails, u.Email)
-			}
-		}
-		emailToID := map[string]int{}
-		if len(emails) > 0 && ct.customers != nil {
-			custs, serr := ct.customers.SearchCustomers(ctx, map[string]string{"email:in": strings.Join(emails, ",")})
-			if serr != nil && usersLookupErr == "" {
-				usersLookupErr = serr.Error()
-			}
-			for _, cu := range custs {
-				if cu.ID > 0 {
-					emailToID[strings.ToLower(strings.TrimSpace(cu.Email))] = cu.ID
-				}
-			}
-		}
+		// B2B list/get often omit bcCustomerId (esp. company-create admins);
+		// enrichUsersWithBCCustomerIDs resolves links via email in one query.
+		users = ct.enrichUsersWithBCCustomerIDs(ctx, users)
 
 		seen := map[int]bool{}
 		roleLabel := map[int]string{0: "admin", 1: "senior_buyer", 2: "junior_buyer"}
 		for _, u := range users {
 			cid := u.BCCustomerID
-			if cid <= 0 {
-				cid = emailToID[strings.ToLower(strings.TrimSpace(u.Email))]
-			}
 			if cid <= 0 || seen[cid] {
 				continue
 			}
@@ -820,7 +894,7 @@ func (ct *CompanyTools) registerUserTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR0,
 		Summary: "List buyer portal users for a company or across all companies",
 		Tool: mcp.NewTool("b2b_companies_users_list",
-			mcp.WithDescription("List B2B Edition buyer portal users. Filter by company, role, or email."),
+			mcp.WithDescription("List B2B Edition buyer portal users. Filter by company, role, or email. Responses include bc_customer_id; when B2B Edition omits it (common for company-create admins), the tool resolves it via email so you can use it directly as cart/order customer_id."),
 			mcp.WithNumber("company_id", mcp.Description("Filter by company ID.")),
 			mcp.WithNumber("role", mcp.Description("Filter by role: 0=admin, 1=senior buyer, 2=junior buyer.")),
 			mcp.WithString("email", mcp.Description("Filter by email address.")),
@@ -833,7 +907,7 @@ func (ct *CompanyTools) registerUserTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR1,
 		Summary: "Create a buyer portal user and assign them to a company",
 		Tool: mcp.NewTool("b2b_companies_users_create",
-			mcp.WithDescription("Create a B2B buyer portal user. Roles: 0=admin, 1=senior buyer, 2=junior buyer. Preview → confirm."),
+			mcp.WithDescription("Create a B2B buyer portal user. Roles: 0=admin, 1=senior buyer, 2=junior buyer. On MSF stores, pass channel_ids (required by the B2B API) and optional origin_channel_id to scope storefront access. Preview → confirm."),
 			mcp.WithNumber("company_id", mcp.Description("Company ID to assign the user to"), mcp.Required()),
 			mcp.WithString("email", mcp.Description("User email address"), mcp.Required()),
 			mcp.WithString("first_name", mcp.Description("First name"), mcp.Required()),
@@ -841,6 +915,8 @@ func (ct *CompanyTools) registerUserTools(reg *discovery.Registry) {
 			mcp.WithNumber("role", mcp.Description("Role: 0=admin, 1=senior buyer, 2=junior buyer"), mcp.Required()),
 			mcp.WithString("phone", mcp.Description("Phone number.")),
 			mcp.WithNumber("bc_customer_id", mcp.Description("Link an existing BC customer ID instead of creating a new account.")),
+			mcp.WithNumber("origin_channel_id", mcp.Description("MSF: originating storefront channel ID for this user.")),
+			mcp.WithArray("channel_ids", mcp.Description("MSF: storefront channel IDs this user can log in to and do business on. Required by B2B Edition Create Company User; pass only the intended channel(s)."), mcp.Items(map[string]any{"type": "number"})),
 			mcp.WithString("extra_fields_json", mcp.Description(`Optional JSON array of custom fields: [{"fieldName":"PO Number","fieldValue":"123"}]. Use b2b/companies/users/extra_fields to discover required fields.`)),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create the user.")),
 		),
@@ -880,7 +956,7 @@ func (ct *CompanyTools) registerUserTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR0,
 		Summary: "Get a single buyer portal user by B2B user ID (includes extra fields)",
 		Tool: mcp.NewTool("b2b_companies_users_get",
-			mcp.WithDescription("Get a B2B Edition user by their B2B userId. Unlike list, this includes the user's extra fields."),
+			mcp.WithDescription("Get a B2B Edition user by their B2B userId. Unlike list, this includes the user's extra fields. bc_customer_id is enriched via email when B2B Edition omits it."),
 			mcp.WithNumber("user_id", mcp.Description("B2B user ID"), mcp.Required()),
 		),
 		Handler: ct.handleUserGet,
@@ -891,7 +967,7 @@ func (ct *CompanyTools) registerUserTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR0,
 		Summary: "Get the buyer portal user linked to a BigCommerce customer ID",
 		Tool: mcp.NewTool("b2b_companies_users_get_by_customer",
-			mcp.WithDescription("Get the B2B Edition user linked to a BigCommerce customer ID. Useful to resolve the B2B user (and its company) from a core BC customer. Returns not-found if no B2B user is linked."),
+			mcp.WithDescription("Get the B2B Edition user linked to a BigCommerce customer ID. Useful to resolve the B2B user (and its company) from a core BC customer. Always returns bc_customer_id set to the requested ID. Returns not-found if no B2B user is linked."),
 			mcp.WithNumber("bc_customer_id", mcp.Description("BigCommerce customer ID (not the B2B userId)"), mcp.Required()),
 		),
 		Handler: ct.handleUserGetByCustomer,
@@ -902,8 +978,8 @@ func (ct *CompanyTools) registerUserTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR1,
 		Summary: "Create up to 10 buyer portal users in one call",
 		Tool: mcp.NewTool("b2b_companies_users_bulk_create",
-			mcp.WithDescription("Create up to 10 B2B Edition users at once. Provide users_json: a JSON array of user objects, each with company_id, email, first_name, last_name, role (0=admin,1=senior,2=junior), and optional phone, bc_customer_id, extra_fields. Preview → confirm."),
-			mcp.WithString("users_json", mcp.Description(`JSON array (max 10): [{"company_id":1,"email":"a@b.com","first_name":"A","last_name":"B","role":1,"phone":"","bc_customer_id":0,"extra_fields":[{"fieldName":"PO","fieldValue":"123"}]}]`), mcp.Required()),
+			mcp.WithDescription("Create up to 10 B2B Edition users at once. Provide users_json: a JSON array of user objects, each with company_id, email, first_name, last_name, role (0=admin,1=senior,2=junior), and optional phone, bc_customer_id, origin_channel_id, channel_ids, extra_fields. Preview → confirm."),
+			mcp.WithString("users_json", mcp.Description(`JSON array (max 10): [{"company_id":1,"email":"a@b.com","first_name":"A","last_name":"B","role":1,"phone":"","bc_customer_id":0,"origin_channel_id":1,"channel_ids":[1],"extra_fields":[{"fieldName":"PO","fieldValue":"123"}]}]. Use catalog/channels/list (and b2b/channels/list for B2B) to resolve the store's actual channel IDs before passing them.`), mcp.Required()),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create the users.")),
 		),
 		Handler: ct.handleUserBulkCreate,
@@ -941,6 +1017,7 @@ func (ct *CompanyTools) handleUserList(ctx context.Context, request mcp.CallTool
 	if err != nil {
 		return shared.ToolError("failed to list B2B users: %v", err), nil
 	}
+	users = ct.enrichUsersWithBCCustomerIDs(ctx, users)
 	views := make([]map[string]any, len(users))
 	for i, u := range users {
 		views[i] = userView(u)
@@ -978,6 +1055,14 @@ func (ct *CompanyTools) handleUserCreate(ctx context.Context, request mcp.CallTo
 	if v, ok := args["bc_customer_id"].(float64); ok && v > 0 {
 		payload.BCCustomerID = int(v)
 	}
+	if v, ok := args["origin_channel_id"].(float64); ok && v > 0 {
+		payload.OriginChannelID = int(v)
+	}
+	if ids, err := parseB2BChannelIDsArg(args, "channel_ids"); err != nil {
+		return shared.ToolError("%s", err.Error()), nil
+	} else if len(ids) > 0 {
+		payload.ChannelIDs = ids
+	}
 	extraFields, err := parseB2BExtraFieldsJSON(args, "extra_fields_json")
 	if err != nil {
 		return shared.ToolError("%s", err.Error()), nil
@@ -997,7 +1082,8 @@ func (ct *CompanyTools) handleUserCreate(ctx context.Context, request mcp.CallTo
 	if err != nil {
 		return shared.ToolError("failed to create B2B user: %v", err), nil
 	}
-	return shared.ToolJSON(map[string]any{"status": "created", "user": userView(*u)})
+	enriched := ct.enrichUsersWithBCCustomerIDs(ctx, []bigcommerce.B2BUser{*u})
+	return shared.ToolJSON(map[string]any{"status": "created", "user": userView(enriched[0])})
 }
 
 func (ct *CompanyTools) handleUserUpdate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -1079,7 +1165,8 @@ func (ct *CompanyTools) handleUserGet(ctx context.Context, request mcp.CallToolR
 	if err != nil {
 		return shared.ToolError("failed to get B2B user %d: %v", uid, err), nil
 	}
-	return shared.ToolJSON(map[string]any{"user": userView(*u)})
+	enriched := ct.enrichUsersWithBCCustomerIDs(ctx, []bigcommerce.B2BUser{*u})
+	return shared.ToolJSON(map[string]any{"user": userView(enriched[0])})
 }
 
 func (ct *CompanyTools) handleUserGetByCustomer(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -1091,6 +1178,11 @@ func (ct *CompanyTools) handleUserGetByCustomer(ctx context.Context, request mcp
 	u, err := ct.bc.GetB2BUserByCustomerID(ctx, cid)
 	if err != nil {
 		return shared.ToolError("failed to get B2B user for BC customer %d: %v", cid, err), nil
+	}
+	// The lookup path already identifies the BC customer; fill it when the
+	// B2B response omits bcCustomerId/bcId (common on this endpoint).
+	if u.BCCustomerID <= 0 {
+		u.BCCustomerID = cid
 	}
 	return shared.ToolJSON(map[string]any{"user": userView(*u)})
 }
@@ -1511,17 +1603,109 @@ func userView(u bigcommerce.B2BUser) map[string]any {
 	return v
 }
 
+// enrichUsersWithBCCustomerIDs fills BCCustomerID when B2B Edition omits it
+// (common for company-create admins and list/get responses). Resolves missing
+// IDs by matching emails against the core customer store in one SearchCustomers
+// call. Best-effort: leaves IDs at 0 when customers is nil or lookup fails.
+func (ct *CompanyTools) enrichUsersWithBCCustomerIDs(ctx context.Context, users []bigcommerce.B2BUser) []bigcommerce.B2BUser {
+	if len(users) == 0 || ct.customers == nil {
+		return users
+	}
+	var emails []string
+	for _, u := range users {
+		if u.BCCustomerID <= 0 && strings.TrimSpace(u.Email) != "" {
+			emails = append(emails, u.Email)
+		}
+	}
+	if len(emails) == 0 {
+		return users
+	}
+	custs, err := ct.customers.SearchCustomers(ctx, map[string]string{
+		"email:in": strings.Join(emails, ","),
+	})
+	if err != nil {
+		return users
+	}
+	emailToID := make(map[string]int, len(custs))
+	for _, cu := range custs {
+		if cu.ID > 0 {
+			emailToID[strings.ToLower(strings.TrimSpace(cu.Email))] = cu.ID
+		}
+	}
+	out := make([]bigcommerce.B2BUser, len(users))
+	copy(out, users)
+	for i := range out {
+		if out[i].BCCustomerID > 0 {
+			continue
+		}
+		if id := emailToID[strings.ToLower(strings.TrimSpace(out[i].Email))]; id > 0 {
+			out[i].BCCustomerID = id
+		}
+	}
+	return out
+}
+
+// b2bCompanyBatchItem is the per-row shape accepted by companies_json in
+// b2b/companies/bulk_create.
+type b2bCompanyBatchItem struct {
+	CompanyName     string `json:"company_name"`
+	CompanyEmail    string `json:"company_email"`
+	CompanyPhone    string `json:"company_phone"`
+	CompanyAddress1 string `json:"company_address1"`
+	CompanyCity     string `json:"company_city"`
+	CompanyState    string `json:"company_state"`
+	CompanyCountry  string `json:"company_country"`
+	CompanyZip      string `json:"company_zip"`
+	AdminEmail      string `json:"admin_email"`
+	AdminFirstName  string `json:"admin_first_name"`
+	AdminLastName   string `json:"admin_last_name"`
+	BCCustomerID    int    `json:"bc_customer_id"`
+	CustomerGroupID *int   `json:"customer_group_id"`
+	OriginChannelID int    `json:"origin_channel_id"`
+	ChannelIDs      []int  `json:"channel_ids"`
+}
+
+func parseB2BCompanyBatch(raw string) ([]bigcommerce.B2BCompanyCreate, error) {
+	var items []b2bCompanyBatchItem
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil, fmt.Errorf("invalid companies_json: %v", err)
+	}
+	out := make([]bigcommerce.B2BCompanyCreate, len(items))
+	for i, it := range items {
+		out[i] = bigcommerce.B2BCompanyCreate{
+			CompanyName:     it.CompanyName,
+			CompanyEmail:    it.CompanyEmail,
+			CompanyPhone:    it.CompanyPhone,
+			AddressLine1:    it.CompanyAddress1,
+			City:            it.CompanyCity,
+			State:           it.CompanyState,
+			Country:         it.CompanyCountry,
+			ZipCode:         it.CompanyZip,
+			AdminEmail:      it.AdminEmail,
+			AdminFirstName:  it.AdminFirstName,
+			AdminLastName:   it.AdminLastName,
+			BCCustomerID:    it.BCCustomerID,
+			CustomerGroupID: it.CustomerGroupID,
+			OriginChannelID: it.OriginChannelID,
+			ChannelIDs:      it.ChannelIDs,
+		}
+	}
+	return out, nil
+}
+
 // b2bUserBatchItem is the per-row shape accepted by users_json in
 // b2b/companies/users/bulk_create.
 type b2bUserBatchItem struct {
-	CompanyID    int                         `json:"company_id"`
-	Email        string                      `json:"email"`
-	FirstName    string                      `json:"first_name"`
-	LastName     string                      `json:"last_name"`
-	Phone        string                      `json:"phone"`
-	Role         int                         `json:"role"`
-	BCCustomerID int                         `json:"bc_customer_id"`
-	ExtraFields  []bigcommerce.B2BExtraField `json:"extra_fields"`
+	CompanyID       int                         `json:"company_id"`
+	Email           string                      `json:"email"`
+	FirstName       string                      `json:"first_name"`
+	LastName        string                      `json:"last_name"`
+	Phone           string                      `json:"phone"`
+	Role            int                         `json:"role"`
+	BCCustomerID    int                         `json:"bc_customer_id"`
+	OriginChannelID int                         `json:"origin_channel_id"`
+	ChannelIDs      []int                       `json:"channel_ids"`
+	ExtraFields     []bigcommerce.B2BExtraField `json:"extra_fields"`
 }
 
 func parseB2BUserBatch(raw string) ([]bigcommerce.B2BUserCreate, error) {
@@ -1532,15 +1716,40 @@ func parseB2BUserBatch(raw string) ([]bigcommerce.B2BUserCreate, error) {
 	out := make([]bigcommerce.B2BUserCreate, len(items))
 	for i, it := range items {
 		out[i] = bigcommerce.B2BUserCreate{
-			CompanyID:    it.CompanyID,
-			Email:        it.Email,
-			FirstName:    it.FirstName,
-			LastName:     it.LastName,
-			PhoneNumber:  it.Phone,
-			Role:         it.Role,
-			BCCustomerID: it.BCCustomerID,
-			ExtraFields:  it.ExtraFields,
+			CompanyID:       it.CompanyID,
+			Email:           it.Email,
+			FirstName:       it.FirstName,
+			LastName:        it.LastName,
+			PhoneNumber:     it.Phone,
+			Role:            it.Role,
+			BCCustomerID:    it.BCCustomerID,
+			OriginChannelID: it.OriginChannelID,
+			ChannelIDs:      it.ChannelIDs,
+			ExtraFields:     it.ExtraFields,
 		}
+	}
+	return out, nil
+}
+
+// parseB2BChannelIDsArg reads an optional channel_ids array of positive integers
+// from MCP tool args. Omitted or empty returns nil (caller decides whether
+// that is allowed). Non-numeric or non-positive entries are rejected.
+func parseB2BChannelIDsArg(args map[string]any, key string) ([]int, error) {
+	raw, ok := args[key]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%s must be an array of positive integers", key)
+	}
+	out := make([]int, 0, len(arr))
+	for i, v := range arr {
+		f, ok := v.(float64)
+		if !ok || f != float64(int(f)) || int(f) <= 0 {
+			return nil, fmt.Errorf("%s[%d] must be a positive integer", key, i)
+		}
+		out = append(out, int(f))
 	}
 	return out, nil
 }

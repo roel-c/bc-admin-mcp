@@ -352,7 +352,11 @@ live-validated flow (group created *before* the company, not after).
    **`company_phone`** — required though undocumented in the tool schema,
    see `FU-8` — plus `admin_first_name`/`admin_last_name`/`admin_email`, plus
    **`bc_customer_id`** = the channel-scoped BC customer from step 5, plus
-   **`customer_group_id`** = the group from step 3) if creating fresh; use
+   **`customer_group_id`** = the group from step 3, plus MSF
+   **`origin_channel_id`** / **`channel_ids: [<target channel id>]`** so B2B
+   Edition Channel Access matches the intended storefront — omitting these
+   lets B2B apply platform defaults that can expand linked BC customers onto
+   other B2B-enabled channels) if creating fresh; use
    `b2b/companies/update` with the same `customer_group_id` if reassigning an
    existing company (Independent behavior allows reassignment — Dependent
    does not). Create also provisions the company's first user (role 0,
@@ -366,8 +370,9 @@ live-validated flow (group created *before* the company, not after).
    unsure, `b2b/companies/get` is the source of truth.
 7. **Create the subsidiary company with the same group** — `b2b/companies/create`
    for `MCP Test Company - Subsidiary` with the **same** `bc_customer_id`
-   pattern (subsidiary admin's BC customer from step 5) and the **same**
-   `customer_group_id` from step 3 (per the "shared" scoping decision — do
+   pattern (subsidiary admin's BC customer from step 5), the **same**
+   `customer_group_id` from step 3, and the **same** MSF
+   `origin_channel_id` / `channel_ids` (per the "shared" scoping decision — do
    not create a second category or group), then
    `b2b/companies/hierarchy/attach_parent` with
    `company_id` = subsidiary, `parent_company_id` = parent.
@@ -375,8 +380,10 @@ live-validated flow (group created *before* the company, not after).
    already has 1 admin user (role 0) from its create call in steps 6/7. Add
    the other two via `b2b/companies/users/bulk_create` (`users_json`, max 10
    per call) with `role: 1` (senior buyer) and `role: 2` (junior buyer),
-   and pass each row's **pre-created, channel-scoped** `bc_customer_id` from
-   step 5. One bulk-create call can cover both companies at once
+   each row's **pre-created, channel-scoped** `bc_customer_id` from
+   step 5, and per-row **`origin_channel_id` / `channel_ids`** matching the
+   target storefront (B2B Create Company User requires `channelIds`). One
+   bulk-create call can cover both companies at once
    (`company_id` varies per row), 6 users overall.
 9. **Restrict payment methods to Offline-only** — `b2b/payments/list` for
    the store-wide method registry; inspect each entry's `code`/`title` to
@@ -442,19 +449,17 @@ live-validated flow (group created *before* the company, not after).
        MCP-only checklist. After assign, re-`b2b/quotes/get` and confirm
        status **Ordered (4)** and `bcOrderId` = the BC order id.
 11. **Invoice from order → offline payment** — continue the commercial path:
-    1. `b2b/invoices/create_from_order` with the BC `order_id` from step 10
-       (the tool resolves B2B Edition's internal order id automatically).
-       Record the invoice id and its `openBalance` / `originalBalance`.
-       (Fallback if `create_from_order` is unavailable for the order:
-       `b2b/invoices/create` with a full `invoice_json` — requires
-       `channelId`, and every address in `details.header` must include
-       `street2` even as `""`; see FU-8.)
-    2. `b2b/payment_records/create_offline` with `line_items_json` like
-       `[{"invoiceId":<id>,"amount":"<partial or full>"}]`, plus
-       `customer_id` = the **B2B company id** (string), `currency`, and a
-       memo. Prefer a **partial** amount first so verification can show
-       `status` flipping open → partially-paid and `openBalance`
-       decreasing.
+    1. Prefer `b2b/invoices/create_from_orders` with all BC `order_ids` from
+       step 10 (max 10; waits for B2B indexing + `companyId` per order).
+       Fall back to single `b2b/invoices/create_from_order` or raw
+       `b2b/invoices/create` (`invoice_json` requires `channelId`, and every
+       address in `details.header` must include `street2` even as `""`; see FU-8).
+    2. `b2b/payment_records/create_offline` with `line_items_json` containing
+       **all** invoices for that company in one array. Either pass explicit
+       amounts or omit amounts and set `pay_percent` (e.g. `50`) so the tool
+       resolves dollars from each invoice's `originalBalance` (shown in
+       preview). Plus `customer_id` = the **B2B company id** (string),
+       `currency`, and a memo. Preview reports `invoice_count`.
     3. Re-read: `b2b/invoices/get` (confirm balance/status) →
        `b2b/payment_records/get` (or `list`) → `b2b/receipts/list` /
        `b2b/receipts/lines/list_for_receipt` when a receipt appears for the

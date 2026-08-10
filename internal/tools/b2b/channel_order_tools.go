@@ -70,7 +70,7 @@ func (ct *CompanyTools) registerOrderTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR0,
 		Summary: "Get the B2B view of an order (PO number, company, extra fields)",
 		Tool: mcp.NewTool("b2b_orders_get",
-			mcp.WithDescription("Get the B2B Edition view of an order by its BigCommerce order ID (not the B2B order ID). Includes PO number, company linkage, and extra fields."),
+			mcp.WithDescription("Get the B2B Edition view of an order by its BigCommerce order ID (not the B2B order ID). Includes PO number, company linkage, and extra fields. Retries briefly when B2B Edition has not indexed a newly created Management API order yet."),
 			mcp.WithNumber("bc_order_id", mcp.Description("BigCommerce order ID"), mcp.Required()),
 		),
 		Handler: ct.handleOrderGet,
@@ -81,7 +81,7 @@ func (ct *CompanyTools) registerOrderTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR1,
 		Summary: "Set an order's PO number and/or extra fields",
 		Tool: mcp.NewTool("b2b_orders_update",
-			mcp.WithDescription("Update the B2B purchase-order number and/or extra fields on an order (by BigCommerce order ID). Preview → confirm."),
+			mcp.WithDescription("Update the B2B purchase-order number and/or extra fields on an order (by BigCommerce order ID). Waits briefly for B2B indexing after Management API order creates. Preview → confirm."),
 			mcp.WithNumber("bc_order_id", mcp.Description("BigCommerce order ID"), mcp.Required()),
 			mcp.WithString("po_number", mcp.Description("Purchase-order number to set.")),
 			mcp.WithString("extra_fields_json", mcp.Description(`Optional JSON array: [{"fieldName":"...","fieldValue":"..."}]`)),
@@ -134,7 +134,9 @@ func (ct *CompanyTools) handleOrderGet(ctx context.Context, request mcp.CallTool
 	if err != nil {
 		return shared.ToolError("%s", err.Error()), nil
 	}
-	order, err := ct.bc.GetB2BOrder(ctx, id)
+	// Newly created Management API orders can take a few seconds to appear in
+	// B2B Edition — wait briefly instead of forcing the agent to sleep/retry.
+	order, err := ct.waitForB2BOrder(ctx, id, false)
 	if err != nil {
 		return shared.ToolError("failed to get B2B order %d: %v", id, err), nil
 	}
@@ -173,6 +175,11 @@ func (ct *CompanyTools) handleOrderUpdate(ctx context.Context, request mcp.CallT
 		})
 	}
 
+	// Wait for B2B indexing before PUT — updates 404 while the order is still
+	// catching up from a Management API create.
+	if _, err := ct.waitForB2BOrder(ctx, id, false); err != nil {
+		return shared.ToolError("failed to resolve B2B order %d before update: %v", id, err), nil
+	}
 	order, err := ct.bc.UpdateB2BOrder(ctx, id, payload)
 	if err != nil {
 		return shared.ToolError("failed to update B2B order %d: %v", id, err), nil
