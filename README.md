@@ -259,7 +259,8 @@ A human-browsable snapshot of every tool path, for skimming without a running se
 | `catalog/products/options/update` | R1 | Update option name, sort order, or values |
 | `catalog/products/options/delete` | R2 | Delete an option (removes dependent variants) |
 | `catalog/products/variants/list` | R0 | List variants with details |
-| `catalog/products/variants/create` | R1 | Create a variant with option value mapping |
+| `catalog/products/variants/create` | R1 | Create a variant with option value mapping; `option_values` may use `option_display_name`+`label` (server resolves to `option_id`/`id`) or pass IDs directly |
+| `catalog/products/variants/create_batch` | R1 | Create up to **50** variants on one product under one preview→confirm (sequential POSTs; name or ID `option_values`; `partial_success` on mixed results) |
 | `catalog/products/variants/update` | R1 | Update variant fields |
 | `catalog/products/variants/delete` | R2 | Delete a variant |
 | `catalog/products/variants/metafields/list` | R0 | List metafields on a variant (product: `product_id` / `sku` / `product_name`; variant: `variant_id` or `variant_sku`) |

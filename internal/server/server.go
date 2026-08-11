@@ -64,7 +64,7 @@ func registerCategories(reg *discovery.Registry, b2bEnabled bool) {
 	reg.RegisterCategory("catalog/products/channel_assignments", "MSF: product ↔ channel catalog assignments (list, assign, remove via /v3/catalog/products/channel-assignments)")
 	reg.RegisterCategory("catalog/products/images", "Product image management: list, add by URL, delete")
 	reg.RegisterCategory("catalog/products/options", "Product option CRUD: list, create, update, delete variant-generating options")
-	reg.RegisterCategory("catalog/products/variants", "Product variant CRUD: list, create, update, delete individual variants")
+	reg.RegisterCategory("catalog/products/variants", "Product variant CRUD: list, create, create_batch, update, delete")
 	reg.RegisterCategory("catalog/products/variants/metafields", "Variant metafield CRUD: list, set, delete; bulk by variant_ids, bulk_set_products, bulk_delete_products.")
 	reg.RegisterCategory("catalog/products/custom_fields", "Product custom field management: list, set (upsert), delete")
 	reg.RegisterCategory("catalog/products/modifiers", "Product modifier management: list, create, delete")

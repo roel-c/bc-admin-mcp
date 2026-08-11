@@ -515,7 +515,7 @@ catalog/                    — Product catalog: products, categories, brands, v
     catalog/products/channel_assignments/ — MSF catalog: list, assign, remove product↔channel
     catalog/products/images/         — Product image management: list, add by URL, delete
     catalog/products/options/        — Product option CRUD: list, create, update, delete
-    catalog/products/variants/       — Product variant CRUD: list, create, update, delete
+    catalog/products/variants/       — Product variant CRUD: list, create, create_batch, update, delete
     catalog/products/variants/metafields/ — Variant metafield CRUD: list, set, delete; bulk by product or by product list + scope
     catalog/products/custom_fields/  — Product custom field management: list, set, bulk_set, delete
     catalog/products/modifiers/      — Product modifier management: list, create, delete

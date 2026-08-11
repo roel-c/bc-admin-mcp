@@ -94,6 +94,8 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `catalog/products/channel_summary` | `product_ids ≤ 5`, channels touched ≤ 25 | `products_channel_summary.go` |
 | `catalog/products/metafields/bulk_set` / `bulk_delete` | `product_ids ≤ 50` | `products_metafields_bulk.go` |
 | `catalog/products/custom_fields/bulk_set` | **R1**; one `product_id`; `fields_json` ≤ 20 `{name,value}` rows; sequential upsert under one preview→confirm | `products_custom_fields.go` |
+| `catalog/products/variants/create` | **R1**; resolves `option_display_name`+`label` to `option_id`/`id` via one `ListProductOptions` when IDs omitted | `products_variants.go`, `variant_option_resolve.go` |
+| `catalog/products/variants/create_batch` | **R1**; one `product_id`; `variants` ≤ **50** rows; one options list + sequential creates under one preview→confirm; `partial_success` supported | `products_variants.go` |
 | `catalog/products/create` | **R1**; optional inline `images` — each `image_url` is HTTP-probed (HEAD then GET, ~3s) before preview/create; non-2xx fails fast | `products_create.go`, `image_url_probe.go` |
 | `catalog/products/variants/metafields/bulk_set` / `bulk_delete` | one product, ≤ 50 variants | `products_variants_metafields_bulk.go` |
 | `catalog/products/variants/metafields/bulk_set_products` / `bulk_delete_products` | `product_ids ≤ 50`, total variant writes ≤ 500 | `products_variants_metafields_bulk.go` |
