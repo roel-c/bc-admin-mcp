@@ -265,9 +265,16 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 
 ### Playbooks: composable commercial stages (MCP-only)
 
+**Scope:** Subject to [Playbook Scope Rules](./AGENT.md#playbook-scope-rules-enforced-for-every-checklist) in `docs/AGENT.md`. These stages are recommended paths for *how* to complete an in-scope commercial ask — not a pipeline that activates because a prior step finished.
+
 Quote → order, order → invoice, and invoice → payment are **independent stages**. Use only the stage(s) the operator asked for. **Never auto-chain** into the next stage (e.g. do not invoice after converting quotes unless invoicing was requested).
 
 Keep preview→confirm on every R1+ step; prefer batch tools so each confirm covers more work.
+
+| Kind | Meaning |
+|------|---------|
+| **In-scope stage** | Operator asked for that outcome (or it is a hard prerequisite under Scope Rules §5) |
+| **Out-of-scope sibling** | Next commercial stage, restricted-catalog setup, surface-check extras — offer once if helpful; do not start |
 
 | Stage | When to use | Tool(s) | Stop condition |
 |------|-------------|---------|----------------|

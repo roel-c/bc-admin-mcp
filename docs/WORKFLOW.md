@@ -165,6 +165,14 @@ Keep these in sync in the same change:
 
 ## 10. Full Surface Check (D2C / B2B)
 
+**Scope:** This section is an **on-demand health/demo runbook**, not the default
+path for ordinary store requests. Ordinary ops follow the operator’s ask and
+[Playbook Scope Rules](./AGENT.md#playbook-scope-rules-enforced-for-every-checklist)
+in `docs/AGENT.md` — do not start §10 because a request overlaps one of its
+steps (e.g. “create companies” must not expand into the full B2B surface
+check). When borrowing technique from §10 for a narrower ask, take only the
+in-scope steps.
+
 A repeatable, on-demand, **MCP-only** capability review — every call goes through
 `discover_tools`/`execute_tool`, never a direct API call — that creates real
 sample data across every domain, exercises reads → previews → confirmed

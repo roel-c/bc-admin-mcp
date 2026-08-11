@@ -53,7 +53,7 @@ Not every doc here needs to be read up front. Use this table to find the right o
 | Doc | Read this if... |
 |---|---|
 | **This README** | You're setting up or operating the server |
-| **[docs/AGENT.md](./docs/AGENT.md)** | You're an agent/LLM calling tools — operating rules, safety, tiers, response format; Script Manager frontend injection points to an external Stencil guide |
+| **[docs/AGENT.md](./docs/AGENT.md)** | You're an agent/LLM calling tools — operating rules, **Playbook Scope Rules**, safety, tiers, response format; Script Manager frontend injection points to an external Stencil guide |
 | **[docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)** | You need exact numeric caps, OAuth scopes, or tier policy |
 | **[docs/B2B.md](./docs/B2B.md)** | You're using or extending the B2B Edition tools |
 | **[docs/WORKFLOW.md](./docs/WORKFLOW.md)** | You're adding a new tool/endpoint (contributor cadence) |

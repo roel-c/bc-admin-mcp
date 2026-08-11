@@ -65,42 +65,36 @@ This server solves all three through progressive disclosure, use-case-driven too
 │  │   Discovery      │  │  Tier        │  │   Logging             │  │
 │  │   Registry       │  │  Enforcer    │  │   Middleware           │  │
 │  │                  │  │  (R0-R4)     │  │   (slog/JSON)         │  │
-│  │  Categories:     │  │              │  │                       │  │
+│  │  Always-on:      │  │              │  │                       │  │
 │  │  catalog/        │  │  R0: pass    │  │  Every tool call:     │  │
-│  │  customers/      │  │  R1: preview │  │  • tool name          │  │
-│  │  marketing/      │  │  R2: confirm │  │  • duration_ms        │  │
-│  │  (+ roadmap      │  │  R3: per-ID  │  │  • success/error      │  │
-│  │   roots omitted) │  │  R4: block   │  │                       │  │
-│  │                  │  │  R4: block   │  │                       │  │
-│  │                  │  └──────────────┘  └───────────────────────┘  │
-│  │                  │                                               │
-│  │                  │  ┌──────────────────────────────────────────┐  │
-│  │  Tools:          │  │   Session Cache (TTL-based)              │  │
-│  │  Domain tool     │  │                                          │  │
-│  │  leaves (reg.)   │  │  Per-session, keyed by operation:        │  │
-│  └─────────────────┘  │  • product_update → [Product...]         │  │
-│                        │  • 60s default TTL, evictable             │  │
+│  │  orders/         │  │  R1: preview │  │  • tool name          │  │
+│  │  customers/      │  │  R2: confirm │  │  • duration_ms        │  │
+│  │  marketing/      │  │  R3: per-ID  │  │  • success/error      │  │
+│  │  inventory/      │  │  R4: block   │  │                       │  │
+│  │  storefront/     │  │              │  │                       │  │
+│  │  webhooks/       │  └──────────────┘  └───────────────────────┘  │
+│  │  carts/          │                                               │
+│  │  + b2b/ (gated)  │  ┌──────────────────────────────────────────┐  │
+│  │                  │  │   Session Cache (TTL-based)              │  │
+│  │  Tools:          │  │                                          │  │
+│  │  Domain leaves   │  │  Per-session, keyed by operation:        │  │
+│  │  (self-register) │  │  • preview snapshots → apply on confirm  │  │
+│  └─────────────────┘  │  • 60s default TTL, evictable             │  │
 │                        └──────────────────────────────────────────┘  │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐   │
 │  │                Tool Handlers (internal/tools/*)               │   │
 │  │                                                               │   │
-│  │  catalog/products:                                            │   │
-│  │  • search — R0, server-side pagination, lightweight response  │   │
-│  │  • get — R0, includes variant pricing detection               │   │
-│  │  • update — R1, unified field update, preview→confirm         │   │
-│  │  • create — R1, all writable fields, preview→confirm          │   │
-│  │  • delete — R3, requires confirmation, irreversible           │   │
-│  │  • product metafields — R0/R1, bulk up to 50 products; shared execution │   │
-│  │                                                               │   │
-│  │  catalog/categories:                                          │   │
-│  │  • list — R0, declarative filters, list_all mode              │   │
-│  │  • get — R0                                                   │   │
-│  │  • create — R1, parent_name resolution, preview→confirm       │   │
-│  │  • bulk_create — R1, nested tree + hierarchical url.path      │   │
-│  │  • bulk_update — R1, preview→confirm, SEO + visibility fields │   │
-│  │  • delete — R3, child safeguard + include_children gate       │   │
-│  │  • bulk_delete — R3, child safeguard + include_children gate  │   │
+│  │  catalog/   — products, categories, brands, variants, MSF,    │   │
+│  │               price lists (use-case tools, preview→confirm)   │   │
+│  │  orders/    — management, shipments, payments, refunds        │   │
+│  │  customers/ — records, groups, segments, settings, consent    │   │
+│  │  marketing/ — automatic + coupon promotions and settings      │   │
+│  │  inventory/ — locations, items, backorders, adjustments       │   │
+│  │  storefront/— Script Manager scripts                          │   │
+│  │  webhooks/  — hook registrations + delivery events            │   │
+│  │  carts/     — cart lifecycle + checkout → order               │   │
+│  │  b2b/       — companies → quotes/invoices/payments (gated)    │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 │                         │                                           │
 └─────────────────────────┼───────────────────────────────────────────┘
@@ -115,7 +109,7 @@ This server solves all three through progressive disclosure, use-case-driven too
 │  • 0.5s inter-chunk delay for batch writes                         │
 │  • Sequential writes by default (configurable)                     │
 │  • Connection pooling (20 idle connections)                        │
-│  • V2 and V3 URL routing                                           │
+│  • V2 and V3 URL routing (+ B2B Edition client when enabled)       │
 │                                                                     │
 │  Batch operations: 10 products/PUT, 10 variants/PUT               │
 │  Pagination: auto-follows offset pages at limit=250               │
@@ -124,7 +118,7 @@ This server solves all three through progressive disclosure, use-case-driven too
                 ┌─────────▼─────────┐
                 │  BigCommerce REST  │
                 │  Management API    │
-                │  V2 + V3           │
+                │  V2 + V3 (+ B2B)   │
                 └────────────────────┘
 ```
 
@@ -565,7 +559,7 @@ carts/                      — Server-side cart + checkout lifecycle via /v3/ca
     carts/cart/items/       — Cart item management: add, update, remove
     carts/cart/metafields/  — Cart metafield CRUD: list, set, delete
   carts/checkout/           — Checkout: get, coupon apply/remove, billing address, consignments, convert to order
-b2b/                        — (Gated by BC_B2B_ENABLED) B2B Edition via api-b2b.bigcommerce.com
+b2b/                        — (Gated by BC_B2B_ENABLED) B2B Edition: companies/users, quotes, invoices/receipts, payments, shopping lists, and more
   b2b/companies/            — Company account CRUD + status lifecycle, extra fields, catalog assignment
     b2b/companies/users/    — Buyer portal user CRUD (admin/senior/junior roles)
     b2b/companies/addresses/ — Company billing/shipping address CRUD
@@ -865,7 +859,10 @@ optional order→invoice and invoice→offline payment) — see
 written as a step-by-step runbook (not a script) since it involves
 preview→confirm judgment calls, an explicit keep-or-delete decision point,
 and — on multi-storefront stores — a required upfront channel-selection step;
-run it after a batch of domain changes or before a demo.
+run it after a batch of domain changes or before a demo. Ordinary operator
+requests must not treat §10 (or other playbooks) as auto-activated modes —
+see [Playbook Scope Rules](./AGENT.md#playbook-scope-rules-enforced-for-every-checklist)
+in `docs/AGENT.md`.
 
 ### Integration Tests
 
@@ -936,7 +933,8 @@ Define a `BigCommerceAPI` interface per domain package; mock with gomock. The co
 A comprehensive line-by-line security audit was performed across all source files. The full findings report is in **[SECURITY.md](./SECURITY.md)** and covers:
 
 - **Threat model** mapping attack vectors to mitigations
-- **10 findings** (3 critical, 3 high, 3 medium) — all remediated
+- **Nine primary findings (S1–S9):** 3 critical, 3 high, 3 medium — remediations and residual notes in SECURITY.md (S6 is handler-enforced confirmation, not a central auth boundary)
+- **Follow-ups S10–S12** (lower severity / hygiene): see SECURITY.md
 - **Remaining recommendations** for further hardening
 
 ### Key Security Controls Implemented

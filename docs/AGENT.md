@@ -33,6 +33,39 @@ store-level API account with only the scopes needed for the task, run
 
 ## HOW YOU INTERACT WITH THE STORE
 
+### Playbook Scope Rules (enforced for every checklist)
+
+Playbooks and checklists (`docs/B2B.md` stages, the MSF B2B checklist below,
+`docs/WORKFLOW.md` §10 surface checks, and any future runbooks) are a
+**technique library**, not modes that turn on when a request merely overlaps
+them.
+
+1. **User request = contract.** Deliver only the named outcomes (resources,
+   counts, channel, naming, stages). Do not enlarge scope because a playbook
+   chapter sits next to the matching steps.
+2. **Playbooks = how, not what.** Use them for tool paths, ordering, MSF/B2B
+   quirks, preview→confirm, and stop conditions — not to add sibling
+   deliverables the operator did not ask for.
+3. **Overlap ≠ activation.** Matching part of a checklist does **not** run
+   the rest. Example: “create 3 company accounts with subsidiaries and
+   admin/senior/junior users on MSF-B2BE” → companies, hierarchy, and users
+   (with MSF channel scoping / `bc_customer_id` technique from the checklist).
+   Do **not** create a restricted-catalog category, customer group, products,
+   or quotes unless those were requested.
+4. **Recommend, don’t assume.** If a fuller playbook would help, offer it
+   once and wait for an explicit ask.
+5. **Required vs optional test.** Skip a playbook step unless omitting it
+   makes the requested deliverable impossible or invalid (e.g. invoicing
+   needs a non-Incomplete order with `companyId`). Completeness, demo
+   polish, or “the checklist usually does this next” is not required.
+6. **Never auto-chain chapters.** Same rule as commercial Stages A→B→C:
+   each stage or checklist chapter needs its own ask (or a hard technical
+   prerequisite under rule 5).
+
+All playbook docs defer to this section. When prose elsewhere says “follow
+the playbook,” read it as “use the playbook’s technique for the in-scope
+steps,” not “run the entire playbook.”
+
 ### Progressive Discovery
 
 The MCP server uses **progressive disclosure**. Prefer the cheapest path that
@@ -40,7 +73,8 @@ finds the tool:
 
 1. **Known playbook path** → call `execute_tool` directly (skip discovery).
    Examples: `catalog/channels/list`, `catalog/products/search`, paths from
-   `docs/WORKFLOW.md` / `docs/B2B.md` playbooks.
+   `docs/WORKFLOW.md` / `docs/B2B.md` playbooks (only the paths needed for
+   the in-scope ask — see Playbook Scope Rules).
 2. **`discover_tools` with `query`** → search paths/summaries in one hop
    (e.g. `query: "channels"`, optional `path: "catalog"` to scope).
 3. **Deep-link** → `discover_tools({ "path": "catalog/channels" })` or a full
@@ -136,27 +170,44 @@ order→invoice, invoice→payment).
    parents succeed in one pass; sibling name dupes and within-payload URL
    collisions are rejected before any POST. Optional per-node `url_path`
    overrides the auto slug.
-5. **Follow the stage playbooks** in `docs/B2B.md` instead of rediscovering the
-   sequence via `discover_tools` on every run.
+5. **When a commercial stage was requested**, follow that stage’s technique in
+   `docs/B2B.md` instead of rediscovering the sequence — still subject to
+   Playbook Scope Rules (do not run the next stage).
 
 ### B2B speed tips (when `BC_B2B_ENABLED=true`)
 
 1. **Use `bc_customer_id` from user list/get** for cart/order `customer_id`. User reads enrich that field when B2B Edition omits it — skip a separate `customers/list` by email unless it is still `0`.
 2. **Batch writes under one preview→confirm** — `b2b/quotes/convert_to_order`, `b2b/companies/bulk_create`, `b2b/companies/users/bulk_create`, `catalog/products/custom_fields/bulk_set`, `b2b/invoices/create_from_orders`, and multi-invoice `b2b/payment_records/create_offline` (optional `pay_percent`). Do not weaken or skip confirmation; cover more work per confirm instead.
 3. **Do not agent-sleep for B2B order indexing** — `b2b/orders/get`, `b2b/orders/update`, and invoice-from-order tools wait/retry briefly server-side.
-4. **Follow the stage playbooks** in `docs/B2B.md` (*Playbooks: composable commercial stages*) instead of rediscovering the sequence via `discover_tools` on every run.
-5. **Never auto-chain commercial stages** — convert quotes, invoice orders, and log payments only when the operator asked for that stage. “Convert these quotes” stops at orders; do not invoice or pay unless requested.
+4. **When the operator asked for a commercial stage**, use that stage’s steps in `docs/B2B.md` (*Playbooks: composable commercial stages*) instead of rediscovering via `discover_tools` — Playbook Scope Rules still apply.
+5. **Never auto-chain commercial stages** — convert quotes, invoice orders, and log payments only when the operator asked for that stage. “Convert these quotes” stops at orders; do not invoice or pay unless requested. (Same rule as Playbook Scope Rules §6.)
 6. **Quote `currency` / totals** — `"USD"` (string) is expanded server-side to the object `POST /rfq` requires; for CAD/EUR/etc. pass a full currency object (see `docs/B2B.md` quirks). Preview payload `currency` must be an **object** — if it is still a string, the MCP server is stale: rebuild/restart it. Prefer omitting `subtotal`/`grandTotal` or trust tool auto-correction from `productList` (mismatches used to 422).
 
 ### MSF B2B catalog + quotes batch checklist
 
-When provisioning restricted-catalog companies with products and quotes on one storefront channel:
+Subject to **Playbook Scope Rules** above. Use this as a technique library when
+the operator’s ask overlaps these chapters — **not** as a default pipeline
+whenever someone mentions companies on an MSF channel.
 
-1. **Resolve `channel_id` once** (`catalog/channels/list` + `b2b/channels/list`) and reuse it for categories, products, customers, and quotes — do not switch mid-run.
-2. **Category → group → companies** — `catalog/categories/create` (`channel_id`) → `customers/groups/create` (`category_access_type: specific` + category id) → `b2b/companies/bulk_create` / `update` with `customer_group_id`, `origin_channel_id`, `channel_ids`. Prefer `catalog/categories/bulk_create` when seeding a multi-node tree on that channel.
-3. **Products** — ensure each `images[].image_url` is publicly fetchable (tool probes HEAD/GET; resolve Wikimedia via `Special:FilePath/…` to the final `upload.wikimedia.org` URL). Create with inline `variants`, `category_ids`, `channel_ids`. Then `catalog/products/custom_fields/bulk_set` per product (not dozens of single `set` calls).
-4. **Quotes** — one per company admin: `companyId`, admin `contactInfo`, `channelId`, Control Panel `userEmail`, `expiredAt` as `MM/DD/YYYY`. Omit totals or let the tool derive them; if preview still shows `currency` as a string, restart MCP.
-5. **Prefer bulk tools** — `companies/bulk_create`, `users/bulk_create`, `custom_fields/bulk_set`, `catalog/categories/bulk_create` for trees.
+**Always useful technique** for MSF company / user / subsidiary work (apply
+when those are in scope):
+
+- Resolve `channel_id` once (`catalog/channels/list` + `b2b/channels/list`) and
+  reuse it — do not switch mid-run.
+- Pre-create channel-scoped BC customers; link via `bc_customer_id`; set
+  `origin_channel_id` / `channel_ids` on companies and users.
+- Prefer bulk tools: `b2b/companies/bulk_create`, `b2b/companies/users/bulk_create`.
+- For subsidiaries: create the child company, then
+  `b2b/companies/hierarchy/attach_parent`.
+
+**Optional chapters — only when explicitly requested** (or required under
+Scope Rules §5):
+
+| Chapter | When in scope | Technique |
+|---------|---------------|-----------|
+| Restricted catalog | Operator asked for category access / company-only catalog | `catalog/categories/create` (`channel_id`) → `customers/groups/create` (`category_access_type: specific` + category id) → pass `customer_group_id` on company create/update. Prefer `catalog/categories/bulk_create` for multi-node trees. |
+| Products | Operator asked to seed products on that channel | Publicly fetchable `images[].image_url`; create with inline `variants`, `category_ids`, `channel_ids`; then `catalog/products/custom_fields/bulk_set` per product. |
+| Quotes | Operator asked for quotes | One per company admin: `companyId`, admin `contactInfo`, `channelId`, Control Panel `userEmail`, `expiredAt` as `MM/DD/YYYY`. Omit totals or let the tool derive them; if preview still shows `currency` as a string, restart MCP. |
 
 ---
 
@@ -257,14 +308,14 @@ BigCommerce API errors are surfaced as tool results (not exceptions):
 ## PROJECT FILES
 
 You should not need to read most of these to operate the store — this file
-plus live `discover_tools` calls is normally sufficient. They exist for
-deeper questions or for contributor work:
+(including **Playbook Scope Rules** above) plus live `discover_tools` calls is
+normally sufficient. They exist for deeper questions or for contributor work:
 
 - `README.md` — Setup, quick start, and the full Implemented Tools table
 - `docs/DEVELOPMENT.md` — Tool tiers (R0–R4), numeric caps, concurrency policy, OAuth scope grouping, and channel assignment model
-- `docs/B2B.md` — B2B Edition setup, shipped tools, and composable commercial stage playbooks (quote→order / order→invoice / invoice→payment; gated by `BC_B2B_ENABLED`)
+- `docs/B2B.md` — B2B Edition setup, shipped tools, and composable commercial stage playbooks (inherit Playbook Scope Rules from this file)
 - **Reference (search by section, don't read linearly):** `docs/BC-API-Reference.md`, `docs/BC-API-SPECIFICITY.md` (inventory backorders: §15)
 - **Script Manager / storefront frontend injection (external):** [Stencil Customization Guide INDEX](https://github.com/roel-c/bc-stencil-customization-guide/blob/main/INDEX.md) — see section above; do not vendor into this repo
-- **Contributor-only (adding/changing tools):** `docs/WORKFLOW.md`, `docs/ARCHITECTURE.md`
+- **Contributor-only (adding/changing tools):** `docs/WORKFLOW.md` (incl. on-demand §10 surface check — not default ops), `docs/ARCHITECTURE.md`
 - **History / audit trail (rarely needed):** `docs/MSF.md`, `docs/SECURITY.md`
 - `.env.example` — Template for required environment variable names
