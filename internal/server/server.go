@@ -281,6 +281,7 @@ func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, b2bBC *bigco
 
 	if b2bBC != nil {
 		b2bCompanies := b2b.NewCompanyTools(b2bBC, bc, cache, uploadDir)
+		b2bCompanies.SetCheckoutAPI(bc)
 		b2bCompanies.RegisterTools(reg)
 	}
 }

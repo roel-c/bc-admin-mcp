@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -68,7 +69,8 @@ type B2BCompanyCreate struct {
 	AdminEmail     string `json:"adminEmail,omitempty"`
 	AdminFirstName string `json:"adminFirstName,omitempty"`
 	AdminLastName  string `json:"adminLastName,omitempty"`
-	AdminPhone     string `json:"adminPhone,omitempty"`
+	// AdminPhone maps to B2B's adminPhoneNumber (Create / Bulk Create docs).
+	AdminPhone string `json:"adminPhoneNumber,omitempty"`
 	// BCCustomerID links an existing BC customer as the company admin instead
 	// of creating a new user.
 	BCCustomerID int             `json:"bcCustomerId,omitempty"`
@@ -337,46 +339,98 @@ func (c *B2BClient) CreateB2BCompany(ctx context.Context, payload B2BCompanyCrea
 }
 
 // BulkCreateB2BCompanies creates up to 10 companies via POST /companies/bulk.
-// B2B Edition returns the new company IDs in the response meta array
-// ([{companyId}…]); data is not a useful company list on this endpoint.
+//
+// Live B2B Edition (observed Aug 2026) returns:
+//
+//	{"code":200,"data":[{"companyId":…},…],"meta":{"message":"SUCCESS"}}
+//
+// The public OpenAPI example instead puts company IDs in meta as an array and
+// documents data as a single {id} object — that shape is also accepted here so
+// either envelope parses cleanly. companyId may be a number or string.
 func (c *B2BClient) BulkCreateB2BCompanies(ctx context.Context, payloads []B2BCompanyCreate) ([]int, error) {
 	body, err := c.B2BPost(ctx, "companies/bulk", payloads)
 	if err != nil {
 		return nil, fmt.Errorf("bulk create B2B companies: %w", err)
 	}
-	var env struct {
-		Meta []struct {
-			CompanyID int `json:"companyId"`
-		} `json:"meta"`
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("bulk create B2B companies: parse response: %w", err)
-	}
-	ids := make([]int, 0, len(env.Meta))
-	for _, m := range env.Meta {
-		if m.CompanyID > 0 {
-			ids = append(ids, m.CompanyID)
-		}
-	}
-	if len(ids) > 0 {
-		return ids, nil
-	}
-	// Fallback: some environments may return a company array in data.
-	var companies []B2BCompany
-	if len(env.Data) > 0 && string(env.Data) != "null" {
-		if err := json.Unmarshal(env.Data, &companies); err == nil {
-			for _, co := range companies {
-				if co.CompanyID > 0 {
-					ids = append(ids, co.CompanyID)
-				}
-			}
-		}
-	}
-	if len(ids) == 0 {
-		return nil, fmt.Errorf("bulk create B2B companies: response contained no company IDs")
+	ids, err := ParseB2BCompanyBulkCreateResponse(body)
+	if err != nil {
+		return nil, fmt.Errorf("bulk create B2B companies: %w", err)
 	}
 	return ids, nil
+}
+
+// ParseB2BCompanyBulkCreateResponse extracts new company IDs from a
+// POST /companies/bulk response body. It accepts the live envelope
+// (IDs in data[]) and the OpenAPI example envelope (IDs in meta[]).
+func ParseB2BCompanyBulkCreateResponse(body []byte) ([]int, error) {
+	var env struct {
+		Data json.RawMessage `json:"data"`
+		Meta json.RawMessage `json:"meta"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+
+	ids := extractCompanyIDsFromRaw(env.Data)
+	if len(ids) == 0 {
+		ids = extractCompanyIDsFromRaw(env.Meta)
+	}
+	if len(ids) == 0 {
+		snippet := string(body)
+		if len(snippet) > 256 {
+			snippet = snippet[:256] + "…"
+		}
+		return nil, fmt.Errorf("response contained no company IDs (body=%s)", snippet)
+	}
+	return ids, nil
+}
+
+// extractCompanyIDsFromRaw pulls companyId values from either a JSON array of
+// objects or a single object. Tolerates numeric or string IDs.
+func extractCompanyIDsFromRaw(raw json.RawMessage) []int {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var asArray []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &asArray); err == nil {
+		out := make([]int, 0, len(asArray))
+		for _, row := range asArray {
+			if id, ok := companyIDFromRow(row); ok {
+				out = append(out, id)
+			}
+		}
+		return out
+	}
+	var asObj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &asObj); err == nil {
+		if id, ok := companyIDFromRow(asObj); ok {
+			return []int{id}
+		}
+	}
+	return nil
+}
+
+func companyIDFromRow(row map[string]json.RawMessage) (int, bool) {
+	raw, ok := row["companyId"]
+	if !ok {
+		raw, ok = row["company_id"]
+	}
+	if !ok || len(raw) == 0 || string(raw) == "null" {
+		return 0, false
+	}
+	var n json.Number
+	if err := json.Unmarshal(raw, &n); err == nil {
+		if i, err := n.Int64(); err == nil && i > 0 {
+			return int(i), true
+		}
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if i, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && i > 0 {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 // UpdateB2BCompany updates a company's profile fields.

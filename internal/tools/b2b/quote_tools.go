@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -18,6 +20,8 @@ import (
 // ============================================================
 
 func (ct *CompanyTools) registerQuoteTools(reg *discovery.Registry) {
+	ct.registerQuoteConvertTools(reg)
+
 	reg.RegisterTool(&discovery.ToolDef{
 		Path:    "b2b/quotes/list",
 		Tier:    middleware.TierR0,
@@ -55,7 +59,7 @@ func (ct *CompanyTools) registerQuoteTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR1,
 		Summary: "Create a new sales quote (visible to the buyer immediately)",
 		Tool: mcp.NewTool("b2b_quotes_create",
-			mcp.WithDescription("Create a new B2B sales quote. For Buyer Portal visibility you MUST include companyId (B2B company id) — contactInfo.email/companyName alone leave companyInfo empty and the quote stays Control-Panel-only. quote_json should match quoteData_POST (companyId, subtotal, channelId, quoteTitle, referenceNumber, currency, extraFields, notes, discount, grandTotal, legalTerms, displayDiscount, allowCheckout, productList with productId/variantId/basePrice/offeredPrice/discount as numbers, shippingAddress with state/stateCode, contactInfo object, userEmail of a Control Panel system user, expiredAt as MM/DD/YYYY). Preview → confirm."),
+			mcp.WithDescription("Create a new B2B sales quote. For Buyer Portal visibility you MUST include companyId (B2B company id) — contactInfo.email/companyName alone leave companyInfo empty and the quote stays Control-Panel-only. quote_json should match quoteData_POST (companyId, subtotal, channelId, quoteTitle, referenceNumber, currency, extraFields, notes, discount, grandTotal, legalTerms, displayDiscount, allowCheckout, productList with productId/variantId/basePrice/offeredPrice/discount as numbers, shippingAddress with state/stateCode, contactInfo object, userEmail of a Control Panel system user, expiredAt as MM/DD/YYYY). currency may be an ISO code string (e.g. \"USD\") or the full currency object; strings are expanded to the object the B2B API requires before send. Known money fields are rounded to 2 decimals before send. Note: convert_to_order recalculates tax at checkout, so order totals may differ from quote grandTotal. Preview → confirm."),
 			mcp.WithString("quote_json", mcp.Description("JSON object matching the quote create body. Use b2b/quotes/get on an existing quote to see an example shape."), mcp.Required()),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create the quote.")),
 		),
@@ -67,7 +71,7 @@ func (ct *CompanyTools) registerQuoteTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR1,
 		Summary: "Update an existing quote (partial update, except line items)",
 		Tool: mcp.NewTool("b2b_quotes_update",
-			mcp.WithDescription("Update a B2B quote. No field is required — send only what you want to change. IMPORTANT: if updating productList (line items), you must include every existing line item you want to keep; omitted items are removed. To hide a quote without deleting it, set status to archived here instead of using delete. Preview → confirm."),
+			mcp.WithDescription("Update a B2B quote. No field is required — send only what you want to change. IMPORTANT: if updating productList (line items), you must include every existing line item you want to keep; omitted items are removed. Known money fields (subtotal/discount/grandTotal and productList basePrice/offeredPrice/discount) are rounded to 2 decimals before send. currency may be an ISO code string or the full object (strings are expanded before send). To hide a quote without deleting it, set status to archived here instead of using delete. Preview → confirm."),
 			mcp.WithNumber("quote_id", mcp.Description("Quote ID"), mcp.Required()),
 			mcp.WithString("quote_json", mcp.Description("JSON object with the fields to update (subtotal, quoteTitle, notes, discount, grandTotal, productList, shippingAddress, contactInfo, message, status, expiredAt, etc.)."), mcp.Required()),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to apply.")),
@@ -255,7 +259,112 @@ func parseQuoteJSONBody(args map[string]any, key string) (map[string]any, error)
 	if err := json.Unmarshal([]byte(raw), &body); err != nil {
 		return nil, fmt.Errorf("invalid %s: %v", key, err)
 	}
+	normalizeQuoteMoneyFields(body)
+	if err := normalizeQuoteCurrency(body); err != nil {
+		return nil, err
+	}
 	return body, nil
+}
+
+// normalizeQuoteCurrency expands a currency code string into the object
+// shape POST /rfq requires (currencyCode, token, etc.). Objects pass through
+// unchanged. Absent/nil currency is a no-op.
+func normalizeQuoteCurrency(body map[string]any) error {
+	if body == nil {
+		return nil
+	}
+	raw, ok := body["currency"]
+	if !ok || raw == nil {
+		return nil
+	}
+	switch v := raw.(type) {
+	case map[string]any:
+		return nil
+	case string:
+		code := strings.ToUpper(strings.TrimSpace(v))
+		if code == "" {
+			return fmt.Errorf("currency must be a non-empty ISO code string or a currency object")
+		}
+		obj := map[string]any{
+			"currencyCode":         code,
+			"currencyExchangeRate": "1.0000000000",
+		}
+		if code == "USD" {
+			obj["token"] = "$"
+			obj["location"] = "left"
+			obj["decimalToken"] = "."
+			obj["thousandsToken"] = ","
+			obj["decimalPlaces"] = 2
+		}
+		body["currency"] = obj
+		return nil
+	default:
+		return fmt.Errorf("currency must be an ISO code string or a currency object")
+	}
+}
+
+// normalizeQuoteMoneyFields rounds known money keys to 2 decimal places so
+// quote_json values like 809.1 become 809.10-equivalent floats. Does not invent
+// tax or rewrite totals beyond representation hygiene.
+func normalizeQuoteMoneyFields(body map[string]any) {
+	if body == nil {
+		return
+	}
+	for _, key := range []string{"subtotal", "discount", "grandTotal"} {
+		roundMoneyKey(body, key)
+	}
+	rawList, ok := body["productList"]
+	if !ok || rawList == nil {
+		return
+	}
+	list, ok := rawList.([]any)
+	if !ok {
+		return
+	}
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, key := range []string{"basePrice", "offeredPrice", "discount"} {
+			roundMoneyKey(m, key)
+		}
+	}
+}
+
+func roundMoneyKey(m map[string]any, key string) {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return
+	}
+	n, ok := moneyAsFloat(v)
+	if !ok {
+		return
+	}
+	m[key] = roundMoney2(n)
+}
+
+func moneyAsFloat(v any) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case json.Number:
+		n, err := t.Float64()
+		return n, err == nil
+	case string:
+		n, err := strconv.ParseFloat(strings.TrimSpace(t), 64)
+		return n, err == nil
+	case int:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	default:
+		return 0, false
+	}
+}
+
+func roundMoney2(n float64) float64 {
+	return math.Round(n*100) / 100
 }
 
 func (ct *CompanyTools) handleQuoteCreate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

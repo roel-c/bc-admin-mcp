@@ -86,6 +86,26 @@ func (s *ChannelToolsSuite) TestListPassesTypeFilter() {
 	s.Equal(float64(1), data["total"])
 }
 
+func (s *ChannelToolsSuite) TestListActiveOnlyFiltersStorefronts() {
+	s.mockBC.EXPECT().ListStoreChannels(gomock.Any(), map[string]string(nil)).Return([]bigcommerce.StoreChannel{
+		{ID: 1, Name: "Default", Type: "storefront", Status: "active"},
+		{ID: 2, Name: "Prelaunch", Type: "storefront", Status: "prelaunch"},
+		{ID: 3, Name: "Old Catalyst", Type: "storefront", Status: "terminated"},
+		{ID: 4, Name: "Amazon", Type: "marketplace", Status: "connected"},
+	}, nil)
+
+	result, err := s.callTool(map[string]any{"active_only": true})
+	s.NoError(err)
+	s.False(result.IsError)
+	data := s.parseJSON(result)
+	s.Equal(true, data["active_only"])
+	s.Equal(float64(2), data["total"])
+	s.Equal(float64(2), data["active_storefront_channel_count"])
+	s.Equal(true, data["multi_storefront_likely"])
+	channels := data["channels"].([]any)
+	s.Len(channels, 2)
+}
+
 func (s *ChannelToolsSuite) callCategoryTreesTool(args map[string]any) (*mcp.CallToolResult, error) {
 	def := s.reg.GetTool("catalog/channels/category_trees")
 	s.Require().NotNil(def)
@@ -219,16 +239,16 @@ func (s *ChannelToolsSuite) callGetTool(args map[string]any) (*mcp.CallToolResul
 }
 
 func (s *ChannelToolsSuite) TestGetChannelReturnsChannel() {
-	s.mockBC.EXPECT().GetStoreChannel(gomock.Any(), 1763061).Return(&bigcommerce.StoreChannel{
-		ID: 1763061, Name: "MSF-Demo-AU", Platform: "bigcommerce", Type: "storefront", Status: "active",
+	s.mockBC.EXPECT().GetStoreChannel(gomock.Any(), 1002).Return(&bigcommerce.StoreChannel{
+		ID: 1002, Name: "Channel Alpha", Platform: "bigcommerce", Type: "storefront", Status: "active",
 	}, nil)
 
-	res, err := s.callGetTool(map[string]any{"channel_id": float64(1763061)})
+	res, err := s.callGetTool(map[string]any{"channel_id": float64(1002)})
 	s.NoError(err)
 	s.False(res.IsError)
 	data := s.parseJSON(res)
 	ch := data["channel"].(map[string]any)
-	s.Equal("MSF-Demo-AU", ch["name"])
+	s.Equal("Channel Alpha", ch["name"])
 	s.Equal("active", ch["status"])
 }
 
@@ -256,13 +276,13 @@ func (s *ChannelToolsSuite) callUpdateTool(args map[string]any) (*mcp.CallToolRe
 }
 
 func (s *ChannelToolsSuite) TestUpdateChannelPreviewShowsCurrentVsWouldApply() {
-	s.mockBC.EXPECT().GetStoreChannel(gomock.Any(), 1763061).Return(&bigcommerce.StoreChannel{
-		ID: 1763061, Name: "MSF-Demo-AU", Status: "active",
+	s.mockBC.EXPECT().GetStoreChannel(gomock.Any(), 1002).Return(&bigcommerce.StoreChannel{
+		ID: 1002, Name: "Channel Alpha", Status: "active",
 	}, nil)
 
 	res, err := s.callUpdateTool(map[string]any{
-		"channel_id": float64(1763061),
-		"name":       "AU Storefront",
+		"channel_id": float64(1002),
+		"name":       "Channel Alpha Renamed",
 		"confirmed":  false,
 	})
 	s.NoError(err)
@@ -270,24 +290,24 @@ func (s *ChannelToolsSuite) TestUpdateChannelPreviewShowsCurrentVsWouldApply() {
 	data := s.parseJSON(res)
 	s.Equal("pending_confirmation", data["status"])
 	current := data["current"].(map[string]any)
-	s.Equal("MSF-Demo-AU", current["name"])
+	s.Equal("Channel Alpha", current["name"])
 	wouldApply := data["would_apply"].(map[string]any)
-	s.Equal("AU Storefront", wouldApply["name"])
+	s.Equal("Channel Alpha Renamed", wouldApply["name"])
 }
 
 func (s *ChannelToolsSuite) TestUpdateChannelConfirmedCallsAPI() {
-	s.mockBC.EXPECT().GetStoreChannel(gomock.Any(), 1763061).Return(&bigcommerce.StoreChannel{
-		ID: 1763061, Name: "MSF-Demo-AU", Status: "active",
+	s.mockBC.EXPECT().GetStoreChannel(gomock.Any(), 1002).Return(&bigcommerce.StoreChannel{
+		ID: 1002, Name: "Channel Alpha", Status: "active",
 	}, nil)
-	s.mockBC.EXPECT().UpdateStoreChannel(gomock.Any(), 1763061, bigcommerce.StoreChannelUpdate{
-		Name: "AU Storefront",
+	s.mockBC.EXPECT().UpdateStoreChannel(gomock.Any(), 1002, bigcommerce.StoreChannelUpdate{
+		Name: "Channel Alpha Renamed",
 	}).Return(&bigcommerce.StoreChannel{
-		ID: 1763061, Name: "AU Storefront", Status: "active",
+		ID: 1002, Name: "Channel Alpha Renamed", Status: "active",
 	}, nil)
 
 	res, err := s.callUpdateTool(map[string]any{
-		"channel_id": float64(1763061),
-		"name":       "AU Storefront",
+		"channel_id": float64(1002),
+		"name":       "Channel Alpha Renamed",
 		"confirmed":  true,
 	})
 	s.NoError(err)
@@ -295,21 +315,21 @@ func (s *ChannelToolsSuite) TestUpdateChannelConfirmedCallsAPI() {
 	data := s.parseJSON(res)
 	s.Equal("updated", data["status"])
 	ch := data["channel"].(map[string]any)
-	s.Equal("AU Storefront", ch["name"])
+	s.Equal("Channel Alpha Renamed", ch["name"])
 }
 
 func (s *ChannelToolsSuite) TestUpdateChannelStatusOnly() {
-	s.mockBC.EXPECT().GetStoreChannel(gomock.Any(), 1741970).Return(&bigcommerce.StoreChannel{
-		ID: 1741970, Name: "MSF-B2BE", Status: "active",
+	s.mockBC.EXPECT().GetStoreChannel(gomock.Any(), 1001).Return(&bigcommerce.StoreChannel{
+		ID: 1001, Name: "B2B Storefront", Status: "active",
 	}, nil)
-	s.mockBC.EXPECT().UpdateStoreChannel(gomock.Any(), 1741970, bigcommerce.StoreChannelUpdate{
+	s.mockBC.EXPECT().UpdateStoreChannel(gomock.Any(), 1001, bigcommerce.StoreChannelUpdate{
 		Status: "inactive",
 	}).Return(&bigcommerce.StoreChannel{
-		ID: 1741970, Name: "MSF-B2BE", Status: "inactive",
+		ID: 1001, Name: "B2B Storefront", Status: "inactive",
 	}, nil)
 
 	res, err := s.callUpdateTool(map[string]any{
-		"channel_id": float64(1741970),
+		"channel_id": float64(1001),
 		"status":     "inactive",
 		"confirmed":  true,
 	})

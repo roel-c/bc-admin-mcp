@@ -11,6 +11,7 @@ package b2b_test
 
 import (
 	context "context"
+	json "encoding/json"
 	reflect "reflect"
 
 	bigcommerce "github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
@@ -1691,4 +1692,148 @@ func (m *MockBCCustomerManager) SearchCustomers(ctx context.Context, params map[
 func (mr *MockBCCustomerManagerMockRecorder) SearchCustomers(ctx, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SearchCustomers", reflect.TypeOf((*MockBCCustomerManager)(nil).SearchCustomers), ctx, params)
+}
+
+// MockQuoteCheckoutAPI is a mock of QuoteCheckoutAPI interface.
+type MockQuoteCheckoutAPI struct {
+	ctrl     *gomock.Controller
+	recorder *MockQuoteCheckoutAPIMockRecorder
+	isgomock struct{}
+}
+
+// MockQuoteCheckoutAPIMockRecorder is the mock recorder for MockQuoteCheckoutAPI.
+type MockQuoteCheckoutAPIMockRecorder struct {
+	mock *MockQuoteCheckoutAPI
+}
+
+// NewMockQuoteCheckoutAPI creates a new mock instance.
+func NewMockQuoteCheckoutAPI(ctrl *gomock.Controller) *MockQuoteCheckoutAPI {
+	mock := &MockQuoteCheckoutAPI{ctrl: ctrl}
+	mock.recorder = &MockQuoteCheckoutAPIMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockQuoteCheckoutAPI) EXPECT() *MockQuoteCheckoutAPIMockRecorder {
+	return m.recorder
+}
+
+// AddConsignment mocks base method.
+func (m *MockQuoteCheckoutAPI) AddConsignment(ctx context.Context, checkoutID string, consignment bigcommerce.CheckoutConsignmentInput) (*bigcommerce.Checkout, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddConsignment", ctx, checkoutID, consignment)
+	ret0, _ := ret[0].(*bigcommerce.Checkout)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AddConsignment indicates an expected call of AddConsignment.
+func (mr *MockQuoteCheckoutAPIMockRecorder) AddConsignment(ctx, checkoutID, consignment any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddConsignment", reflect.TypeOf((*MockQuoteCheckoutAPI)(nil).AddConsignment), ctx, checkoutID, consignment)
+}
+
+// ConvertCheckoutToOrder mocks base method.
+func (m *MockQuoteCheckoutAPI) ConvertCheckoutToOrder(ctx context.Context, checkoutID string) (*bigcommerce.CheckoutOrderResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConvertCheckoutToOrder", ctx, checkoutID)
+	ret0, _ := ret[0].(*bigcommerce.CheckoutOrderResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ConvertCheckoutToOrder indicates an expected call of ConvertCheckoutToOrder.
+func (mr *MockQuoteCheckoutAPIMockRecorder) ConvertCheckoutToOrder(ctx, checkoutID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConvertCheckoutToOrder", reflect.TypeOf((*MockQuoteCheckoutAPI)(nil).ConvertCheckoutToOrder), ctx, checkoutID)
+}
+
+// GetCart mocks base method.
+func (m *MockQuoteCheckoutAPI) GetCart(ctx context.Context, cartID string, includeRedirectURLs bool) (*bigcommerce.Cart, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCart", ctx, cartID, includeRedirectURLs)
+	ret0, _ := ret[0].(*bigcommerce.Cart)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCart indicates an expected call of GetCart.
+func (mr *MockQuoteCheckoutAPIMockRecorder) GetCart(ctx, cartID, includeRedirectURLs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCart", reflect.TypeOf((*MockQuoteCheckoutAPI)(nil).GetCart), ctx, cartID, includeRedirectURLs)
+}
+
+// SetBillingAddress mocks base method.
+func (m *MockQuoteCheckoutAPI) SetBillingAddress(ctx context.Context, checkoutID string, addr bigcommerce.CheckoutAddressInput) (*bigcommerce.Checkout, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetBillingAddress", ctx, checkoutID, addr)
+	ret0, _ := ret[0].(*bigcommerce.Checkout)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetBillingAddress indicates an expected call of SetBillingAddress.
+func (mr *MockQuoteCheckoutAPIMockRecorder) SetBillingAddress(ctx, checkoutID, addr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetBillingAddress", reflect.TypeOf((*MockQuoteCheckoutAPI)(nil).SetBillingAddress), ctx, checkoutID, addr)
+}
+
+// UpdateCart mocks base method.
+func (m *MockQuoteCheckoutAPI) UpdateCart(ctx context.Context, cartID string, payload bigcommerce.CartUpdate) (*bigcommerce.Cart, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCart", ctx, cartID, payload)
+	ret0, _ := ret[0].(*bigcommerce.Cart)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateCart indicates an expected call of UpdateCart.
+func (mr *MockQuoteCheckoutAPIMockRecorder) UpdateCart(ctx, cartID, payload any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCart", reflect.TypeOf((*MockQuoteCheckoutAPI)(nil).UpdateCart), ctx, cartID, payload)
+}
+
+// UpdateConsignment mocks base method.
+func (m *MockQuoteCheckoutAPI) UpdateConsignment(ctx context.Context, checkoutID, consignID string, update bigcommerce.CheckoutConsignmentUpdate) (*bigcommerce.Checkout, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateConsignment", ctx, checkoutID, consignID, update)
+	ret0, _ := ret[0].(*bigcommerce.Checkout)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateConsignment indicates an expected call of UpdateConsignment.
+func (mr *MockQuoteCheckoutAPIMockRecorder) UpdateConsignment(ctx, checkoutID, consignID, update any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateConsignment", reflect.TypeOf((*MockQuoteCheckoutAPI)(nil).UpdateConsignment), ctx, checkoutID, consignID, update)
+}
+
+// UpdateOrder mocks base method.
+func (m *MockQuoteCheckoutAPI) UpdateOrder(ctx context.Context, orderID int, payload json.RawMessage) (*bigcommerce.Order, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateOrder", ctx, orderID, payload)
+	ret0, _ := ret[0].(*bigcommerce.Order)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateOrder indicates an expected call of UpdateOrder.
+func (mr *MockQuoteCheckoutAPIMockRecorder) UpdateOrder(ctx, orderID, payload any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOrder", reflect.TypeOf((*MockQuoteCheckoutAPI)(nil).UpdateOrder), ctx, orderID, payload)
+}
+
+// UpdateOrderStatus mocks base method.
+func (m *MockQuoteCheckoutAPI) UpdateOrderStatus(ctx context.Context, orderID, statusID int) (*bigcommerce.Order, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateOrderStatus", ctx, orderID, statusID)
+	ret0, _ := ret[0].(*bigcommerce.Order)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateOrderStatus indicates an expected call of UpdateOrderStatus.
+func (mr *MockQuoteCheckoutAPIMockRecorder) UpdateOrderStatus(ctx, orderID, statusID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOrderStatus", reflect.TypeOf((*MockQuoteCheckoutAPI)(nil).UpdateOrderStatus), ctx, orderID, statusID)
 }

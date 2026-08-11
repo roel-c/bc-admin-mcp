@@ -46,6 +46,76 @@ func (s *B2BCompanyToolsSuite) TestQuoteCreatePreviewThenConfirm() {
 	s.Equal("created", s.parseJSON(res)["status"])
 }
 
+func (s *B2BCompanyToolsSuite) TestQuoteCreateNormalizesMoneyToTwoDecimals() {
+	prev, err := s.callTool("b2b/quotes/create", map[string]any{
+		"quote_json": `{
+			"quoteTitle":"Money Round",
+			"subtotal":3059.099,
+			"discount":0.1,
+			"grandTotal":3059.091,
+			"productList":[
+				{"productId":1,"variantId":2,"basePrice":2499.999,"offeredPrice":2249.994,"discount":250.001},
+				{"productId":3,"variantId":4,"basePrice":899,"offeredPrice":809.1,"discount":89.9}
+			]
+		}`,
+	})
+	s.NoError(err)
+	s.False(prev.IsError)
+	payload := s.parseJSON(prev)["payload"].(map[string]any)
+	s.Equal(3059.10, payload["subtotal"])
+	s.Equal(0.10, payload["discount"])
+	s.Equal(3059.09, payload["grandTotal"])
+	items := payload["productList"].([]any)
+	row0 := items[0].(map[string]any)
+	s.Equal(2500.00, row0["basePrice"])
+	s.Equal(2249.99, row0["offeredPrice"])
+	s.Equal(250.00, row0["discount"])
+	row1 := items[1].(map[string]any)
+	s.Equal(899.00, row1["basePrice"])
+	s.Equal(809.10, row1["offeredPrice"])
+	s.Equal(89.90, row1["discount"])
+}
+
+func (s *B2BCompanyToolsSuite) TestQuoteCreateExpandsCurrencyString() {
+	prev, err := s.callTool("b2b/quotes/create", map[string]any{
+		"quote_json": `{"quoteTitle":"Currency Expand","currency":"usd"}`,
+	})
+	s.NoError(err)
+	s.False(prev.IsError)
+	payload := s.parseJSON(prev)["payload"].(map[string]any)
+	cur, ok := payload["currency"].(map[string]any)
+	s.Require().True(ok, "currency should be expanded to an object")
+	s.Equal("USD", cur["currencyCode"])
+	s.Equal("$", cur["token"])
+	s.Equal("left", cur["location"])
+	s.Equal(".", cur["decimalToken"])
+	s.Equal(",", cur["thousandsToken"])
+	s.Equal(float64(2), cur["decimalPlaces"])
+	s.Equal("1.0000000000", cur["currencyExchangeRate"])
+}
+
+func (s *B2BCompanyToolsSuite) TestQuoteCreatePassesCurrencyObjectThrough() {
+	prev, err := s.callTool("b2b/quotes/create", map[string]any{
+		"quote_json": `{"quoteTitle":"Currency Object","currency":{"currencyCode":"EUR","token":"€","location":"left","currencyExchangeRate":"1.1"}}`,
+	})
+	s.NoError(err)
+	s.False(prev.IsError)
+	payload := s.parseJSON(prev)["payload"].(map[string]any)
+	cur := payload["currency"].(map[string]any)
+	s.Equal("EUR", cur["currencyCode"])
+	s.Equal("€", cur["token"])
+	s.Equal("left", cur["location"])
+	s.Equal("1.1", cur["currencyExchangeRate"])
+}
+
+func (s *B2BCompanyToolsSuite) TestQuoteCreateRejectsInvalidCurrencyType() {
+	res, err := s.callTool("b2b/quotes/create", map[string]any{
+		"quote_json": `{"quoteTitle":"Bad Currency","currency":123}`,
+	})
+	s.NoError(err)
+	s.True(res.IsError)
+}
+
 func (s *B2BCompanyToolsSuite) TestQuoteCreateRejectsInvalidJSON() {
 	res, err := s.callTool("b2b/quotes/create", map[string]any{
 		"quote_json": `not-json`,

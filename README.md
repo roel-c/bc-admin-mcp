@@ -29,8 +29,12 @@ Point your MCP client at the built binary via [`scripts/launch-mcp.sh`](./script
 (recommended — loads `.env`) or see [Integration with Cursor](#integration-with-cursor)
 for `.cursor/mcp.json` examples. Then, from the client:
 
-1. **`discover_tools("")`** — see the live category roots (`catalog`, `orders`, `customers`, `marketing`, `inventory`, `storefront`, `webhooks`, `carts`, plus `b2b` when enabled).
-2. **`discover_tools("<path>")`** — drill down (e.g. `"catalog"` → `"catalog/products"`) until you see tool stubs with a `tier`.
+1. **Known path or search** — call `execute_tool` with a playbook path, or
+   `discover_tools` with `query` (e.g. `"channels"`) / a deep-link path.
+2. **`discover_tools("")`** — only when exploring: live roots (`catalog`,
+   `orders`, `customers`, `marketing`, `inventory`, `storefront`, `webhooks`,
+   `carts`, plus `b2b` when enabled). Drill with `discover_tools("<path>")`
+   until you see tool stubs with a `tier`.
 3. **`execute_tool`** — run one, with the full path and its arguments nested under `arguments`:
    ```json
    {
@@ -61,7 +65,7 @@ Not every doc here needs to be read up front. Use this table to find the right o
 
 This server uses **progressive disclosure** to minimize token consumption and maximize LLM accuracy. Instead of registering all BigCommerce tools upfront (~40,000+ tokens), only two meta-tools are exposed:
 
-- **`discover_tools`** — Navigate a hierarchical tree of available tool categories
+- **`discover_tools`** — Navigate or search the tool hierarchy (`path` and/or `query`)
 - **`execute_tool`** — Execute any tool by its full path with arguments
 
 This reduces initial token usage to ~600 tokens (a 60-100x reduction) and keeps the LLM focused on only the tools relevant to the current task.
@@ -302,7 +306,7 @@ A human-browsable snapshot of every tool path, for skimming without a running se
 | `catalog/brands/metafields/delete` | R1 | Delete by `metafield_id` or namespace+key; preview → confirm |
 | `catalog/variants/list` | R0 | Global variant search (`GET /v3/catalog/variants`): `product_id` / `product_ids` (max 100), `variant_id` / `variant_ids` (max 100), `sku`, `sku_like`, optional `sort`, or `list_all` |
 | `catalog/variants/bulk_update` | R2 | Batch `PUT /v3/catalog/variants`: `updates` array (max **200** rows, ≥1 field per row besides `variant_id`); server chunks by **10**; preview → confirm |
-| `catalog/channels/list` | R0 | `GET /v3/channels` — channels for the connected store; optional `type` / `status`; response includes `multi_storefront_likely` (needs **`store_channel_settings`** on the API account) |
+| `catalog/channels/list` | R0 | `GET /v3/channels` — channels for the connected store; optional `type` / `status` / `active_only` (working storefronts); response includes `multi_storefront_likely` (needs **`store_channel_settings`** on the API account) |
 | `catalog/channels/get` | R0 | `GET /v3/channels/{id}` — full details for one channel (name, platform, type, status, timestamps); scope **`store_channel_settings_read_only`** |
 | `catalog/channels/update` | R2 | `PUT /v3/channels/{id}` — update channel `name` and/or `status` (preview → **`confirmed`**); valid statuses: active, inactive, connected, disconnected, prelaunch; scope **`store_channel_settings`** |
 | `catalog/channels/category_trees` | R0 | `GET /v3/catalog/trees` — category trees (optional **`channel_id`** → `channel_id:in` for MSF); needs **Products** scope (`store_v2_products_read_only` or `store_v2_products`) |
@@ -509,9 +513,10 @@ The `b2b/` root only registers when `BC_B2B_ENABLED=true`; it reuses the existin
 | `b2b/orders/reassign` | R2 | Reassign orders by customer group (Dependent-behavior stores only); preview → **`confirmed`** |
 | `b2b/orders/extra_fields` | R0 | List order extra-field definitions |
 | `b2b/quotes/list` \| `get` \| `extra_fields` | R0 | List / get full detail / extra-field definitions for sales quotes |
-| `b2b/quotes/create` \| `update` | R1 | Create / update a quote (`quote_json`); preview → **`confirmed`** |
+| `b2b/quotes/create` \| `update` | R1 | Create / update a quote (`quote_json`); `currency` may be `"USD"` (expanded) or a full object; money fields rounded to 2 decimals; preview → **`confirmed`** |
 | `b2b/quotes/delete` | R3 | Permanently delete a quote (use `update` with `status=archived` to hide); preview → **`confirmed`** |
 | `b2b/quotes/checkout` | R1 | Generate cart/checkout URLs for a quote; preview → **`confirmed`** |
+| `b2b/quotes/convert_to_order` | R2 | Convert up to 10 quotes → orders (prefer ≤3–5/call); shipping/checkout/customer/consignment/convert/status/assign; already-ordered → `already_converted`; stops before invoice/payment; `partial_success`; preview → **`confirmed`** |
 | `b2b/quotes/assign_to_order` | R2 | Associate an existing order with a quote; preview → **`confirmed`** |
 | `b2b/quotes/pdf_export` | R0 | Backend-detail PDF download link for a quote |
 | `b2b/quotes/shipping/rates` \| `custom_methods` | R0 | Available shipping rates / store-wide custom shipping methods |

@@ -10,7 +10,7 @@ Merged from `msf-research-outline.md` (API research) and `channels-msf-implement
 
 | Phase | Capability | MCP Tool | Tier |
 |-------|-----------|---------|------|
-| 0 | List store channels | `catalog/channels/list` | R0 |
+| 0 | List store channels (`active_only` for working storefronts) | `catalog/channels/list` | R0 |
 | 0 | Get a single channel | `catalog/channels/get` | R0 |
 | 0 | Update channel name/status | `catalog/channels/update` | R2 |
 | 1 | List category trees; filter by channel | `catalog/channels/category_trees` | R0 |

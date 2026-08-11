@@ -114,12 +114,12 @@ func (s *WebhookToolsSuite) TestListRedactsHeaderValues() {
 }
 
 func (s *WebhookToolsSuite) TestListFiltersByChannelID() {
-	s.mockBC.EXPECT().ListWebhooks(gomock.Any(), map[string]string{"channel_id": "1763061"}).Return(
-		[]bigcommerce.Webhook{{ID: 3, Scope: "store/order/created", Destination: "https://example.com/hook", IsActive: true, ChannelID: 1763061}},
+	s.mockBC.EXPECT().ListWebhooks(gomock.Any(), map[string]string{"channel_id": "1002"}).Return(
+		[]bigcommerce.Webhook{{ID: 3, Scope: "store/order/created", Destination: "https://example.com/hook", IsActive: true, ChannelID: 1002}},
 		nil,
 	)
 
-	res, err := s.callTool("webhooks/list", map[string]any{"channel_id": float64(1763061)})
+	res, err := s.callTool("webhooks/list", map[string]any{"channel_id": float64(1002)})
 	s.NoError(err)
 	s.False(res.IsError)
 	data := s.parseJSON(res)
@@ -225,16 +225,16 @@ func (s *WebhookToolsSuite) TestCreateWithChannelIDAndHeaders() {
 		Scope:       "store/order/created",
 		Destination: "https://example.com/hook",
 		IsActive:    true,
-		ChannelID:   1763061,
+		ChannelID:   1002,
 		Headers:     map[string]string{"X-Auth": "secret"},
 	}).Return(&bigcommerce.Webhook{
-		ID: 100, Scope: "store/order/created", Destination: "https://example.com/hook", IsActive: true, ChannelID: 1763061,
+		ID: 100, Scope: "store/order/created", Destination: "https://example.com/hook", IsActive: true, ChannelID: 1002,
 	}, nil)
 
 	res, err := s.callTool("webhooks/create", map[string]any{
 		"scope":        "store/order/created",
 		"destination":  "https://example.com/hook",
-		"channel_id":   float64(1763061),
+		"channel_id":   float64(1002),
 		"headers_json": `{"X-Auth":"secret"}`,
 		"confirmed":    true,
 	})

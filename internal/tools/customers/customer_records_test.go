@@ -119,8 +119,8 @@ func (s *CustomerRecordsHandlerSuite) TestCreatePassesChannelScopedIdentityField
 	s.mockBC.EXPECT().CreateCustomers(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, payload []bigcommerce.CustomerCreate) ([]bigcommerce.Customer, error) {
 			s.Require().Len(payload, 1)
-			s.Equal(1741970, payload[0].OriginChannelID)
-			s.Equal([]int{1741970}, payload[0].ChannelIDs)
+			s.Equal(1001, payload[0].OriginChannelID)
+			s.Equal([]int{1001}, payload[0].ChannelIDs)
 			s.Equal(22, payload[0].CustomerGroupID)
 			return []bigcommerce.Customer{{ID: 3, Email: "b2b@example.com", FirstName: "B2B", LastName: "Admin"}}, nil
 		})
@@ -130,8 +130,8 @@ func (s *CustomerRecordsHandlerSuite) TestCreatePassesChannelScopedIdentityField
 		"first_name":        "B2B",
 		"last_name":         "Admin",
 		"customer_group_id": float64(22),
-		"origin_channel_id": float64(1741970),
-		"channel_ids":       []any{float64(1741970)},
+		"origin_channel_id": float64(1001),
+		"channel_ids":       []any{float64(1001)},
 		"confirmed":         true,
 	})
 	s.NoError(err)
@@ -187,8 +187,8 @@ func (s *CustomerRecordsHandlerSuite) TestUpdateAcceptsChannelScopedIdentityFiel
 		DoAndReturn(func(_ context.Context, payload []bigcommerce.CustomerUpdate) ([]bigcommerce.Customer, error) {
 			s.Require().Len(payload, 1)
 			s.Equal(68, payload[0].ID)
-			s.Equal(1741970, payload[0].OriginChannelID)
-			s.Equal([]int{1741970}, payload[0].ChannelIDs)
+			s.Equal(1001, payload[0].OriginChannelID)
+			s.Equal([]int{1001}, payload[0].ChannelIDs)
 			return []bigcommerce.Customer{{ID: 68, Email: "b2b@example.com", FirstName: "B2B", LastName: "Admin"}}, nil
 		})
 
@@ -196,8 +196,8 @@ func (s *CustomerRecordsHandlerSuite) TestUpdateAcceptsChannelScopedIdentityFiel
 		"customer_batch": []any{
 			map[string]any{
 				"id":                float64(68),
-				"origin_channel_id": float64(1741970),
-				"channel_ids":       []any{float64(1741970)},
+				"origin_channel_id": float64(1001),
+				"channel_ids":       []any{float64(1001)},
 			},
 		},
 		"confirmed": true,

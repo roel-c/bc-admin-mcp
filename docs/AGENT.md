@@ -35,12 +35,22 @@ store-level API account with only the scopes needed for the task, run
 
 ### Progressive Discovery
 
-The MCP server uses **progressive disclosure**. Navigate the category tree before executing:
+The MCP server uses **progressive disclosure**. Prefer the cheapest path that
+finds the tool:
 
-1. **`discover_tools("")`** → active roots (`catalog`, `orders`, `customers`, `marketing`, `inventory`, `storefront`, `webhooks`, `carts`; plus `b2b` when `BC_B2B_ENABLED=true`)
-2. **`discover_tools("<root>")`** → subcategories (e.g. `catalog/products`, `customers/groups`)
-3. **`discover_tools("catalog/products")`** → tool stubs (path, type, summary, tier — not full schemas)
-4. **`execute_tool`** → pass `tool_path` and `arguments`
+1. **Known playbook path** → call `execute_tool` directly (skip discovery).
+   Examples: `catalog/channels/list`, `catalog/products/search`, paths from
+   `docs/WORKFLOW.md` / `docs/B2B.md` playbooks.
+2. **`discover_tools` with `query`** → search paths/summaries in one hop
+   (e.g. `query: "channels"`, optional `path: "catalog"` to scope).
+3. **Deep-link** → `discover_tools({ "path": "catalog/channels" })` or a full
+   tool path returns that node’s children / stub without starting at root.
+4. **Root drill-down** (only when exploring an unfamiliar domain):
+   - `discover_tools("")` → roots
+   - `discover_tools("<root>")` → subcategories
+   - `discover_tools("catalog/products")` → tool stubs (path, type, summary, tier)
+
+Unknown paths return **did-you-mean** suggestions (and a hint to use `query`).
 
 ### Universal `execute_tool` Shape
 
@@ -53,7 +63,7 @@ Every tool uses the same envelope:
 }
 ```
 
-- **`tool_path`** — exactly as returned by `discover_tools`.
+- **`tool_path`** — exactly as returned by `discover_tools`, or a known playbook path.
 - **`arguments`** — object with only that tool's parameters. Nothing else belongs at the top level.
 
 **Common mistakes:**
@@ -83,40 +93,56 @@ uploads at 10 MB.
 | **R3** | Destructive | Preview → confirm with child safety gates |
 | **R4** | Forbidden | Blocked by the server at all times |
 
-### Full Tool Inventory — Use `discover_tools`, Not a Static List
+### Full Tool Inventory — Prefer Live Discovery, Cache Known Paths
 
 The tool catalog changes as domains ship, so this file does not restate it.
-Navigate live instead:
+Navigate live when the path is unknown:
 
-1. `discover_tools("")` → active domain roots (`catalog`, `orders`,
-   `customers`, `marketing`, `inventory`, `storefront`, `webhooks`, `carts`;
-   plus `b2b` when `BC_B2B_ENABLED=true`).
-2. `discover_tools("<root>")` / `discover_tools("<root>/<sub>")` → drill down
-   until you see tool stubs with a `tier`.
-3. Each tool's own description (returned by `discover_tools` at the leaf, and
+1. `discover_tools` with `query` (fastest), or deep-link a known category path,
+   or drill from `discover_tools("")` only when exploring.
+2. Each tool's own description (returned by `discover_tools` at the leaf, and
    echoed by `execute_tool`) documents its required arguments, caps, and
    known gotchas **at the point of use** — trust that over anything a static
    doc says, since tool descriptions ship with the code and can't drift out
    of sync the way prose can.
 
+Once a path is known for the session (or documented in a playbook), **reuse it
+with `execute_tool`** — do not rediscover from root on every turn.
+
 For a human-browsable snapshot of every implemented tool path, see the
 **Implemented Tools** table in [`README.md`](../README.md). For the B2B
 domain specifically (gated by `BC_B2B_ENABLED=true`), see `docs/B2B.md` for
-setup, the commercial-path (quote → checkout → invoice → payment) flow, and
-the short **order → invoice → partial pay** playbook.
+setup and the **composable commercial stage playbooks** (quote→order,
+order→invoice, invoice→payment).
+
+### Discovery & navigation speed tips
+
+1. **Known path → `execute_tool` immediately** — do not start at
+   `discover_tools("")` when WORKFLOW/B2B/MSF playbooks already name the tool
+   (e.g. `catalog/channels/list` with `active_only: true` for MSF channel
+   selection).
+2. **Uncertain path → `query` search** — `discover_tools({ "query": "invoice" })`
+   beats guessing nested categories. Scope with `path: "b2b"` when you know the
+   domain.
+3. **Deep-link categories** — `discover_tools({ "path": "catalog/channels" })`
+   is valid; root drill-down is optional exploration, not required every time.
+4. **Follow the stage playbooks** in `docs/B2B.md` instead of rediscovering the
+   sequence via `discover_tools` on every run.
 
 ### B2B speed tips (when `BC_B2B_ENABLED=true`)
 
 1. **Use `bc_customer_id` from user list/get** for cart/order `customer_id`. User reads enrich that field when B2B Edition omits it — skip a separate `customers/list` by email unless it is still `0`.
-2. **Batch writes under one preview→confirm** — `b2b/companies/bulk_create`, `b2b/invoices/create_from_orders`, and multi-invoice `b2b/payment_records/create_offline` (optional `pay_percent`). Do not weaken or skip confirmation; cover more work per confirm instead.
+2. **Batch writes under one preview→confirm** — `b2b/quotes/convert_to_order`, `b2b/companies/bulk_create`, `b2b/invoices/create_from_orders`, and multi-invoice `b2b/payment_records/create_offline` (optional `pay_percent`). Do not weaken or skip confirmation; cover more work per confirm instead.
 3. **Do not agent-sleep for B2B order indexing** — `b2b/orders/get`, `b2b/orders/update`, and invoice-from-order tools wait/retry briefly server-side.
-4. **Follow the playbook** in `docs/B2B.md` (*Playbook: order → invoice → partial pay*) instead of rediscovering the sequence via `discover_tools` on every run.
+4. **Follow the stage playbooks** in `docs/B2B.md` (*Playbooks: composable commercial stages*) instead of rediscovering the sequence via `discover_tools` on every run.
+5. **Never auto-chain commercial stages** — convert quotes, invoice orders, and log payments only when the operator asked for that stage. “Convert these quotes” stops at orders; do not invoice or pay unless requested.
+6. **Quote `currency`** — `"USD"` (string) is expanded server-side; for CAD/EUR/etc. pass a full currency object (see `docs/B2B.md` quirks).
 
 ---
 
 ## WORKFLOW FOR EVERY TASK
 
-1. **Discover before acting.** Start with `discover_tools("")` to explore capabilities. Drill into the relevant category before executing.
+1. **Locate the tool efficiently.** Use a known playbook path, `discover_tools` with `query`, or a deep-link category path. Only drill from root when exploring an unfamiliar domain.
 2. **Read first, write second.** Fetch the current state of affected records using R0 tools before any mutation.
 3. **Preview before executing.** For any R1+ operation, call the tool without `confirmed: true` first. Present the preview and wait for explicit operator approval before sending `confirmed: true`; the flag itself is not human authorization.
 4. **Show diffs, not just results.** Present before/after comparisons for key fields when updating records.
@@ -216,7 +242,7 @@ deeper questions or for contributor work:
 
 - `README.md` — Setup, quick start, and the full Implemented Tools table
 - `docs/DEVELOPMENT.md` — Tool tiers (R0–R4), numeric caps, concurrency policy, OAuth scope grouping, and channel assignment model
-- `docs/B2B.md` — B2B Edition setup and shipped commercial-path tools (gated by `BC_B2B_ENABLED`)
+- `docs/B2B.md` — B2B Edition setup, shipped tools, and composable commercial stage playbooks (quote→order / order→invoice / invoice→payment; gated by `BC_B2B_ENABLED`)
 - **Reference (search by section, don't read linearly):** `docs/BC-API-Reference.md`, `docs/BC-API-SPECIFICITY.md` (inventory backorders: §15)
 - **Script Manager / storefront frontend injection (external):** [Stencil Customization Guide INDEX](https://github.com/roel-c/bc-stencil-customization-guide/blob/main/INDEX.md) — see section above; do not vendor into this repo
 - **Contributor-only (adding/changing tools):** `docs/WORKFLOW.md`, `docs/ARCHITECTURE.md`

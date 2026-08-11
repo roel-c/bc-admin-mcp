@@ -53,7 +53,7 @@ This server solves all three through progressive disclosure, use-case-driven too
 │                      AI Host (Cursor / Claude / Copilot)           │
 │                                                                     │
 │   The LLM sees exactly 2 tools:                                    │
-│   • discover_tools(path) — navigate the tool hierarchy             │
+│   • discover_tools(path, query?) — navigate or search hierarchy    │
 │   • execute_tool(tool_path, arguments) — invoke any tool           │
 └────────────────────────┬────────────────────────────────────────────┘
                          │ JSON-RPC 2.0 (stdio / Streamable HTTP / SSE)
@@ -186,9 +186,9 @@ This server solves all three through progressive disclosure, use-case-driven too
 
 **How it works:**
 
-The `discover_tools(path)` meta-tool navigates a hierarchical category tree. Calling it with an empty path returns the always-on roots (**`catalog`**, **`orders`**, **`customers`**, **`marketing`**, **`inventory`**, **`storefront`**, **`webhooks`**, **`carts`**), plus **`b2b`** when B2B Edition is enabled. Planned domains (e.g. `store/`) remain in the expansion roadmap and are **not** registered until tools exist (avoids empty `discover_tools` leaves). Drilling into a root (for example `"catalog"`) returns subcategories; drilling into e.g. `"catalog/products"` reveals tools and deeper categories.
+The `discover_tools(path, query?)` meta-tool navigates a hierarchical category tree. Calling it with an empty path returns the always-on roots (**`catalog`**, **`orders`**, **`customers`**, **`marketing`**, **`inventory`**, **`storefront`**, **`webhooks`**, **`carts`**), plus **`b2b`** when B2B Edition is enabled. Planned domains (e.g. `store/`) remain in the expansion roadmap and are **not** registered until tools exist (avoids empty `discover_tools` leaves). Drilling into a root (for example `"catalog"`) returns subcategories; drilling into e.g. `"catalog/products"` reveals tools and deeper categories. Passing a **tool path** returns that tool’s stub (deep-link). Passing **`query`** searches path segments and summaries (optional `path` scopes the search to a category). Unknown paths return **did-you-mean** suggestions instead of a bare miss.
 
-The `execute_tool(tool_path, arguments)` meta-tool invokes any tool by its full path. The full tool schema (parameters, types, descriptions) is never sent to the LLM — it lives server-side and is resolved when the tool is executed.
+The `execute_tool(tool_path, arguments)` meta-tool invokes any tool by its full path. Known playbook paths may be executed directly without rediscovering from root. The full tool schema (parameters, types, descriptions) is never sent to the LLM — it lives server-side and is resolved when the tool is executed.
 
 **Token impact (verified estimates):**
 - System prompt: ~600 tokens (2 meta-tool schemas)
@@ -198,7 +198,7 @@ The `execute_tool(tool_path, arguments)` meta-tool invokes any tool by its full 
 
 **Accuracy impact**: Anthropic's benchmarks show Opus 4 accuracy improving from 49% to 74% with lazy loading; Opus 4.5 from 79.5% to 88.1%. Fewer tools in view means better tool selection.
 
-**Implementation**: `internal/discovery/registry.go` — The `Registry` struct holds both `categories` (navigation nodes) and `tools` (leaf nodes with handlers). Categories are registered in `internal/server/server.go`; tools self-register via their domain package's `RegisterTools(reg)` method.
+**Implementation**: `internal/discovery/registry.go` + `search.go` — The `Registry` struct holds both `categories` (navigation nodes) and `tools` (leaf nodes with handlers). Categories are registered in `internal/server/server.go`; tools self-register via their domain package's `RegisterTools(reg)` method. Search / suggestions live in `Search` and `suggestPaths`.
 
 ---
 
@@ -373,7 +373,8 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `cmd/server/main.go` | ~65 | Entry point: config load, server wire, transport start, auth middleware |
 | `internal/config/config.go` | ~160 | Environment-based config with comprehensive validation |
 | `internal/server/server.go` | ~280 | MCP server wiring, category registration (all domains incl. full B2B subtree), tool registration |
-| `internal/discovery/registry.go` | ~310 | Progressive disclosure: hierarchy, meta-tools, registration-time validation |
+| `internal/discovery/registry.go` | ~360 | Progressive disclosure: hierarchy, meta-tools, registration-time validation, tool-path deep-link, did-you-mean on miss |
+| `internal/discovery/search.go` | ~180 | `Search` / `suggestPaths` for `discover_tools` query and suggestion ranking |
 | `internal/middleware/tiers.go` | ~80 | R0-R4 tier enforcement, `IsConfirmed` check, `CheckConfirmation` utility |
 | `internal/middleware/logging.go` | ~50 | Structured slog middleware wrapping all tool calls |
 | `internal/middleware/auth.go` | ~40 | Bearer token HTTP middleware with constant-time comparison |
@@ -435,7 +436,7 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/tools/catalog/brands.go` | ~495 | Brand list/get/create/update (preview→confirm on writes) |
 | `internal/tools/catalog/brands_metafields.go` | ~325 | Brand metafield list, set (upsert), delete (shared `metafield_*` core) |
 | `internal/tools/catalog/variants_global.go` | ~285 | Global variant list + batch update MCP handlers (`catalog/variants/list`, `bulk_update`) |
-| `internal/tools/catalog/channel_tools.go` | ~290 | `catalog/channels/list`, `catalog/channels/get`, `catalog/channels/update` (R2 preview→confirm), `catalog/channels/category_trees`; delegates listing tools; `validChannelStatuses` |
+| `internal/tools/catalog/channel_tools.go` | ~320 | `catalog/channels/list` (+ `active_only`), `get`, `update` (R2 preview→confirm), `category_trees`; delegates listing tools; `validChannelStatuses` |
 | `internal/tools/webhooks/webhook_tools.go` | ~310 | `webhooks/list|get|events` (R0), `webhooks/create|update` (R1 preview→confirm), `webhooks/delete` (R3); `parseHeadersJSON` helper; HTTPS destination validation |
 | `internal/tools/webhooks/interfaces.go` | ~25 | `WebhooksAPI` consumer-side interface + compile-time check |
 | `internal/tools/carts/cart_tools.go` | ~510 | `carts/cart/*` handlers: create, get, update, delete, item add/update/remove, checkout_url |
@@ -446,7 +447,8 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/tools/b2b/role_tools.go` | ~400 | `b2b/companies/roles/**` and `b2b/companies/permissions/**` handlers |
 | `internal/tools/b2b/hierarchy_tools.go` | ~165 | `b2b/companies/hierarchy/**` handlers |
 | `internal/tools/b2b/channel_order_tools.go` | ~245 | `b2b/channels/**` and `b2b/orders/**` handlers |
-| `internal/tools/b2b/quote_tools.go` | ~495 | `b2b/quotes/**` handlers including the `shipping/*` sub-tree |
+| `internal/tools/b2b/quote_tools.go` | ~600 | `b2b/quotes/**` handlers including the `shipping/*` sub-tree; `parseQuoteJSONBody` money rounding + currency string→object expand |
+| `internal/tools/b2b/quote_convert_tools.go` | ~530 | `b2b/quotes/convert_to_order` — batch quote→checkout→order→assign (≤10; prefer ≤3–5) |
 | `internal/tools/b2b/invoice_tools.go` | ~580 | `b2b/invoices/**` and `b2b/receipts/**` handlers; `create_from_order` resolves the BC order ID to B2B Edition's internal order ID via `GetB2BOrder` before calling the invoice endpoint |
 | `internal/tools/b2b/payment_tools.go` | ~310 | `b2b/payments/**` and `b2b/companies/payments\|credit\|payment_terms/**` handlers |
 | `internal/tools/b2b/payment_record_tools.go` | ~380 | `b2b/payment_records/**` handlers |
@@ -470,7 +472,7 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/middleware/tiers_test.go` | ~110 | Tier enforcement and IsConfirmed |
 | `internal/config/config_test.go` | ~170 | Config validation |
 | `internal/discovery/registry_test.go` | ~185 | Registry confirmed-param validation, tool discovery |
-| `internal/discovery/metatool_test.go` | ~235 | `discover_tools` / `execute_tool` meta-tool flows |
+| `internal/discovery/metatool_test.go` | ~280 | `discover_tools` / `execute_tool` meta-tool flows (incl. query search, deep-link, suggestions) |
 | `internal/server/registration_audit_test.go` | ~645 | Locks discovery shape: eight always-on roots (`catalog`, `orders`, `customers`, `marketing`, `inventory`, `storefront`, `webhooks`, `carts`); every active category has children; every tool's parent path exists; R1+ tools expose `confirmed`; BFS reachability; pricelist, orders, inventory, **carts/checkout**, storefront/webhooks subtrees; **b2b/ gating** (hidden when disabled, full subtree when enabled); and `TestFullRegistration{Category,Tool}SummaryLength` enforce ≤150 chars on every summary to prevent discovery token bloat |
 | `docs/SECURITY.md` | — | Security review findings, threat model, and remediation details |
 | `.gitignore` | — | Prevents `.env` and binaries from being committed |
@@ -576,9 +578,9 @@ b2b/                        — (Gated by BC_B2B_ENABLED) B2B Edition via api-b2
     b2b/companies/super_admins/ — Company-perspective Super Admin assignments: list/update
   b2b/channels/             — Storefront channels as seen by B2B Edition: list, get
   b2b/orders/               — B2B order metadata: get/update, assign/reassign to companies, extra fields
-  b2b/quotes/               — Sales quote lifecycle: list/get/create/update/delete/checkout/assign_to_order/pdf_export/extra_fields
+  b2b/quotes/               — Sales quote lifecycle: list/get/create/update/delete/checkout/convert_to_order/assign_to_order/pdf_export/extra_fields
     b2b/quotes/shipping/    — Quote shipping rates: list/select/remove/custom_methods
-  b2b/invoices/             — Invoices (distinct /ip base URL): list/get/download_pdf/extra_fields/create/create_from_order/update/delete
+  b2b/invoices/             — Invoices (distinct /ip base URL): list/get/download_pdf/extra_fields/create/create_from_order/create_from_orders/update/delete
   b2b/receipts/             — Payment receipts (same /ip base): list/get/delete
     b2b/receipts/lines/     — Receipt line items: list_all/list_for_receipt/get/delete
   b2b/payment_records/      — Payments logged against invoices (same /ip base): reads + offline create/update/operations/processing_status/delete
@@ -855,8 +857,9 @@ Pick any R1 tool (e.g. `catalog/categories/bulk_update`):
 
 For a broader, real-data pass beyond the two drills above — creating sample
 records across every domain (D2C variant) or additionally exercising B2B
-company/hierarchy/catalog-restriction/payment scenarios **plus** quote →
-checkout → order → invoice → offline payment (B2B variant) — see
+company/hierarchy/catalog-restriction/payment scenarios **plus** the
+composable commercial stages (quote→order via `convert_to_order`, then
+optional order→invoice and invoice→offline payment) — see
 [**`WORKFLOW.md` §10**](./WORKFLOW.md#10-full-surface-check-d2c--b2b). It's
 written as a step-by-step runbook (not a script) since it involves
 preview→confirm judgment calls, an explicit keep-or-delete decision point,

@@ -85,6 +85,20 @@ func (s *MetaToolSuite) callDiscover(path string) (*mcp.CallToolResult, error) {
 	return s.discoverFn(context.Background(), req)
 }
 
+func (s *MetaToolSuite) callDiscoverQuery(query, path string) (*mcp.CallToolResult, error) {
+	args := map[string]any{"query": query}
+	if path != "" {
+		args["path"] = path
+	}
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "discover_tools",
+			Arguments: args,
+		},
+	}
+	return s.discoverFn(context.Background(), req)
+}
+
 func (s *MetaToolSuite) callExecute(toolPath string, args map[string]any) (*mcp.CallToolResult, error) {
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -151,6 +165,53 @@ func (s *MetaToolSuite) TestDiscoverNonexistentReturnsError() {
 	result, err := s.callDiscover("nonexistent")
 	s.NoError(err)
 	s.True(result.IsError)
+}
+
+func (s *MetaToolSuite) TestDiscoverQueryFindsTools() {
+	result, err := s.callDiscoverQuery("search", "")
+	s.NoError(err)
+	s.False(result.IsError)
+
+	entries := s.parseJSON(result).([]any)
+	s.NotEmpty(entries)
+	found := false
+	for _, e := range entries {
+		if e.(map[string]any)["path"] == "catalog/products/search" {
+			found = true
+			break
+		}
+	}
+	s.True(found, "expected catalog/products/search in search results")
+}
+
+func (s *MetaToolSuite) TestDiscoverToolPathDeepLink() {
+	result, err := s.callDiscover("catalog/products/search")
+	s.NoError(err)
+	s.False(result.IsError)
+
+	entries := s.parseJSON(result).([]any)
+	s.Len(entries, 1)
+	s.Equal("catalog/products/search", entries[0].(map[string]any)["path"])
+	s.Equal("tool", entries[0].(map[string]any)["type"])
+}
+
+func (s *MetaToolSuite) TestDiscoverUnknownPathSuggests() {
+	result, err := s.callDiscover("products")
+	s.NoError(err)
+	s.True(result.IsError)
+	text := result.Content[0].(mcp.TextContent).Text
+	s.Contains(text, "did you mean")
+	s.Contains(text, "catalog/products")
+}
+
+func (s *MetaToolSuite) TestExecuteUnknownToolSuggests() {
+	result, err := s.callExecute("products/search", nil)
+	s.NoError(err)
+	s.True(result.IsError)
+	text := result.Content[0].(mcp.TextContent).Text
+	s.Contains(text, "not found")
+	s.Contains(text, "did you mean")
+	s.Contains(text, "catalog/products/search")
 }
 
 // --- execute_tool tests ---

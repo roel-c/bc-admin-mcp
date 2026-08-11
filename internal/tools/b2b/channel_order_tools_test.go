@@ -9,7 +9,7 @@ import (
 
 func (s *B2BCompanyToolsSuite) TestChannelListReturnsChannels() {
 	s.mockBC.EXPECT().ListB2BChannels(gomock.Any()).Return([]bigcommerce.B2BChannel{
-		{ID: 1, ChannelID: 1741970, Name: "MSF-B2BE", Type: "storefront", Status: "active"},
+		{ID: 1, ChannelID: 1001, Name: "B2B Storefront", Type: "storefront", Status: "active"},
 	}, nil)
 
 	res, err := s.callTool("b2b/channels/list", map[string]any{})
@@ -20,14 +20,14 @@ func (s *B2BCompanyToolsSuite) TestChannelListReturnsChannels() {
 }
 
 func (s *B2BCompanyToolsSuite) TestChannelGetReturnsChannel() {
-	s.mockBC.EXPECT().GetB2BChannel(gomock.Any(), 1741970).Return(&bigcommerce.B2BChannel{ID: 1, ChannelID: 1741970, Name: "MSF-B2BE"}, nil)
+	s.mockBC.EXPECT().GetB2BChannel(gomock.Any(), 1001).Return(&bigcommerce.B2BChannel{ID: 1, ChannelID: 1001, Name: "B2B Storefront"}, nil)
 
-	res, err := s.callTool("b2b/channels/get", map[string]any{"channel_id": float64(1741970)})
+	res, err := s.callTool("b2b/channels/get", map[string]any{"channel_id": float64(1001)})
 	s.NoError(err)
 	s.False(res.IsError)
 	data := s.parseJSON(res)
 	ch := data["channel"].(map[string]any)
-	s.Equal("MSF-B2BE", ch["name"])
+	s.Equal("B2B Storefront", ch["name"])
 }
 
 // --- b2b/orders ---

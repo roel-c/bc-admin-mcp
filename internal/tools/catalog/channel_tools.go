@@ -84,15 +84,19 @@ func (c *ChannelTools) RegisterTools(reg *discovery.Registry) {
 		Description: "Returns channels for the merchant’s store using Store Management GET /v3/channels " +
 			"(same OAuth token and store as other catalog tools). " +
 			"Requires OAuth scope store_channel_settings (or equivalent) on the API account. " +
-			"Optional type and status filters match the Management API query parameters.",
+			"Optional type and status filters match the Management API query parameters. " +
+			"Pass active_only=true to keep only storefront channels with status active or prelaunch " +
+			"(typical working set for MSF questions).",
 		Tool: mcp.NewTool("catalog_channels_list",
 			mcp.WithDescription(
 				"Request channels for the connected BigCommerce store (GET /v3/channels). "+
-					"Optional filters: type (e.g. storefront), status (e.g. active). "+
+					"Optional filters: type (e.g. storefront), status (e.g. active), active_only "+
+					"(storefronts in active or prelaunch). "+
 					"Response includes active_storefront_channel_count — values > 1 usually mean multi-storefront catalog operations should specify channel_id / tree context.",
 			),
 			mcp.WithString("type", mcp.Description("Optional filter passed as type= to the API (e.g. storefront).")),
 			mcp.WithString("status", mcp.Description("Optional filter passed as status= to the API (e.g. active).")),
+			mcp.WithBoolean("active_only", mcp.Description("When true, return only storefront channels with status active or prelaunch.")),
 		),
 		Handler: c.handleList,
 	})
@@ -139,6 +143,15 @@ func (c *ChannelTools) handleList(ctx context.Context, request mcp.CallToolReque
 		}
 	}
 
+	activeOnly := false
+	if v, ok := args["active_only"]; ok && v != nil {
+		b, ok := v.(bool)
+		if !ok {
+			return toolError("active_only must be a boolean"), nil
+		}
+		activeOnly = b
+	}
+
 	var query map[string]string
 	if len(params) > 0 {
 		query = params
@@ -149,15 +162,20 @@ func (c *ChannelTools) handleList(ctx context.Context, request mcp.CallToolReque
 		return toolError("failed to list channels: %v", err), nil
 	}
 
+	if activeOnly {
+		filtered := make([]bigcommerce.StoreChannel, 0, len(channels))
+		for i := range channels {
+			if isActiveStorefront(channels[i]) {
+				filtered = append(filtered, channels[i])
+			}
+		}
+		channels = filtered
+	}
+
 	activeStorefronts := 0
 	for i := range channels {
-		if channels[i].Type != "storefront" {
-			continue
-		}
-		switch channels[i].Status {
-		case "active", "prelaunch":
+		if isActiveStorefront(channels[i]) {
 			activeStorefronts++
-		default:
 		}
 	}
 
@@ -166,8 +184,21 @@ func (c *ChannelTools) handleList(ctx context.Context, request mcp.CallToolReque
 		"channels":                        channels,
 		"active_storefront_channel_count": activeStorefronts,
 		"multi_storefront_likely":         activeStorefronts > 1,
+		"active_only":                     activeOnly,
 		"api":                             "GET /v3/channels (Management API)",
 	})
+}
+
+func isActiveStorefront(ch bigcommerce.StoreChannel) bool {
+	if ch.Type != "storefront" {
+		return false
+	}
+	switch ch.Status {
+	case "active", "prelaunch":
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *ChannelTools) handleCategoryTrees(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

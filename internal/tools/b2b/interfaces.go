@@ -2,6 +2,7 @@ package b2b
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 )
@@ -149,4 +150,21 @@ var _ BCCustomerManager = (*bigcommerce.Client)(nil)
 type BCCustomerManager interface {
 	SearchCustomers(ctx context.Context, params map[string]string) ([]bigcommerce.Customer, error)
 	DeleteCustomers(ctx context.Context, ids []int) error
+}
+
+// Compile-time check that *bigcommerce.Client satisfies QuoteCheckoutAPI.
+var _ QuoteCheckoutAPI = (*bigcommerce.Client)(nil)
+
+// QuoteCheckoutAPI is the cart/checkout + order subset used by
+// b2b/quotes/convert_to_order. It intentionally stops at order creation —
+// invoice and payment remain separate stage tools.
+type QuoteCheckoutAPI interface {
+	GetCart(ctx context.Context, cartID string, includeRedirectURLs bool) (*bigcommerce.Cart, error)
+	UpdateCart(ctx context.Context, cartID string, payload bigcommerce.CartUpdate) (*bigcommerce.Cart, error)
+	SetBillingAddress(ctx context.Context, checkoutID string, addr bigcommerce.CheckoutAddressInput) (*bigcommerce.Checkout, error)
+	AddConsignment(ctx context.Context, checkoutID string, consignment bigcommerce.CheckoutConsignmentInput) (*bigcommerce.Checkout, error)
+	UpdateConsignment(ctx context.Context, checkoutID, consignID string, update bigcommerce.CheckoutConsignmentUpdate) (*bigcommerce.Checkout, error)
+	ConvertCheckoutToOrder(ctx context.Context, checkoutID string) (*bigcommerce.CheckoutOrderResult, error)
+	UpdateOrderStatus(ctx context.Context, orderID, statusID int) (*bigcommerce.Order, error)
+	UpdateOrder(ctx context.Context, orderID int, payload json.RawMessage) (*bigcommerce.Order, error)
 }

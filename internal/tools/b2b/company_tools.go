@@ -24,6 +24,7 @@ import (
 type CompanyTools struct {
 	bc        B2BCompanyAPI
 	customers BCCustomerManager
+	checkout  QuoteCheckoutAPI
 	cache     *session.Store
 	uploadDir string
 	// sleepFn overrides context-aware sleep used by B2B order-index retries.
@@ -38,6 +39,12 @@ type CompanyTools struct {
 // uploads.
 func NewCompanyTools(bc B2BCompanyAPI, customers BCCustomerManager, cache *session.Store, uploadDir string) *CompanyTools {
 	return &CompanyTools{bc: bc, customers: customers, cache: cache, uploadDir: uploadDir}
+}
+
+// SetCheckoutAPI wires cart/checkout/order helpers required by
+// b2b/quotes/convert_to_order. Pass the store Management API client.
+func (ct *CompanyTools) SetCheckoutAPI(api QuoteCheckoutAPI) {
+	ct.checkout = api
 }
 
 // SetSleepForTest replaces the sleep used by B2B order-index retries. Intended for unit tests only.

@@ -58,7 +58,7 @@ BigCommerce documents 11 server-to-server resource families:
 | `b2b/companies/list` | R0 | List companies; filter by status/name/email |
 | `b2b/companies/get` | R0 | Get company details by ID |
 | `b2b/companies/create` | R1 | Create company + initial admin user (supports `extra_fields_json`, `customer_group_id`, MSF `origin_channel_id`/`channel_ids`, and linking an existing BC customer via `bc_customer_id`) |
-| `b2b/companies/bulk_create` | R1 | Create up to 10 companies in one call (`companies_json`; same required fields as create) |
+| `b2b/companies/bulk_create` | R1 | Create up to 10 companies in one call (`companies_json`; same required fields as create). Live `POST /companies/bulk` returns IDs in `data:[{companyId}]` with `meta:{message}` (OpenAPI’s meta-array example is also accepted) |
 | `b2b/companies/update` | R1 | Update profile fields (supports `extra_fields_json`, `customer_group_id`); response is sparse — the tool re-fetches before returning |
 | `b2b/companies/set_status` | R2 | Approve, reject, deactivate |
 | `b2b/companies/delete` | R3 | Permanently delete company + all users; also deletes the users' linked BC customer accounts by default (`delete_bc_customers=false` to keep) |
@@ -145,13 +145,13 @@ BigCommerce documents 11 server-to-server resource families:
 
 **Customer group assignment (catalog/pricing visibility):** a company's buyers see the products/pricing determined by its linked BigCommerce customer group. Pass `customer_group_id` on `b2b/companies/create` or `update` to assign one — but this only takes effect on stores using **Independent Companies** behavior (the default for new stores since Oct 2024). On legacy **Dependent Companies** stores, BC Edition auto-creates and permanently 1:1-links a group per company instead, and `customer_group_id` is ignored. There is no MCP tool to detect which mode a store is in directly; infer it by creating a company and checking whether `bc_group_id` populates without you setting `customer_group_id` (Dependent) or stays `0` (Independent). To restrict a company to a specific catalog slice: create a category scoped to the intended storefront channel, create a customer group with `category_access_type: "specific"` scoped to that category (`customers/groups/create`), then assign that group's ID as `customer_group_id` on the company. Multiple companies (e.g. a parent and its subsidiaries) may share the same group/category restriction — live-validated in `WORKFLOW.md` §10.3.
 
-**MSF storefront-channel scoping:** when the target storefront matters (for example a B2B buyer should belong to `MSF-B2BE`, not another storefront on the same store), do **not** rely on B2B Edition's implicit BC-customer creation **or** omit B2B `channelIds`. Instead:
+**MSF storefront-channel scoping:** when the target storefront matters (for example a B2B buyer should belong to one specific B2B-enabled channel, not another storefront on the same store), do **not** rely on B2B Edition's implicit BC-customer creation **or** omit B2B `channelIds`. Instead:
 
 1. Create the underlying BigCommerce customers first via `customers/create` with `origin_channel_id` and `channel_ids` set to the target storefront channel.
 2. Pass those IDs into `b2b/companies/create` or `b2b/companies/users/create` / `bulk_create` as `bc_customer_id`.
-3. Also pass B2B Edition's own `origin_channel_id` / `channel_ids` on company and user create (maps to API `originChannelId` / `channelIds`). These control Buyer Portal **Channel Access**. Omitting them lets B2B Edition apply platform defaults — live-observed on this MSF store to expand linked BC customers' `channel_ids` to include an extra B2B-enabled storefront (e.g. MSF-Demo-UK). The B2B Create Company User API marks `channelIds` as required.
+3. Also pass B2B Edition's own `origin_channel_id` / `channel_ids` on company and user create (maps to API `originChannelId` / `channelIds`). These control Buyer Portal **Channel Access**. Omitting them lets B2B Edition apply platform defaults — live-observed on MSF stores to expand linked BC customers' `channel_ids` to include an extra B2B-enabled storefront. The B2B Create Company User API marks `channelIds` as required.
 
-Operationally, any future **D2C or B2B surface check** in an MSF store should begin with an explicit question: which storefront channel or channels should own the test data? `catalog/channels/list` is the reliable human-readable source for channel names; `b2b/channels/list` confirms which storefront channels B2B Edition sees (B2B runs only).
+Operationally, any future **D2C or B2B surface check** in an MSF store should begin with an explicit question: which storefront channel or channels should own the test data? `catalog/channels/list` with `active_only: true` is the reliable human-readable source for working channel names; `b2b/channels/list` confirms which storefront channels B2B Edition sees (B2B runs only).
 
 **Deferred (management API, needs a focused pass):** bulk-create companies (unusual `data.errors`+`meta[]` envelope), batch update `PUT /companies` (redundant with per-id update), and convert customer-group→company (legacy Dependent-behavior migration).
 
@@ -167,11 +167,12 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 |------|------|-------------|
 | `b2b/quotes/list` | R0 | List quotes; filter by company/salesRep/status/date ranges |
 | `b2b/quotes/get` | R0 | Full detail: line items, addresses, shipping method, message history |
-| `b2b/quotes/create` | R1 | Create a quote (`quote_json`); **must include `companyId`** for Buyer Portal visibility (contact email/name alone are insufficient); visible to the buyer immediately unless `allowCheckout=false` |
-| `b2b/quotes/update` | R1 | Partial update (`quote_json`); `productList` updates replace the full line-item set |
+| `b2b/quotes/create` | R1 | Create a quote (`quote_json`); **must include `companyId`** for Buyer Portal visibility (contact email/name alone are insufficient); visible to the buyer immediately unless `allowCheckout=false`. Known money fields (`subtotal`/`discount`/`grandTotal` and productList `basePrice`/`offeredPrice`/`discount`) are rounded to 2 decimals before send; `currency` may be an ISO code string (USD expands to the full display object `POST /rfq` requires; other codes get a thin object) or a full currency object |
+| `b2b/quotes/update` | R1 | Partial update (`quote_json`); `productList` updates replace the full line-item set; same 2-decimal money normalize and currency string→object expand as create |
 | `b2b/quotes/delete` | R3 | Permanently delete (use `update` with `status=archived` to hide instead) |
 | `b2b/quotes/checkout` | R1 | Generate cart + checkout URLs (status New/In Process/Updated by Customer only) |
-| `b2b/quotes/assign_to_order` | R2 | Associate an existing BC order with a quote (`POST /rfq/{id}/ordered`). **Required** after Management API `carts/checkout/convert` on a quote cart; storefront/Buyer Portal checkout via the quote `checkoutUrl` links natively instead |
+| `b2b/quotes/convert_to_order` | R2 | Convert up to 10 quotes → BC orders in one preview→confirm (shipping → checkout → customer → consignment → convert → status → assign). Prefer **≤3–5** `quote_ids` per call (each quote is ~8–12 BC round-trips; larger batches may hit MCP client timeouts while work continues). Already-ordered quotes (`bcOrderId` set) return as `already_converted` (safe retry). Stops at Ordered quotes; `partial_success` supported. Does **not** invoice or take payment |
+| `b2b/quotes/assign_to_order` | R2 | Associate an existing BC order with a quote (`POST /rfq/{id}/ordered`). **Required** after Management API `carts/checkout/convert` on a quote cart; storefront/Buyer Portal checkout via the quote `checkoutUrl` links natively instead. Prefer `convert_to_order` when converting many quotes |
 | `b2b/quotes/pdf_export` | R0 | Backend-detail PDF download link (optional currency override) |
 | `b2b/quotes/extra_fields` | R0 | List quote extra-field definitions |
 | `b2b/quotes/shipping/rates` | R0 | Available static/real-time shipping rates (requires a shipping address on the quote) |
@@ -190,6 +191,8 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
   (`422 Quote has already been ordered`).
 - `expiredAt` must be `MM/DD/YYYY` (BC's own 422 message has an unrendered `%D` template placeholder — cosmetic bug on their side).
 - `POST /rfq` requires `discount` (top-level) and each `productList` item needs `basePrice` + `offeredPrice` + `discount` (prefer numbers; include `variantId`), none of which are marked required in the OpenAPI schema.
+- **`currency` must be an object** on `POST /rfq` (a bare `"USD"` string 422s). `b2b/quotes/create` / `update` expand an ISO code string before send: **`USD`** gets the full display object (`token` `$`, `location` `left`, decimal/thousands tokens, `decimalPlaces` 2, `currencyExchangeRate` `"1.0000000000"`); other codes get a thin object (`currencyCode` + exchange rate `1.0` only). Pass a full currency object for non-USD / multi-currency stores (passthrough; no store-currency lookup). Money fields remain rounded to 2 decimals regardless.
+- **Checkout recalculates tax.** `b2b/quotes/convert_to_order` builds a real cart/checkout; order totals (and line `price_inc_tax`) can differ from the quote's `grandTotal` / pre-tax line prices. Jurisdiction (shipping address) drives the difference — convert does not preserve quote totals 1:1.
 - `PUT /rfq/{id}/shipping-rate` (select) returns `data: []` on success, not the updated quote — don't expect quote detail back from that call.
 - `/rfq/{id}/shipping-rates` (plural, GET) vs `/rfq/{id}/shipping-rate` (singular, PUT/DELETE) — mixing them returns BC's own 405.
 
@@ -259,26 +262,51 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 
 ---
 
-### Playbook: order → invoice → partial pay (MCP-only)
+### Playbooks: composable commercial stages (MCP-only)
 
-Use this when placing B2B-visible orders and logging invoice payments without a storefront checkout session. Keep preview→confirm on every R1+ step; prefer batch tools so each confirm covers more work.
+Quote → order, order → invoice, and invoice → payment are **independent stages**. Use only the stage(s) the operator asked for. **Never auto-chain** into the next stage (e.g. do not invoice after converting quotes unless invoicing was requested).
 
-1. **Resolve the buyer’s BC customer ID** from `b2b/companies/users/list` (or `get`) — use the enriched `bc_customer_id`. Do **not** re-query `customers/list` by email unless enrichment returned `0`.
-2. **Create the order(s)** with `orders/management/create`: set `customer_id` to that BC customer ID, `channel_id` to the B2B-enabled storefront, `status_id` to a non-Incomplete status (e.g. `7` Awaiting Payment), and include billing + shipping addresses plus `products[]`.
-3. **Set PO numbers** with `b2b/orders/update` — the tool waits briefly for B2B indexing (no agent-side sleep). If `companyId` is still missing after a long wait, call `b2b/orders/assign_customer_orders` for that BC `customer_id`.
-4. **Invoice in one batch** with `b2b/invoices/create_from_orders` (`order_ids` ≤ 10). It waits for indexing + `companyId` per order and reports `partial_success` if some fail. Record invoice ids from the response.
-5. **Pay in one batch per company** — `b2b/payment_records/create_offline` with all invoice ids and either explicit amounts or `pay_percent: 50` (amounts resolved from each invoice’s `originalBalance` and shown in preview):
+Keep preview→confirm on every R1+ step; prefer batch tools so each confirm covers more work.
+
+| Stage | When to use | Tool(s) | Stop condition |
+|------|-------------|---------|----------------|
+| A — Quote → order | “Convert these quotes to orders” | `b2b/quotes/convert_to_order` (`quote_ids` ≤ 10, prefer ≤3–5; optional `shipping_method_id`, `status_id` default `7`, `payment_method`) | BC orders exist; quotes Ordered (`bcOrderId` set) |
+| B — Order → invoice | “Invoice these orders” | `b2b/invoices/create_from_orders` (`order_ids` ≤ 10) | Invoices exist |
+| C — Invoice → payment | “Take payment on these invoices” | `b2b/payment_records/create_offline` (multi-invoice `line_items_json` per company; optional `pay_percent`) | Payment records logged |
+
+#### Stage A — quote → order
+
+1. Ensure quotes exist and are convertible (status New / In Process / Updated by Customer).
+2. Call `b2b/quotes/convert_to_order` with `quote_ids` (preview, then `confirmed=true`). Prefer **≤3–5 ids per call** — each quote is a multi-call checkout pipeline; batches near 10 may timeout at the MCP client even when server-side work finishes. Already-ordered quotes (`bcOrderId` set) return as `already_converted` so retries after a timeout are safe. The tool selects shipping if needed, runs checkout, resolves `customer_id` from `contactInfo.email` / company users, converts, sets status (default Awaiting Payment), optionally stamps `payment_method`, and assigns each quote to its order. Expect order totals to include checkout tax (may differ from quote `grandTotal`).
+3. Stop. Report `order_id`s. Do **not** continue to Stage B unless asked.
+
+Manual cart/checkout tools (`b2b/quotes/checkout` + `carts/*` + `assign_to_order`) remain available for single-step debugging; prefer `convert_to_order` for batches.
+
+#### Stage B — order → invoice
+
+1. Call `b2b/invoices/create_from_orders` with BC `order_ids` (≤ 10). It waits for B2B indexing + `companyId` per order and reports `partial_success` if some fail.
+2. Stop. Record invoice ids. Do **not** continue to Stage C unless asked.
+
+Optional follow-up (not required for invoicing): stamp order `payment_method` / external ids via `orders/management/update` — invoice already carries `orderNumber`.
+
+#### Stage C — invoice → payment
+
+1. Call `b2b/payment_records/create_offline` with all invoice ids for one company in `line_items_json`, either explicit amounts or `pay_percent` (shown in preview):
    ```json
    {
      "line_items_json": "[{\"invoiceId\":12674572},{\"invoiceId\":12674575}]",
      "pay_percent": 50,
-     "customer_id": "13926566",
+     "customer_id": "10001",
      "currency": "USD"
    }
    ```
-6. **Verify** with `b2b/invoices/get` (open balance down; status partially paid or completed) and optionally `b2b/payment_records/get`.
+2. Verify with `b2b/invoices/get` (open balance down) and optionally `b2b/payment_records/get`.
 
-**Don’t:** one offline-payment or invoice call per order when a batch tool fits; guest/`customer_id: 0` orders (they never get a B2B `companyId`); Incomplete orders (invoice create will fail).
+#### Alternate: management-created orders → invoice → pay
+
+When orders are **not** coming from quotes, create them with `orders/management/create` (`customer_id` from enriched `bc_customer_id`, non-Incomplete `status_id`, addresses + products), optionally set PO via `b2b/orders/update`, then use Stage B / C above.
+
+**Don’t:** chain Stage A→B→C without an explicit ask for each stage; one offline-payment or invoice call per order when a batch tool fits; guest/`customer_id: 0` orders (they never get a B2B `companyId`); Incomplete orders (invoice create will fail).
 
 ---
 
@@ -297,14 +325,19 @@ Confirmed live against a POC store while validating the quote → order → invo
      `checkoutUrl` from `b2b/quotes/checkout` (typically with
      `isFromQuote=Y`) links the quote to the order natively — the B2B
      frontend calls GraphQL `quoteOrdered`.
-   - **MCP / Management API path:** `b2b/quotes/checkout` only creates a
-     cart + URLs. Finishing that cart with `carts/checkout/convert` creates
-     a BC order but leaves the quote **In Process** with empty
-     `bcOrderId`. Call `b2b/quotes/assign_to_order` (`POST
-     /rfq/{quote_id}/ordered` with the **BigCommerce** order ID) to mark
-     the quote Ordered and attach `bcOrderId`. Live-confirmed 2026-07-22
-     during the MCP-only surface check.
-5. Once an order has both a real status (not Incomplete) and, for B2B invoicing, a `companyId`, `b2b/invoices/create_from_order` succeeds.
+   - **Preferred MCP path:** `b2b/quotes/convert_to_order` runs checkout →
+     customer/consignment → convert → `update_status` (default Awaiting
+     Payment) → `assign_to_order` server-side for up to 10 quotes. Prefer
+     this over the manual dance below.
+   - **Manual MCP / Management API path:** `b2b/quotes/checkout` only
+     creates a cart + URLs. Finishing that cart with
+     `carts/checkout/convert` creates a BC order but leaves the quote
+     **In Process** with empty `bcOrderId`. You must then
+     `orders/management/update_status` off Incomplete and call
+     `b2b/quotes/assign_to_order` (`POST /rfq/{quote_id}/ordered` with the
+     **BigCommerce** order ID). Live-confirmed 2026-07-22 during the
+     MCP-only surface check.
+5. Once an order has both a real status (not Incomplete) and, for B2B invoicing, a `companyId`, `b2b/invoices/create_from_order` / `create_from_orders` succeeds. That is **Stage B** — only run it when invoicing was requested (see composable playbooks above).
 
 ---
 

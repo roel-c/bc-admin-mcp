@@ -21,12 +21,13 @@ import (
 
 type B2BCompanyToolsSuite struct {
 	suite.Suite
-	ctrl        *gomock.Controller
-	mockBC      *MockB2BCompanyAPI
-	mockDeleter *MockBCCustomerManager
-	ct          *b2b.CompanyTools
-	reg         *discovery.Registry
-	uploadDir   string
+	ctrl         *gomock.Controller
+	mockBC       *MockB2BCompanyAPI
+	mockDeleter  *MockBCCustomerManager
+	mockCheckout *MockQuoteCheckoutAPI
+	ct           *b2b.CompanyTools
+	reg          *discovery.Registry
+	uploadDir    string
 }
 
 func TestB2BCompanyToolsSuite(t *testing.T) {
@@ -37,8 +38,10 @@ func (s *B2BCompanyToolsSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.mockBC = NewMockB2BCompanyAPI(s.ctrl)
 	s.mockDeleter = NewMockBCCustomerManager(s.ctrl)
+	s.mockCheckout = NewMockQuoteCheckoutAPI(s.ctrl)
 	s.uploadDir = s.T().TempDir()
 	s.ct = b2b.NewCompanyTools(s.mockBC, s.mockDeleter, session.NewStore(60*time.Second), s.uploadDir)
+	s.ct.SetCheckoutAPI(s.mockCheckout)
 	// Order-index retries must not sleep in unit tests.
 	s.ct.SetSleepForTest(func(context.Context, time.Duration) error { return nil })
 	s.reg = discovery.NewRegistry()
@@ -224,18 +227,18 @@ func (s *B2BCompanyToolsSuite) TestCompanyCreateWithChannelIDsPreview() {
 		"admin_email":       "admin@acme.com",
 		"admin_first_name":  "Admin",
 		"admin_last_name":   "User",
-		"origin_channel_id": float64(1741970),
-		"channel_ids":       []any{float64(1741970)},
+		"origin_channel_id": float64(1001),
+		"channel_ids":       []any{float64(1001)},
 	})
 	s.NoError(err)
 	s.False(res.IsError)
 	data := s.parseJSON(res)
 	s.Equal("preview", data["status"])
 	payload := data["payload"].(map[string]any)
-	s.Equal(float64(1741970), payload["originChannelId"])
+	s.Equal(float64(1001), payload["originChannelId"])
 	chs := payload["channelIds"].([]any)
 	s.Require().Len(chs, 1)
-	s.Equal(float64(1741970), chs[0])
+	s.Equal(float64(1001), chs[0])
 }
 
 func (s *B2BCompanyToolsSuite) TestCompanyCreateRejectsInvalidChannelIDs() {
@@ -582,18 +585,18 @@ func (s *B2BCompanyToolsSuite) TestUserCreateWithChannelIDsPreview() {
 		"first_name":        "Jane",
 		"last_name":         "Doe",
 		"role":              float64(1),
-		"origin_channel_id": float64(1741970),
-		"channel_ids":       []any{float64(1741970)},
+		"origin_channel_id": float64(1001),
+		"channel_ids":       []any{float64(1001)},
 	})
 	s.NoError(err)
 	s.False(res.IsError)
 	data := s.parseJSON(res)
 	s.Equal("preview", data["status"])
 	payload := data["payload"].(map[string]any)
-	s.Equal(float64(1741970), payload["originChannelId"])
+	s.Equal(float64(1001), payload["originChannelId"])
 	chs := payload["channelIds"].([]any)
 	s.Require().Len(chs, 1)
-	s.Equal(float64(1741970), chs[0])
+	s.Equal(float64(1001), chs[0])
 }
 
 func (s *B2BCompanyToolsSuite) TestUserCreateConfirmed() {

@@ -109,6 +109,8 @@ func (r *Registry) validateConfirmedParam(def *ToolDef) {
 
 // Discover returns the children of a category path as lightweight stubs.
 // If path is empty, returns root-level categories.
+// If path is a registered tool, returns a single-element stub for that tool
+// (deep-link — skip parent drill-down when the full path is already known).
 func (r *Registry) Discover(path string) ([]DiscoveryEntry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -117,9 +119,19 @@ func (r *Registry) Discover(path string) ([]DiscoveryEntry, error) {
 		return r.rootEntries(), nil
 	}
 
+	if tool, ok := r.tools[path]; ok {
+		return []DiscoveryEntry{{
+			Path:    tool.Path,
+			Type:    "tool",
+			Summary: tool.Summary,
+			Tier:    string(tool.Tier),
+		}}, nil
+	}
+
 	cat, ok := r.categories[path]
 	if !ok {
-		return nil, fmt.Errorf("category %q not found", path)
+		suggestions := r.suggestPaths(path, maxSuggestions)
+		return nil, fmt.Errorf("%s", formatNotFound("category", path, suggestions))
 	}
 
 	entries := make([]DiscoveryEntry, 0, len(cat.Children))
@@ -232,13 +244,18 @@ func (r *Registry) MetaTools(tierEnforcer *middleware.TierEnforcer) []server.Ser
 		{
 			Tool: mcp.NewTool("discover_tools",
 				mcp.WithDescription(
-					"Navigate the BigCommerce tool hierarchy. "+
-						"Pass an empty path to see top-level categories, "+
-						"or a category path like 'catalog' or 'catalog/products' to see its children.",
+					"Navigate or search the BigCommerce tool hierarchy. "+
+						"Empty path → root categories. Category path → children. "+
+						"Tool path → that tool stub (deep-link). "+
+						"Pass query to search paths/summaries (optional path scopes the search). "+
+						"Unknown paths return did-you-mean suggestions.",
 				),
 				mcp.WithString("path",
-					mcp.Description("Category path to explore. Empty string for root."),
+					mcp.Description("Category or tool path to explore. Empty string for root. With query, optional category scope."),
 					mcp.DefaultString(""),
+				),
+				mcp.WithString("query",
+					mcp.Description("Search paths and summaries (e.g. \"channels\", \"quote\"). Prefer this over guessing nested paths."),
 				),
 			),
 			Handler: r.handleDiscover,
@@ -247,7 +264,8 @@ func (r *Registry) MetaTools(tierEnforcer *middleware.TierEnforcer) []server.Ser
 			Tool: mcp.NewTool("execute_tool",
 				mcp.WithDescription(
 					"Execute a BigCommerce tool by its full path. "+
-						"Use discover_tools first to find available tools and their paths.",
+						"For known playbook paths (e.g. catalog/channels/list) call directly; "+
+						"otherwise use discover_tools (path drill-down or query search) first.",
 				),
 				mcp.WithString("tool_path",
 					mcp.Description("Full tool path, e.g. 'catalog/products/search'"),
@@ -264,8 +282,17 @@ func (r *Registry) MetaTools(tierEnforcer *middleware.TierEnforcer) []server.Ser
 
 func (r *Registry) handleDiscover(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	path := request.GetString("path", "")
+	query := strings.TrimSpace(request.GetString("query", ""))
 
-	entries, err := r.Discover(path)
+	var (
+		entries []DiscoveryEntry
+		err     error
+	)
+	if query != "" {
+		entries, err = r.Search(query, path)
+	} else {
+		entries, err = r.Discover(path)
+	}
 	if err != nil {
 		return &mcp.CallToolResult{
 			IsError: true,
@@ -293,9 +320,15 @@ func (r *Registry) handleExecute(tierEnforcer *middleware.TierEnforcer) server.T
 
 		def := r.GetTool(toolPath)
 		if def == nil {
+			r.mu.RLock()
+			suggestions := r.suggestPaths(toolPath, maxSuggestions)
+			r.mu.RUnlock()
 			return &mcp.CallToolResult{
 				IsError: true,
-				Content: []mcp.Content{mcp.TextContent{Type: "text", Text: fmt.Sprintf("tool %q not found", toolPath)}},
+				Content: []mcp.Content{mcp.TextContent{
+					Type: "text",
+					Text: formatNotFound("tool", toolPath, suggestions),
+				}},
 			}, nil
 		}
 
