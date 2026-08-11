@@ -377,9 +377,9 @@ type Product struct {
 // endpoint uses "path". Both are deserialized; GetPath() returns whichever
 // is populated.
 type CustomURL struct {
-	URL          string `json:"url"`
-	Path         string `json:"path"`
-	IsCustomized bool   `json:"is_customized"`
+	URL          string `json:"url,omitempty"`
+	Path         string `json:"path,omitempty"`
+	IsCustomized bool   `json:"is_customized,omitempty"`
 }
 
 // GetPath returns the URL path regardless of which API shape populated it.
@@ -769,19 +769,21 @@ type Category struct {
 }
 
 // CategoryCreate is the payload for creating a new category via
-// PUT /v3/catalog/trees/categories. Required: name, tree_id, parent_id.
+// POST /v3/catalog/trees/categories. Required: name, plus tree_id (roots) or parent_id (children).
+// Prefer setting URL.Path to a unique hierarchical slug for reliable batch creates.
 type CategoryCreate struct {
-	Name               string `json:"name"`
-	TreeID             int    `json:"tree_id,omitempty"`
-	ParentID           int    `json:"parent_id,omitempty"`
-	Description        string `json:"description,omitempty"`
-	PageTitle          string `json:"page_title,omitempty"`
-	MetaDescription    string `json:"meta_description,omitempty"`
-	SearchKeywords     string `json:"search_keywords,omitempty"`
-	IsVisible          *bool  `json:"is_visible,omitempty"`
-	SortOrder          int    `json:"sort_order,omitempty"`
-	DefaultProductSort string `json:"default_product_sort,omitempty"`
-	ImageURL           string `json:"image_url,omitempty"`
+	Name               string     `json:"name"`
+	TreeID             int        `json:"tree_id,omitempty"`
+	ParentID           int        `json:"parent_id,omitempty"`
+	Description        string     `json:"description,omitempty"`
+	PageTitle          string     `json:"page_title,omitempty"`
+	MetaDescription    string     `json:"meta_description,omitempty"`
+	SearchKeywords     string     `json:"search_keywords,omitempty"`
+	IsVisible          *bool      `json:"is_visible,omitempty"`
+	SortOrder          int        `json:"sort_order,omitempty"`
+	DefaultProductSort string     `json:"default_product_sort,omitempty"`
+	ImageURL           string     `json:"image_url,omitempty"`
+	URL                *CustomURL `json:"url,omitempty"`
 }
 
 // CategoryUpdate is the payload for updating an existing category via

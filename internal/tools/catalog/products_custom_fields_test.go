@@ -3,6 +3,7 @@ package catalog_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,6 +140,60 @@ func (s *CustomFieldToolSuite) TestCustomFieldSetUpdateExecute() {
 	data := s.parseJSON(result)
 	s.Equal("completed", data["status"])
 	s.Equal("updated", data["action"])
+}
+
+func (s *CustomFieldToolSuite) TestCustomFieldBulkSetPreview() {
+	s.mockBC.EXPECT().ListProductCustomFields(gomock.Any(), 1).Return([]bigcommerce.ProductCustomField{
+		{ID: 5, Name: "Franchise", Value: "Old"},
+	}, nil)
+
+	result, err := s.callTool("catalog/products/custom_fields/bulk_set", map[string]any{
+		"product_id":  float64(1),
+		"fields_json": `[{"name":"Franchise","value":"Tron"},{"name":"Manufacturer","value":"ENCOM"}]`,
+	})
+	s.NoError(err)
+	data := s.parseJSON(result)
+	s.Equal("pending_confirmation", data["status"])
+	s.Equal(float64(2), data["count"])
+	fields := data["fields"].([]any)
+	s.Equal("update", fields[0].(map[string]any)["action"])
+	s.Equal("create", fields[1].(map[string]any)["action"])
+}
+
+func (s *CustomFieldToolSuite) TestCustomFieldBulkSetConfirmed() {
+	s.mockBC.EXPECT().ListProductCustomFields(gomock.Any(), 1).Return([]bigcommerce.ProductCustomField{
+		{ID: 5, Name: "Franchise", Value: "Old"},
+	}, nil)
+	s.mockBC.EXPECT().UpdateProductCustomField(gomock.Any(), 1, 5, gomock.Any()).Return(&bigcommerce.ProductCustomField{
+		ID: 5, Name: "Franchise", Value: "Tron",
+	}, nil)
+	s.mockBC.EXPECT().CreateProductCustomField(gomock.Any(), 1, gomock.Any()).Return(&bigcommerce.ProductCustomField{
+		ID: 6, Name: "Manufacturer", Value: "ENCOM",
+	}, nil)
+
+	result, err := s.callTool("catalog/products/custom_fields/bulk_set", map[string]any{
+		"product_id":  float64(1),
+		"fields_json": `[{"name":"Franchise","value":"Tron"},{"name":"Manufacturer","value":"ENCOM"}]`,
+		"confirmed":   true,
+	})
+	s.NoError(err)
+	data := s.parseJSON(result)
+	s.Equal("completed", data["status"])
+	s.Equal(float64(2), data["count"])
+}
+
+func (s *CustomFieldToolSuite) TestCustomFieldBulkSetRejectsOverTwenty() {
+	rows := make([]string, 21)
+	for i := range rows {
+		rows[i] = `{"name":"F","value":"V"}`
+	}
+	result, err := s.callTool("catalog/products/custom_fields/bulk_set", map[string]any{
+		"product_id":  float64(1),
+		"fields_json": "[" + strings.Join(rows, ",") + "]",
+		"confirmed":   true,
+	})
+	s.NoError(err)
+	s.True(result.IsError)
 }
 
 func (s *CustomFieldToolSuite) TestCustomFieldDeleteByName() {

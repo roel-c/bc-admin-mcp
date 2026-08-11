@@ -53,7 +53,7 @@ Not every doc here needs to be read up front. Use this table to find the right o
 | Doc | Read this if... |
 |---|---|
 | **This README** | You're setting up or operating the server |
-| **[docs/AGENT.md](./docs/AGENT.md)** | You're an agent/LLM calling tools — operating rules, safety, tiers, response format; Script Manager frontend injection points to an external Stencil guide |
+| **[docs/AGENT.md](./docs/AGENT.md)** | You're an agent/LLM calling tools — operating rules, **Playbook Scope Rules**, safety, tiers, response format; Script Manager frontend injection points to an external Stencil guide |
 | **[docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)** | You need exact numeric caps, OAuth scopes, or tier policy |
 | **[docs/B2B.md](./docs/B2B.md)** | You're using or extending the B2B Edition tools |
 | **[docs/WORKFLOW.md](./docs/WORKFLOW.md)** | You're adding a new tool/endpoint (contributor cadence) |
@@ -259,7 +259,8 @@ A human-browsable snapshot of every tool path, for skimming without a running se
 | `catalog/products/options/update` | R1 | Update option name, sort order, or values |
 | `catalog/products/options/delete` | R2 | Delete an option (removes dependent variants) |
 | `catalog/products/variants/list` | R0 | List variants with details |
-| `catalog/products/variants/create` | R1 | Create a variant with option value mapping |
+| `catalog/products/variants/create` | R1 | Create a variant with option value mapping; `option_values` may use `option_display_name`+`label` (server resolves to `option_id`/`id`) or pass IDs directly |
+| `catalog/products/variants/create_batch` | R1 | Create up to **50** variants on one product under one preview→confirm (sequential POSTs; name or ID `option_values`; `partial_success` on mixed results) |
 | `catalog/products/variants/update` | R1 | Update variant fields |
 | `catalog/products/variants/delete` | R2 | Delete a variant |
 | `catalog/products/variants/metafields/list` | R0 | List metafields on a variant (product: `product_id` / `sku` / `product_name`; variant: `variant_id` or `variant_sku`) |
@@ -272,6 +273,7 @@ A human-browsable snapshot of every tool path, for skimming without a running se
 | `catalog/products/custom_fields/list` | R0 | List custom fields |
 | `catalog/products/custom_fields/create` | R1 | Always **create** a new custom field (never upserts) — use when you need multiple fields with the same name; otherwise prefer `custom_fields/set` |
 | `catalog/products/custom_fields/set` | R1 | Upsert a custom field by name |
+| `catalog/products/custom_fields/bulk_set` | R1 | Upsert up to 20 custom fields on one product (`fields_json`; sequential create/update under one preview→confirm) |
 | `catalog/products/custom_fields/delete` | R2 | Delete a custom field |
 | `catalog/products/modifiers/list` | R0 | List modifiers |
 | `catalog/products/modifiers/create` | R1 | Create a modifier |
@@ -284,6 +286,7 @@ A human-browsable snapshot of every tool path, for skimming without a running se
 | `catalog/categories/list` | R0 | Filter search with `list_all` mode for full catalog dump (optional **`channel_id`** for MSF — resolves `tree_id` server-side) |
 | `catalog/categories/get` | R0 | Single category by ID |
 | `catalog/categories/create` | R1 | Create with name-based parent resolution (no numeric IDs needed); optional **`channel_id`** or **`tree_id`** for MSF |
+| `catalog/categories/bulk_create` | R1 | Create a category tree in one call (`categories_json` nested `children` or flat `ref`/`parent_ref`); auto hierarchical `url.path` (optional `url_path` override); rejects sibling name dupes and within-payload URL collisions before POST; level-by-level `POST /v3/catalog/trees/categories` (chunks of 50); max **100** nodes / depth **8**; optional MSF `channel_id`/`tree_id`; preview → confirm; `partial_success` on mid-tree failure |
 | `catalog/categories/bulk_update` | R1 | Batch update name, description, SEO, visibility, sort order |
 | `catalog/categories/products` | R0 | List products belonging to a category (by ID or name) with price/SKU summaries |
 | `catalog/categories/seo_audit` | R0 | Scan categories for missing `page_title`, `meta_description`, or `search_keywords` |

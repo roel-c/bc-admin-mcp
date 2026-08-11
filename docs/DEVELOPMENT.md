@@ -11,6 +11,8 @@ For field-level request/response shapes see `BC-API-Reference.md` and the offici
 
 For the **step-by-step process** of adding endpoints (research → implement → gate → reload → live-validate → docs → commit → CI), see [WORKFLOW.md](./WORKFLOW.md). This guide is the *rules*; WORKFLOW.md is the *cadence*.
 
+**Restart the MCP server after pulling tool-handler changes.** Cursor keeps a long-lived process; a stale binary will skip new normalizers (e.g. quote `currency` string→object expand). After `go build` / rebuild, restart the BigCommerce MCP server (or reload the MCP connection) so live previews match unit tests.
+
 ---
 
 ## 1. Tool tiers (recommended)
@@ -47,7 +49,7 @@ Use these tiers when defining MCP tools (or HTTP actions) so permissions and con
 | `BC_MAX_WRITE_CONCURRENCY` | `1` | Reserved for throughput mode; **`BatchPut` is sequential today** regardless of this value |
 | `BC_CACHE_TTL_SECONDS` | `60` | Per-session cache TTL for preview/confirm snapshots |
 
-The `categories` batch-update endpoint (`PUT /v3/catalog/trees/categories`) uses an internal `categoryBatchSize = 50` constant in `internal/bigcommerce/products.go` — not configurable today.
+The `categories` batch-update endpoint (`PUT /v3/catalog/trees/categories`) and batch-create endpoint (`POST /v3/catalog/trees/categories`) use an internal `categoryBatchSize = 50` constant in `internal/bigcommerce/products.go` — not configurable today. `catalog/categories/bulk_create` additionally caps **100** nodes per tool call, creates **level-by-level** so parents exist before children, and always sends unique hierarchical `url.path` values (optional per-node `url_path` override) so same display names under different parents succeed in one pass.
 
 ### 2.2 Store plan quotas (from `BC-API-Reference.md`)
 
@@ -86,11 +88,16 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `catalog/products/bulk_sku_update` | `product_id`/new-SKU pairs ≤ 100/call | `products_bulk_update_sku.go` |
 | `catalog/products/assign_categories` | `product_ids ≤ 100`, `category_ids ≤ 50`, pairs ≤ 500 | `categories_assignments.go` |
 | `catalog/products/unassign_categories` | `product_ids ≤ 100`, `category_ids ≤ 50` | `categories_assignments.go` |
+| `catalog/categories/bulk_create` | **R1**; `categories_json` ≤ **100** nodes (nested `children` or flat `ref`/`parent_ref`); depth ≤ **8**; creates level-by-level via `POST /v3/catalog/trees/categories` (chunks of 50); auto-assigns unique hierarchical `url.path` from display path (optional per-node `url_path` override); rejects sibling name dupes and within-payload URL collisions before POST; optional MSF `channel_id`/`tree_id`; preview → confirm; `partial_success` supported | `categories_bulk_create.go` |
 | `catalog/products/channel_assignments/list` | `product_ids ≤ 100`, `channel_ids ≤ 20` | `products_channel_assignments.go` |
 | `catalog/products/channel_assignments/assign` | pairs ≤ 500 | `products_channel_assignments.go` |
 | `catalog/products/channel_assignments/remove` | `product_ids ≤ 100`, `channel_ids ≤ 20` | `products_channel_assignments.go` |
 | `catalog/products/channel_summary` | `product_ids ≤ 5`, channels touched ≤ 25 | `products_channel_summary.go` |
 | `catalog/products/metafields/bulk_set` / `bulk_delete` | `product_ids ≤ 50` | `products_metafields_bulk.go` |
+| `catalog/products/custom_fields/bulk_set` | **R1**; one `product_id`; `fields_json` ≤ 20 `{name,value}` rows; sequential upsert under one preview→confirm | `products_custom_fields.go` |
+| `catalog/products/variants/create` | **R1**; resolves `option_display_name`+`label` to `option_id`/`id` via one `ListProductOptions` when IDs omitted | `products_variants.go`, `variant_option_resolve.go` |
+| `catalog/products/variants/create_batch` | **R1**; one `product_id`; `variants` ≤ **50** rows; one options list + sequential creates under one preview→confirm; `partial_success` supported | `products_variants.go` |
+| `catalog/products/create` | **R1**; optional inline `images` — each `image_url` is HTTP-probed (HEAD then GET, ~3s) before preview/create; non-2xx fails fast | `products_create.go`, `image_url_probe.go` |
 | `catalog/products/variants/metafields/bulk_set` / `bulk_delete` | one product, ≤ 50 variants | `products_variants_metafields_bulk.go` |
 | `catalog/products/variants/metafields/bulk_set_products` / `bulk_delete_products` | `product_ids ≤ 50`, total variant writes ≤ 500 | `products_variants_metafields_bulk.go` |
 | `catalog/variants/list` | `product_ids ≤ 100`, `variant_ids ≤ 100` | `variants_global.go` |
@@ -221,7 +228,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `b2b/orders/get` / `extra_fields` | R0; B2B order view by BC order ID; order extra-field configs | `internal/tools/b2b/channel_order_tools.go` |
 | `b2b/orders/update` / `assign_customer_orders` / `reassign` | **R1** / **R2** / **R2**; PO+extra fields; attach historical orders; reassign by group (Dependent-behavior only) | `internal/tools/b2b/channel_order_tools.go` |
 | `b2b/quotes/list` / `get` / `extra_fields` | R0; quote IDs are integers (invoice/receipt IDs are strings) | `internal/tools/b2b/quote_tools.go` |
-| `b2b/quotes/create` / `update` | **R1**; take a raw `quote_json` body; **`companyId` required for Buyer Portal visibility** (contact email/name alone leave `companyInfo` empty); `expiredAt` must be `MM/DD/YYYY`; productList needs numeric `basePrice`/`offeredPrice`/`discount` + `variantId`; `currency` accepts an ISO code string (**USD** expands to the full display object; other codes get a thin object) or a full object (passthrough for non-USD) | `internal/tools/b2b/quote_tools.go` |
+| `b2b/quotes/create` / `update` | **R1**; take a raw `quote_json` body; **`companyId` required for Buyer Portal visibility** (contact email/name alone leave `companyInfo` empty); `expiredAt` must be `MM/DD/YYYY`; productList needs numeric `basePrice`/`offeredPrice`/`discount` + `variantId`; `currency` accepts an ISO code string (**USD** expands to the full display object; other codes get a thin object) or a full object (passthrough for non-USD); with `productList`, `subtotal`/`grandTotal` are derived/corrected from line offered prices | `internal/tools/b2b/quote_tools.go` |
 | `b2b/quotes/delete` | **R3 destructive**; prefer `update` with `status=archived` to hide instead | `internal/tools/b2b/quote_tools.go` |
 | `b2b/quotes/checkout` / `convert_to_order` / `assign_to_order` | **R1** / **R2** / **R2**; convert_to_order batches ≤10 quotes through checkout→order→assign (stops before invoice/payment); checkout/assign remain for manual steps; only valid in quote status New/In Process/Updated by Customer | `internal/tools/b2b/quote_tools.go`, `quote_convert_tools.go` |
 | `b2b/quotes/shipping/*` | R0 reads; **R1** select; **R2** remove; plural `/shipping-rates` (GET) vs singular `/shipping-rate` (PUT/DELETE) — mixing them 405s | `internal/tools/b2b/quote_tools.go` |

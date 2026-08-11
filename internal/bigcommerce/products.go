@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ProductListOptions controls optional query parameters for product listing.
@@ -195,24 +196,56 @@ const categoryBatchSize = 50
 // CreateCategory creates a new category via POST /v3/catalog/trees/categories.
 // POST is for creates; PUT is exclusively for updates on this endpoint.
 func (c *Client) CreateCategory(ctx context.Context, create CategoryCreate) ([]Category, error) {
-	payload := []CategoryCreate{create}
-	respBody, err := c.Post(ctx, "catalog/trees/categories", payload)
-	if err != nil {
-		return nil, fmt.Errorf("create category: %w", err)
+	return c.CreateCategories(ctx, []CategoryCreate{create})
+}
+
+// CreateCategories creates one or more categories via POST /v3/catalog/trees/categories.
+// The request body is always an array; large batches are chunked by categoryBatchSize (50)
+// with the same inter-chunk delay used by BatchPut.
+func (c *Client) CreateCategories(ctx context.Context, creates []CategoryCreate) ([]Category, error) {
+	if len(creates) == 0 {
+		return nil, fmt.Errorf("no categories to create")
 	}
-	var resp PaginatedResponse
-	if err := json.Unmarshal(respBody, &resp); err != nil {
-		return nil, fmt.Errorf("parse create response: %w", err)
-	}
-	cats := make([]Category, 0, len(resp.Data))
-	for _, raw := range resp.Data {
-		var cat Category
-		if err := json.Unmarshal(raw, &cat); err != nil {
-			return nil, fmt.Errorf("unmarshal created category: %w", err)
+
+	out := make([]Category, 0, len(creates))
+	for i := 0; i < len(creates); i += categoryBatchSize {
+		end := i + categoryBatchSize
+		if end > len(creates) {
+			end = len(creates)
 		}
-		cats = append(cats, cat)
+		chunk := creates[i:end]
+
+		respBody, err := c.Post(ctx, "catalog/trees/categories", chunk)
+		if err != nil {
+			if len(out) == 0 {
+				return nil, fmt.Errorf("create categories (offset %d): %w", i, err)
+			}
+			return out, fmt.Errorf("create categories partial failure at offset %d after %d created: %w", i, len(out), err)
+		}
+		var resp PaginatedResponse
+		if err := json.Unmarshal(respBody, &resp); err != nil {
+			return out, fmt.Errorf("parse create categories response (offset %d): %w", i, err)
+		}
+		for _, raw := range resp.Data {
+			var cat Category
+			if err := json.Unmarshal(raw, &cat); err != nil {
+				return out, fmt.Errorf("unmarshal created category (offset %d): %w", i, err)
+			}
+			out = append(out, cat)
+		}
+		if len(resp.Data) != len(chunk) {
+			return out, fmt.Errorf("create categories offset %d: expected %d results, got %d", i, len(chunk), len(resp.Data))
+		}
+
+		if end < len(creates) {
+			select {
+			case <-ctx.Done():
+				return out, ctx.Err()
+			case <-time.After(c.cfg.DelayBetweenChunks):
+			}
+		}
 	}
-	return cats, nil
+	return out, nil
 }
 
 // BatchUpdateCategories updates categories via PUT /v3/catalog/trees/categories.

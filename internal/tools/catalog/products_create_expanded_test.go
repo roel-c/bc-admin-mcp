@@ -34,6 +34,7 @@ func (s *CreateExpandedSuite) SetupTest() {
 	s.mockBC = NewMockBigCommerceAPI(s.ctrl)
 	s.cache = session.NewStore(60 * time.Second)
 	s.prods = catalog.NewProducts(s.mockBC, s.cache)
+	s.prods.SetImageURLProber(catalog.NoopImageURLProber())
 	s.reg = discovery.NewRegistry()
 	s.reg.RegisterCategory("catalog", "Catalog")
 	s.reg.RegisterCategory("catalog/products", "Products")

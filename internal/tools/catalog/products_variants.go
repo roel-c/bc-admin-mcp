@@ -11,6 +11,9 @@ import (
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
 )
 
+// maxVariantCreateBatch is the per-call cap for catalog/products/variants/create_batch.
+const maxVariantCreateBatch = 50
+
 // RegisterVariantTools registers the product variant CRUD tools.
 func (p *Products) RegisterVariantTools(reg *discovery.Registry) {
 	reg.RegisterTool(&discovery.ToolDef{
@@ -30,15 +33,16 @@ func (p *Products) RegisterVariantTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR1,
 		Summary: "Create a new variant on a product",
 		Description: "Creates a variant with option values. Options must already exist on the product. " +
-			"Provide option_values as [{option_display_name, label}] to specify the combination.",
+			"Provide option_values as [{option_display_name, label}] (server resolves to option_id/id) " +
+			"or pass option_id + id directly.",
 		Tool: mcp.NewTool("catalog_products_variants_create",
 			mcp.WithDescription(
 				"Create a variant on a product. Options must exist first. "+
-					"Provide option_values mapping option names to value labels. "+
-					"Preview shows proposed variant; pass confirmed=true to create.",
+					"option_values may use option_display_name+label (resolved server-side) or option_id+id. "+
+					"Preview shows proposed variant with resolved IDs; pass confirmed=true to create.",
 			),
 			mcp.WithNumber("product_id", mcp.Description("Product ID"), mcp.Required()),
-			mcp.WithArray("option_values", mcp.Description("Array of {option_display_name, label} objects mapping options to values")),
+			mcp.WithArray("option_values", mcp.Description("Array of {option_display_name, label} and/or {option_id, id} objects")),
 			mcp.WithString("sku", mcp.Description("Variant SKU")),
 			mcp.WithNumber("price", mcp.Description("Variant price (0 = inherit from product)")),
 			mcp.WithNumber("cost_price", mcp.Description("Cost price")),
@@ -61,6 +65,30 @@ func (p *Products) RegisterVariantTools(reg *discovery.Registry) {
 			mcp.WithBoolean("confirmed", mcp.Description("Set to true after reviewing preview")),
 		),
 		Handler: p.handleVariantCreate,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "catalog/products/variants/create_batch",
+		Tier:    middleware.TierR1,
+		Summary: "Create multiple variants on one product in a single preview→confirm",
+		Description: "Creates up to 50 variants on one product via sequential POSTs under one " +
+			"preview→confirm. Prefer this over many variants/create calls when adding a matrix " +
+			"(e.g. Size×Color). option_values may use names (resolved once) or IDs. Reports " +
+			"partial_success when some rows fail.",
+		Tool: mcp.NewTool("catalog_products_variants_create_batch",
+			mcp.WithDescription(
+				"Batch-create variants on one product (max 50). "+
+					"Provide product_id and variants: [{sku, option_values:[{option_display_name,label}], price?, ...}]. "+
+					"One preview covers the batch; pass confirmed=true to execute.",
+			),
+			mcp.WithNumber("product_id", mcp.Description("Product ID"), mcp.Required()),
+			mcp.WithArray("variants", mcp.Description(
+				"Array (max 50) of variant objects: {sku (required), option_values (required), "+
+					"optional price/weight/inventory_level and other create fields}.",
+			), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Set to true after reviewing preview")),
+		),
+		Handler: p.handleVariantCreateBatch,
 	})
 
 	reg.RegisterTool(&discovery.ToolDef{
@@ -185,15 +213,185 @@ func (p *Products) handleVariantCreate(ctx context.Context, request mcp.CallTool
 		return toolError("%s", err.Error()), nil
 	}
 
-	optionValues, err := parseVariantOptionValues(args["option_values"])
+	payload, err := parseProductVariantCreateArgs(args)
 	if err != nil {
 		return toolError("%s", err.Error()), nil
 	}
 
+	resolved, err := p.resolveOptionValuesForProduct(ctx, productID, payload.OptionValues)
+	if err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+	payload.OptionValues = resolved
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return toolJSON(map[string]any{
+			"status":     "pending_confirmation",
+			"product_id": productID,
+			"payload":    payload,
+			"message":    "Variant will be created. Pass confirmed=true to execute.",
+		})
+	}
+
+	variant, err := p.bc.CreateVariant(ctx, productID, payload)
+	if err != nil {
+		return toolError("failed to create variant: %v", err), nil
+	}
+
+	return toolJSON(map[string]any{
+		"status":     "completed",
+		"product_id": productID,
+		"variant":    variant,
+	})
+}
+
+func (p *Products) handleVariantCreateBatch(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	productID, err := requiredPositiveInt(args, "product_id")
+	if err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+
+	payloads, err := parseVariantCreateBatchArgs(args["variants"])
+	if err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+
+	options, err := p.bc.ListProductOptions(ctx, productID)
+	if err != nil {
+		return toolError("failed to list product options for variant resolve: %v", err), nil
+	}
+	for i := range payloads {
+		resolved, rErr := ResolveVariantOptionValues(options, payloads[i].OptionValues)
+		if rErr != nil {
+			return toolError("variants[%d]: %s", i, rErr.Error()), nil
+		}
+		payloads[i].OptionValues = resolved
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return toolJSON(map[string]any{
+			"status":        "pending_confirmation",
+			"product_id":    productID,
+			"variant_count": len(payloads),
+			"variants":      payloads,
+			"message":       "Variants will be created sequentially. Pass confirmed=true to execute.",
+		})
+	}
+
+	created := make([]any, 0, len(payloads))
+	failed := make([]map[string]any, 0)
+	for i, payload := range payloads {
+		variant, cErr := p.bc.CreateVariant(ctx, productID, payload)
+		if cErr != nil {
+			failed = append(failed, map[string]any{
+				"index": i,
+				"sku":   payload.SKU,
+				"error": cErr.Error(),
+			})
+			continue
+		}
+		created = append(created, variant)
+	}
+
+	status := "completed"
+	if len(failed) > 0 && len(created) > 0 {
+		status = "partial_success"
+	} else if len(failed) > 0 {
+		status = "failed"
+	}
+
+	return toolJSON(map[string]any{
+		"status":        status,
+		"product_id":    productID,
+		"created_count": len(created),
+		"failed_count":  len(failed),
+		"created":       created,
+		"failed":        failed,
+	})
+}
+
+func (p *Products) resolveOptionValuesForProduct(
+	ctx context.Context,
+	productID int,
+	vals []bigcommerce.VariantOptionVal,
+) ([]bigcommerce.VariantOptionVal, error) {
+	if !variantOptionValuesNeedResolve(vals) {
+		return vals, nil
+	}
+	options, err := p.bc.ListProductOptions(ctx, productID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list product options for variant resolve: %w", err)
+	}
+	resolved, err := ResolveVariantOptionValues(options, vals)
+	if err != nil {
+		return nil, err
+	}
+	return resolved, nil
+}
+
+func variantOptionValuesNeedResolve(vals []bigcommerce.VariantOptionVal) bool {
+	for _, v := range vals {
+		if v.ID == 0 || v.OptionID == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func parseProductVariantCreateArgs(args map[string]any) (bigcommerce.ProductVariantCreate, error) {
+	optionValues, err := parseVariantOptionValues(args["option_values"])
+	if err != nil {
+		return bigcommerce.ProductVariantCreate{}, err
+	}
 	payload := bigcommerce.ProductVariantCreate{OptionValues: optionValues}
 	if v, ok := args["sku"].(string); ok {
 		payload.SKU = v
 	}
+	applyVariantCreateOptionalFields(args, &payload)
+	return payload, nil
+}
+
+func parseVariantCreateBatchArgs(raw any) ([]bigcommerce.ProductVariantCreate, error) {
+	if raw == nil {
+		return nil, fmt.Errorf("variants is required")
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("variants must be an array")
+	}
+	if len(arr) == 0 {
+		return nil, fmt.Errorf("variants must include at least one entry")
+	}
+	if len(arr) > maxVariantCreateBatch {
+		return nil, fmt.Errorf("variants exceeds maximum of %d per call", maxVariantCreateBatch)
+	}
+
+	out := make([]bigcommerce.ProductVariantCreate, 0, len(arr))
+	for i, item := range arr {
+		m, mOk := item.(map[string]any)
+		if !mOk {
+			return nil, fmt.Errorf("variants[%d] must be an object", i)
+		}
+		sku, _ := m["sku"].(string)
+		if sku == "" {
+			return nil, fmt.Errorf("variants[%d].sku is required", i)
+		}
+		optionValues, err := parseVariantOptionValues(m["option_values"])
+		if err != nil {
+			return nil, fmt.Errorf("variants[%d]: %w", i, err)
+		}
+		if len(optionValues) == 0 {
+			return nil, fmt.Errorf("variants[%d].option_values is required", i)
+		}
+		payload := bigcommerce.ProductVariantCreate{SKU: sku, OptionValues: optionValues}
+		applyVariantCreateOptionalFields(m, &payload)
+		out = append(out, payload)
+	}
+	return out, nil
+}
+
+func applyVariantCreateOptionalFields(args map[string]any, payload *bigcommerce.ProductVariantCreate) {
 	extractFloatPtr(args, "price", &payload.Price)
 	extractFloatPtr(args, "cost_price", &payload.CostPrice)
 	extractFloatPtr(args, "sale_price", &payload.SalePrice)
@@ -224,26 +422,6 @@ func (p *Products) handleVariantCreate(ctx context.Context, request mcp.CallTool
 	if v, ok := args["purchasing_disabled_message"].(string); ok {
 		payload.PurchasingDisabledMsg = v
 	}
-
-	if !middleware.IsConfirmedFromArgs(args) {
-		return toolJSON(map[string]any{
-			"status":     "pending_confirmation",
-			"product_id": productID,
-			"payload":    payload,
-			"message":    "Variant will be created. Pass confirmed=true to execute.",
-		})
-	}
-
-	variant, err := p.bc.CreateVariant(ctx, productID, payload)
-	if err != nil {
-		return toolError("failed to create variant: %v", err), nil
-	}
-
-	return toolJSON(map[string]any{
-		"status":     "completed",
-		"product_id": productID,
-		"variant":    variant,
-	})
 }
 
 func (p *Products) handleVariantUpdate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

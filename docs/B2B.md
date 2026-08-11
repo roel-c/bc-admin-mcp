@@ -167,7 +167,7 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 |------|------|-------------|
 | `b2b/quotes/list` | R0 | List quotes; filter by company/salesRep/status/date ranges |
 | `b2b/quotes/get` | R0 | Full detail: line items, addresses, shipping method, message history |
-| `b2b/quotes/create` | R1 | Create a quote (`quote_json`); **must include `companyId`** for Buyer Portal visibility (contact email/name alone are insufficient); visible to the buyer immediately unless `allowCheckout=false`. Known money fields (`subtotal`/`discount`/`grandTotal` and productList `basePrice`/`offeredPrice`/`discount`) are rounded to 2 decimals before send; `currency` may be an ISO code string (USD expands to the full display object `POST /rfq` requires; other codes get a thin object) or a full currency object |
+| `b2b/quotes/create` | R1 | Create a quote (`quote_json`); **must include `companyId`** for Buyer Portal visibility (contact email/name alone are insufficient); visible to the buyer immediately unless `allowCheckout=false`. Known money fields (`subtotal`/`discount`/`grandTotal` and productList `basePrice`/`offeredPrice`/`discount`) are rounded to 2 decimals before send; when `productList` is present, `subtotal`/`grandTotal` are derived from `sum(offeredPrice*quantity)` minus top-level discount (mismatched/missing totals auto-corrected; preview may include `warnings`); `currency` may be an ISO code string (USD expands to the full display object `POST /rfq` requires; other codes get a thin object) or a full currency object |
 | `b2b/quotes/update` | R1 | Partial update (`quote_json`); `productList` updates replace the full line-item set; same 2-decimal money normalize and currency string→object expand as create |
 | `b2b/quotes/delete` | R3 | Permanently delete (use `update` with `status=archived` to hide instead) |
 | `b2b/quotes/checkout` | R1 | Generate cart + checkout URLs (status New/In Process/Updated by Customer only) |
@@ -192,6 +192,7 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 - `expiredAt` must be `MM/DD/YYYY` (BC's own 422 message has an unrendered `%D` template placeholder — cosmetic bug on their side).
 - `POST /rfq` requires `discount` (top-level) and each `productList` item needs `basePrice` + `offeredPrice` + `discount` (prefer numbers; include `variantId`), none of which are marked required in the OpenAPI schema.
 - **`currency` must be an object** on `POST /rfq` (a bare `"USD"` string 422s). `b2b/quotes/create` / `update` expand an ISO code string before send: **`USD`** gets the full display object (`token` `$`, `location` `left`, decimal/thousands tokens, `decimalPlaces` 2, `currencyExchangeRate` `"1.0000000000"`); other codes get a thin object (`currencyCode` + exchange rate `1.0` only). Pass a full currency object for non-USD / multi-currency stores (passthrough; no store-currency lookup). Money fields remain rounded to 2 decimals regardless.
+- **`subtotal` / `grandTotal` must match `productList`.** BC returns `422 Grand total amount not match for product list details` when they diverge. With `productList` present, create/update **derive** `subtotal = sum(offeredPrice*quantity)` and `grandTotal = subtotal − top-level discount`, overwriting missing or wrong values (preview surfaces `warnings`). Agents may omit totals.
 - **Checkout recalculates tax.** `b2b/quotes/convert_to_order` builds a real cart/checkout; order totals (and line `price_inc_tax`) can differ from the quote's `grandTotal` / pre-tax line prices. Jurisdiction (shipping address) drives the difference — convert does not preserve quote totals 1:1.
 - `PUT /rfq/{id}/shipping-rate` (select) returns `data: []` on success, not the updated quote — don't expect quote detail back from that call.
 - `/rfq/{id}/shipping-rates` (plural, GET) vs `/rfq/{id}/shipping-rate` (singular, PUT/DELETE) — mixing them returns BC's own 405.
@@ -264,9 +265,16 @@ Sales quote lifecycle: buyer requests quote → sales rep prices → buyer appro
 
 ### Playbooks: composable commercial stages (MCP-only)
 
+**Scope:** Subject to [Playbook Scope Rules](./AGENT.md#playbook-scope-rules-enforced-for-every-checklist) in `docs/AGENT.md`. These stages are recommended paths for *how* to complete an in-scope commercial ask — not a pipeline that activates because a prior step finished.
+
 Quote → order, order → invoice, and invoice → payment are **independent stages**. Use only the stage(s) the operator asked for. **Never auto-chain** into the next stage (e.g. do not invoice after converting quotes unless invoicing was requested).
 
 Keep preview→confirm on every R1+ step; prefer batch tools so each confirm covers more work.
+
+| Kind | Meaning |
+|------|---------|
+| **In-scope stage** | Operator asked for that outcome (or it is a hard prerequisite under Scope Rules §5) |
+| **Out-of-scope sibling** | Next commercial stage, restricted-catalog setup, surface-check extras — offer once if helpful; do not start |
 
 | Stage | When to use | Tool(s) | Stop condition |
 |------|-------------|---------|----------------|

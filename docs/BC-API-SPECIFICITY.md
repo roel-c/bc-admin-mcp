@@ -431,9 +431,10 @@ Our `CategoryCreate` struct uses `omitempty` on both fields to avoid sending `0`
 
 ```go
 type CategoryCreate struct {
-    Name     string `json:"name"`
-    TreeID   int    `json:"tree_id,omitempty"`
-    ParentID int    `json:"parent_id,omitempty"`
+    Name     string     `json:"name"`
+    TreeID   int        `json:"tree_id,omitempty"`
+    ParentID int        `json:"parent_id,omitempty"`
+    URL      *CustomURL `json:"url,omitempty"`
     // ...
 }
 ```
@@ -442,11 +443,29 @@ This ensures:
 - Root-level categories send `tree_id` only (via `GetDefaultTreeID`)
 - Subcategories send `parent_id` only (the tree is inherited from the parent)
 
+### Hierarchical `url.path` for reliable batch creates
+
+Docs say `url` is optional (auto-generated from name). In practice, large batch POSTs with the **same display name under different parents** (e.g. two “Basketball” nodes) often fail with `Url is required and can't be empty` because auto-slugs collide store-wide.
+
+`catalog/categories/bulk_create` always sends a unique hierarchical path derived from the display path:
+
+- `Men > Shoes > Basketball` → `/men/shoes/basketball/`
+- `Men > Shop By Sport > Basketball` → `/men/shop-by-sport/basketball/`
+
+Payload shape:
+
+```json
+"url": { "path": "/men/shoes/basketball/", "is_customized": true }
+```
+
+Sibling name duplicates (same parent) and within-payload `url_path` collisions are rejected client-side before any POST. Optional per-node `url_path` overrides the auto slug.
+
 ### Our Implementation
 
 - `CreateCategory()` in `products.go` uses `c.Post()`, not `c.Put()`
 - The `handleCreate` handler resolves `parent_name` to `parent_id` server-side (see [Section 9](#9-parent-name-resolution-pattern))
 - Default tree ID is fetched via `GET /v3/catalog/trees` and cached
+- `bulk_create` assigns hierarchical `url.path` values and validates uniqueness before calling `CreateCategories`
 
 ---
 

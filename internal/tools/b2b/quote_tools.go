@@ -59,7 +59,7 @@ func (ct *CompanyTools) registerQuoteTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR1,
 		Summary: "Create a new sales quote (visible to the buyer immediately)",
 		Tool: mcp.NewTool("b2b_quotes_create",
-			mcp.WithDescription("Create a new B2B sales quote. For Buyer Portal visibility you MUST include companyId (B2B company id) — contactInfo.email/companyName alone leave companyInfo empty and the quote stays Control-Panel-only. quote_json should match quoteData_POST (companyId, subtotal, channelId, quoteTitle, referenceNumber, currency, extraFields, notes, discount, grandTotal, legalTerms, displayDiscount, allowCheckout, productList with productId/variantId/basePrice/offeredPrice/discount as numbers, shippingAddress with state/stateCode, contactInfo object, userEmail of a Control Panel system user, expiredAt as MM/DD/YYYY). currency may be an ISO code string (e.g. \"USD\") or the full currency object; strings are expanded to the object the B2B API requires before send. Known money fields are rounded to 2 decimals before send. Note: convert_to_order recalculates tax at checkout, so order totals may differ from quote grandTotal. Preview → confirm."),
+			mcp.WithDescription("Create a new B2B sales quote. For Buyer Portal visibility you MUST include companyId (B2B company id) — contactInfo.email/companyName alone leave companyInfo empty and the quote stays Control-Panel-only. quote_json should match quoteData_POST (companyId, subtotal, channelId, quoteTitle, referenceNumber, currency, extraFields, notes, discount, grandTotal, legalTerms, displayDiscount, allowCheckout, productList with productId/variantId/basePrice/offeredPrice/discount as numbers, shippingAddress with state/stateCode, contactInfo object, userEmail of a Control Panel system user, expiredAt as MM/DD/YYYY). currency may be an ISO code string (e.g. \"USD\") or the full currency object; strings are expanded to the object the B2B API requires before send. Known money fields are rounded to 2 decimals before send. When productList is present, subtotal/grandTotal are derived from sum(offeredPrice*quantity) minus top-level discount (missing or mismatched totals are auto-corrected; preview may include warnings). Note: convert_to_order recalculates tax at checkout, so order totals may differ from quote grandTotal. Preview → confirm."),
 			mcp.WithString("quote_json", mcp.Description("JSON object matching the quote create body. Use b2b/quotes/get on an existing quote to see an example shape."), mcp.Required()),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to create the quote.")),
 		),
@@ -71,7 +71,7 @@ func (ct *CompanyTools) registerQuoteTools(reg *discovery.Registry) {
 		Tier:    middleware.TierR1,
 		Summary: "Update an existing quote (partial update, except line items)",
 		Tool: mcp.NewTool("b2b_quotes_update",
-			mcp.WithDescription("Update a B2B quote. No field is required — send only what you want to change. IMPORTANT: if updating productList (line items), you must include every existing line item you want to keep; omitted items are removed. Known money fields (subtotal/discount/grandTotal and productList basePrice/offeredPrice/discount) are rounded to 2 decimals before send. currency may be an ISO code string or the full object (strings are expanded before send). To hide a quote without deleting it, set status to archived here instead of using delete. Preview → confirm."),
+			mcp.WithDescription("Update a B2B quote. No field is required — send only what you want to change. IMPORTANT: if updating productList (line items), you must include every existing line item you want to keep; omitted items are removed. Known money fields (subtotal/discount/grandTotal and productList basePrice/offeredPrice/discount) are rounded to 2 decimals before send. When productList is present, subtotal/grandTotal are derived/corrected from line offered prices (same as create). currency may be an ISO code string or the full object (strings are expanded before send). To hide a quote without deleting it, set status to archived here instead of using delete. Preview → confirm."),
 			mcp.WithNumber("quote_id", mcp.Description("Quote ID"), mcp.Required()),
 			mcp.WithString("quote_json", mcp.Description("JSON object with the fields to update (subtotal, quoteTitle, notes, discount, grandTotal, productList, shippingAddress, contactInfo, message, status, expiredAt, etc.)."), mcp.Required()),
 			mcp.WithBoolean("confirmed", mcp.Description("Pass true to apply.")),
@@ -250,20 +250,102 @@ func (ct *CompanyTools) handleQuoteGet(ctx context.Context, request mcp.CallTool
 	return shared.ToolJSON(map[string]any{"quote": q})
 }
 
-func parseQuoteJSONBody(args map[string]any, key string) (map[string]any, error) {
+func parseQuoteJSONBody(args map[string]any, key string) (map[string]any, []string, error) {
 	raw, ok := args[key].(string)
 	if !ok || strings.TrimSpace(raw) == "" {
-		return nil, fmt.Errorf("%s is required (a JSON object)", key)
+		return nil, nil, fmt.Errorf("%s is required (a JSON object)", key)
 	}
 	var body map[string]any
 	if err := json.Unmarshal([]byte(raw), &body); err != nil {
-		return nil, fmt.Errorf("invalid %s: %v", key, err)
+		return nil, nil, fmt.Errorf("invalid %s: %v", key, err)
 	}
 	normalizeQuoteMoneyFields(body)
 	if err := normalizeQuoteCurrency(body); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return body, nil
+	warnings := alignQuoteTotalsFromProductList(body)
+	return body, warnings, nil
+}
+
+// alignQuoteTotalsFromProductList sets subtotal to sum(offeredPrice*quantity) and
+// grandTotal to subtotal minus top-level discount when productList is present.
+// Missing or mismatched totals are overwritten; returns human-readable warnings.
+func alignQuoteTotalsFromProductList(body map[string]any) []string {
+	if body == nil {
+		return nil
+	}
+	rawList, ok := body["productList"]
+	if !ok || rawList == nil {
+		return nil
+	}
+	list, ok := rawList.([]any)
+	if !ok || len(list) == 0 {
+		return nil
+	}
+
+	var lineCents int64
+	var haveOffered bool
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		offered, ok := moneyAsFloat(m["offeredPrice"])
+		if !ok {
+			continue
+		}
+		haveOffered = true
+		qty := 1.0
+		if q, qOk := moneyAsFloat(m["quantity"]); qOk && q > 0 {
+			qty = q
+		}
+		lineCents += moneyToCents(roundMoney2(offered)) * int64(math.Round(qty))
+	}
+	if !haveOffered {
+		return nil
+	}
+
+	expectedSubtotal := roundMoney2(float64(lineCents) / 100)
+	discount := 0.0
+	if d, ok := moneyAsFloat(body["discount"]); ok {
+		discount = roundMoney2(d)
+	}
+	// Work in cents to avoid float artifacts (e.g. 3059.09 - 0.10 → 3058.99).
+	expectedGrand := roundMoney2(float64(moneyToCents(expectedSubtotal)-moneyToCents(discount)) / 100)
+	if expectedGrand < 0 {
+		expectedGrand = 0
+	}
+
+	var warnings []string
+	if prev, ok := moneyAsFloat(body["subtotal"]); !ok || prev != expectedSubtotal {
+		if ok {
+			warnings = append(warnings, fmt.Sprintf(
+				"subtotal corrected from %.2f to %.2f (sum of productList offeredPrice*quantity)",
+				prev, expectedSubtotal,
+			))
+		} else {
+			warnings = append(warnings, fmt.Sprintf(
+				"subtotal set to %.2f (sum of productList offeredPrice*quantity)",
+				expectedSubtotal,
+			))
+		}
+		body["subtotal"] = expectedSubtotal
+	}
+	if prev, ok := moneyAsFloat(body["grandTotal"]); !ok || prev != expectedGrand {
+		if ok {
+			warnings = append(warnings, fmt.Sprintf(
+				"grandTotal corrected from %.2f to %.2f (subtotal minus top-level discount)",
+				prev, expectedGrand,
+			))
+		} else {
+			warnings = append(warnings, fmt.Sprintf(
+				"grandTotal set to %.2f (subtotal minus top-level discount)",
+				expectedGrand,
+			))
+		}
+		body["grandTotal"] = expectedGrand
+	}
+	return warnings
 }
 
 // normalizeQuoteCurrency expands a currency code string into the object
@@ -367,20 +449,28 @@ func roundMoney2(n float64) float64 {
 	return math.Round(n*100) / 100
 }
 
+func moneyToCents(n float64) int64 {
+	return int64(math.Round(n * 100))
+}
+
 func (ct *CompanyTools) handleQuoteCreate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
-	body, err := parseQuoteJSONBody(args, "quote_json")
+	body, warnings, err := parseQuoteJSONBody(args, "quote_json")
 	if err != nil {
 		return shared.ToolError("%s", err.Error()), nil
 	}
 
 	if !middleware.IsConfirmedFromArgs(args) {
-		return shared.ToolJSON(map[string]any{
+		out := map[string]any{
 			"status":  "preview",
 			"action":  "create_b2b_quote",
 			"payload": body,
 			"message": "Will create this quote, immediately visible to the buyer unless allowCheckout=false. Pass confirmed=true.",
-		})
+		}
+		if len(warnings) > 0 {
+			out["warnings"] = warnings
+		}
+		return shared.ToolJSON(out)
 	}
 
 	q, err := ct.bc.CreateB2BQuote(ctx, body)
@@ -396,19 +486,23 @@ func (ct *CompanyTools) handleQuoteUpdate(ctx context.Context, request mcp.CallT
 	if err != nil {
 		return shared.ToolError("%s", err.Error()), nil
 	}
-	body, err := parseQuoteJSONBody(args, "quote_json")
+	body, warnings, err := parseQuoteJSONBody(args, "quote_json")
 	if err != nil {
 		return shared.ToolError("%s", err.Error()), nil
 	}
 
 	if !middleware.IsConfirmedFromArgs(args) {
-		return shared.ToolJSON(map[string]any{
+		out := map[string]any{
 			"status":   "preview",
 			"action":   "update_b2b_quote",
 			"quote_id": id,
 			"payload":  body,
 			"message":  fmt.Sprintf("Will apply these fields to quote %d. If productList is included, only the listed line items are kept. Pass confirmed=true.", id),
-		})
+		}
+		if len(warnings) > 0 {
+			out["warnings"] = warnings
+		}
+		return shared.ToolJSON(out)
 	}
 
 	q, err := ct.bc.UpdateB2BQuote(ctx, id, body)
