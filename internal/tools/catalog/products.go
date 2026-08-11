@@ -43,12 +43,22 @@ var validSortFields = map[string]bool{
 
 // Products provides MCP tool handlers for catalog product operations.
 type Products struct {
-	bc    BigCommerceAPI
-	cache *session.Store
+	bc          BigCommerceAPI
+	cache       *session.Store
+	imageProber ImageURLProber
 }
 
 func NewProducts(bc BigCommerceAPI, cache *session.Store) *Products {
-	return &Products{bc: bc, cache: cache}
+	return &Products{bc: bc, cache: cache, imageProber: newHTTPImageURLProber()}
+}
+
+// SetImageURLProber replaces the image URL reachability checker (tests use a noop).
+func (p *Products) SetImageURLProber(prober ImageURLProber) {
+	if prober == nil {
+		p.imageProber = newHTTPImageURLProber()
+		return
+	}
+	p.imageProber = prober
 }
 
 // RegisterTools registers all product-related tools into the discovery registry.
@@ -251,7 +261,7 @@ func (p *Products) RegisterTools(reg *discovery.Registry) {
 			mcp.WithBoolean("open_graph_use_product_name", mcp.Description("Use product name as OG title")),
 			mcp.WithBoolean("open_graph_use_image", mcp.Description("Use product image for OG")),
 			mcp.WithString("layout_file", mcp.Description("Layout template file")),
-			mcp.WithArray("images", mcp.Description("Inline images: [{image_url, is_thumbnail, description, sort_order}]")),
+			mcp.WithArray("images", mcp.Description("Inline images: [{image_url, is_thumbnail, description, sort_order}]. Each image_url is probed (HTTP HEAD/GET, ~3s) before preview/create; non-2xx fails fast so BigCommerce never sees an unreachable URL.")),
 			mcp.WithArray("variants", mcp.Description(
 				"Inline variants (BigCommerce V3 best practice — creates the product AND all variants in one call; "+
 					"options are created implicitly, no pre-created options needed). "+

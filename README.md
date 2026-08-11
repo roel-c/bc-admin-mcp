@@ -272,6 +272,7 @@ A human-browsable snapshot of every tool path, for skimming without a running se
 | `catalog/products/custom_fields/list` | R0 | List custom fields |
 | `catalog/products/custom_fields/create` | R1 | Always **create** a new custom field (never upserts) — use when you need multiple fields with the same name; otherwise prefer `custom_fields/set` |
 | `catalog/products/custom_fields/set` | R1 | Upsert a custom field by name |
+| `catalog/products/custom_fields/bulk_set` | R1 | Upsert up to 20 custom fields on one product (`fields_json`; sequential create/update under one preview→confirm) |
 | `catalog/products/custom_fields/delete` | R2 | Delete a custom field |
 | `catalog/products/modifiers/list` | R0 | List modifiers |
 | `catalog/products/modifiers/create` | R1 | Create a modifier |

@@ -424,7 +424,7 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/tools/catalog/products_options.go` | ~300 | Product options handlers (list/create/update/delete) |
 | `internal/tools/catalog/products_modifiers.go` | ~230 | Product modifier handlers |
 | `internal/tools/catalog/products_images.go` | ~210 | Product image handlers (list/add by URL/delete) |
-| `internal/tools/catalog/products_custom_fields.go` | ~225 | Product custom field handlers |
+| `internal/tools/catalog/products_custom_fields.go` | ~350 | Product custom field handlers (list/set/create/delete + bulk_set ≤20) |
 | `internal/tools/catalog/product_resolve.go` | ~150 | `FetchProductsForWrite`: resolve products by IDs, exact SKU, or exact name |
 | `internal/tools/catalog/categories.go` | ~1,285 | Category tool handlers: list (with `list_all` and optional `channel_id`), get, create (with `parent_name` resolution and MSF `channel_id` / `tree_id`), bulk_update, delete, bulk_delete |
 | `internal/tools/catalog/categories_seo_audit.go` | ~85 | SEO audit scan for missing page_title, meta_description, search_keywords |
@@ -447,7 +447,7 @@ The auth middleware layer (`internal/middleware/`) is designed to be pluggable:
 | `internal/tools/b2b/role_tools.go` | ~400 | `b2b/companies/roles/**` and `b2b/companies/permissions/**` handlers |
 | `internal/tools/b2b/hierarchy_tools.go` | ~165 | `b2b/companies/hierarchy/**` handlers |
 | `internal/tools/b2b/channel_order_tools.go` | ~245 | `b2b/channels/**` and `b2b/orders/**` handlers |
-| `internal/tools/b2b/quote_tools.go` | ~600 | `b2b/quotes/**` handlers including the `shipping/*` sub-tree; `parseQuoteJSONBody` money rounding + currency string→object expand |
+| `internal/tools/b2b/quote_tools.go` | ~700 | `b2b/quotes/**` handlers including the `shipping/*` sub-tree; `parseQuoteJSONBody` money rounding + currency string→object expand + productList total align |
 | `internal/tools/b2b/quote_convert_tools.go` | ~530 | `b2b/quotes/convert_to_order` — batch quote→checkout→order→assign (≤10; prefer ≤3–5) |
 | `internal/tools/b2b/invoice_tools.go` | ~580 | `b2b/invoices/**` and `b2b/receipts/**` handlers; `create_from_order` resolves the BC order ID to B2B Edition's internal order ID via `GetB2BOrder` before calling the invoice endpoint |
 | `internal/tools/b2b/payment_tools.go` | ~310 | `b2b/payments/**` and `b2b/companies/payments\|credit\|payment_terms/**` handlers |
@@ -517,7 +517,7 @@ catalog/                    — Product catalog: products, categories, brands, v
     catalog/products/options/        — Product option CRUD: list, create, update, delete
     catalog/products/variants/       — Product variant CRUD: list, create, update, delete
     catalog/products/variants/metafields/ — Variant metafield CRUD: list, set, delete; bulk by product or by product list + scope
-    catalog/products/custom_fields/  — Product custom field management: list, set, delete
+    catalog/products/custom_fields/  — Product custom field management: list, set, bulk_set, delete
     catalog/products/modifiers/      — Product modifier management: list, create, delete
     catalog/products/metafields/     — Product metafield CRUD: list, set, delete, bulk_set, bulk_delete
   catalog/categories/       — Category operations: list, get, create, update, SEO, metafields

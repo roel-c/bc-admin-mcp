@@ -2,13 +2,17 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	"github.com/roel-c/bc-admin-mcp/internal/discovery"
 	"github.com/roel-c/bc-admin-mcp/internal/middleware"
 )
+
+const maxCustomFieldBulkSet = 20
 
 // RegisterCustomFieldTools registers the product custom field tools.
 func (p *Products) RegisterCustomFieldTools(reg *discovery.Registry) {
@@ -64,6 +68,26 @@ func (p *Products) RegisterCustomFieldTools(reg *discovery.Registry) {
 			mcp.WithBoolean("confirmed", mcp.Description("Set to true after reviewing preview")),
 		),
 		Handler: p.handleCustomFieldSet,
+	})
+
+	reg.RegisterTool(&discovery.ToolDef{
+		Path:    "catalog/products/custom_fields/bulk_set",
+		Tier:    middleware.TierR1,
+		Summary: "Upsert multiple custom fields on one product in a single call",
+		Description: "Sets up to 20 custom fields on one product via sequential create/update " +
+			"calls (BigCommerce has no true bulk custom-field API). Prefer this over many " +
+			"custom_fields/set round-trips when applying related metadata.",
+		Tool: mcp.NewTool("catalog_products_custom_fields_bulk_set",
+			mcp.WithDescription(
+				"Upsert multiple custom fields on one product (max 20). "+
+					"Provide product_id and fields_json: [{\"name\":\"Franchise\",\"value\":\"Tron\"},...]. "+
+					"One preview covers the batch; pass confirmed=true to execute.",
+			),
+			mcp.WithNumber("product_id", mcp.Description("Product ID"), mcp.Required()),
+			mcp.WithString("fields_json", mcp.Description(`JSON array (max 20): [{"name":"Franchise","value":"Tron"},{"name":"Manufacturer","value":"ENCOM"}]`), mcp.Required()),
+			mcp.WithBoolean("confirmed", mcp.Description("Set to true after reviewing preview")),
+		),
+		Handler: p.handleCustomFieldBulkSet,
 	})
 
 	reg.RegisterTool(&discovery.ToolDef{
@@ -213,6 +237,103 @@ func (p *Products) handleCustomFieldSet(ctx context.Context, request mcp.CallToo
 		"action":       "created",
 		"product_id":   productID,
 		"custom_field": created,
+	})
+}
+
+type customFieldBulkRow struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+func (p *Products) handleCustomFieldBulkSet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.GetArguments()
+	productID, err := requiredPositiveInt(args, "product_id")
+	if err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+	raw, _ := args["fields_json"].(string)
+	if strings.TrimSpace(raw) == "" {
+		return toolError("fields_json is required (JSON array of {name,value})"), nil
+	}
+	var rows []customFieldBulkRow
+	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
+		return toolError("invalid fields_json: %v", err), nil
+	}
+	if len(rows) == 0 {
+		return toolError("fields_json must contain at least one {name,value} object"), nil
+	}
+	if len(rows) > maxCustomFieldBulkSet {
+		return toolError("fields_json supports at most %d fields per call (got %d)", maxCustomFieldBulkSet, len(rows)), nil
+	}
+	for i, row := range rows {
+		if strings.TrimSpace(row.Name) == "" {
+			return toolError("fields_json[%d].name is required", i), nil
+		}
+		if row.Value == "" {
+			return toolError("fields_json[%d].value is required (use a non-empty string)", i), nil
+		}
+	}
+
+	existing, err := p.bc.ListProductCustomFields(ctx, productID)
+	if err != nil {
+		return toolError("failed to list existing custom fields: %v", err), nil
+	}
+	byName := make(map[string]bigcommerce.ProductCustomField, len(existing))
+	for _, cf := range existing {
+		byName[cf.Name] = cf
+	}
+
+	type planned struct {
+		Action        string `json:"action"`
+		Name          string `json:"name"`
+		Value         string `json:"value"`
+		OldValue      string `json:"old_value,omitempty"`
+		CustomFieldID int    `json:"custom_field_id,omitempty"`
+	}
+	plan := make([]planned, 0, len(rows))
+	for _, row := range rows {
+		item := planned{Name: row.Name, Value: row.Value, Action: "create"}
+		if found, ok := byName[row.Name]; ok {
+			item.Action = "update"
+			item.OldValue = found.Value
+			item.CustomFieldID = found.ID
+		}
+		plan = append(plan, item)
+	}
+
+	if !middleware.IsConfirmedFromArgs(args) {
+		return toolJSON(map[string]any{
+			"status":     "pending_confirmation",
+			"product_id": productID,
+			"count":      len(plan),
+			"fields":     plan,
+			"message":    fmt.Sprintf("Will upsert %d custom field(s) on product %d. Pass confirmed=true to execute.", len(plan), productID),
+		})
+	}
+
+	results := make([]map[string]any, 0, len(plan))
+	for _, item := range plan {
+		payload := bigcommerce.ProductCustomFieldCreate{Name: item.Name, Value: item.Value}
+		if item.Action == "update" {
+			updated, uErr := p.bc.UpdateProductCustomField(ctx, productID, item.CustomFieldID, payload)
+			if uErr != nil {
+				return toolError("failed to update custom field %q: %v", item.Name, uErr), nil
+			}
+			results = append(results, map[string]any{"action": "updated", "custom_field": updated})
+			continue
+		}
+		created, cErr := p.bc.CreateProductCustomField(ctx, productID, payload)
+		if cErr != nil {
+			return toolError("failed to create custom field %q: %v", item.Name, cErr), nil
+		}
+		results = append(results, map[string]any{"action": "created", "custom_field": created})
+	}
+
+	return toolJSON(map[string]any{
+		"status":     "completed",
+		"product_id": productID,
+		"count":      len(results),
+		"results":    results,
 	})
 }
 

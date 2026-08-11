@@ -122,8 +122,10 @@ order→invoice, invoice→payment).
    (e.g. `catalog/channels/list` with `active_only: true` for MSF channel
    selection).
 2. **Uncertain path → `query` search** — `discover_tools({ "query": "invoice" })`
-   beats guessing nested categories. Scope with `path: "b2b"` when you know the
-   domain.
+   beats guessing nested categories. Prefer **one or two concrete tokens**
+   (`quote`, `custom_fields`, `channels`) over long phrases
+   (`"company create users subsidiary"` often returns empty). Scope with
+   `path: "b2b"` or `path: "catalog"` when you know the domain.
 3. **Deep-link categories** — `discover_tools({ "path": "catalog/channels" })`
    is valid; root drill-down is optional exploration, not required every time.
 4. **Follow the stage playbooks** in `docs/B2B.md` instead of rediscovering the
@@ -132,11 +134,21 @@ order→invoice, invoice→payment).
 ### B2B speed tips (when `BC_B2B_ENABLED=true`)
 
 1. **Use `bc_customer_id` from user list/get** for cart/order `customer_id`. User reads enrich that field when B2B Edition omits it — skip a separate `customers/list` by email unless it is still `0`.
-2. **Batch writes under one preview→confirm** — `b2b/quotes/convert_to_order`, `b2b/companies/bulk_create`, `b2b/invoices/create_from_orders`, and multi-invoice `b2b/payment_records/create_offline` (optional `pay_percent`). Do not weaken or skip confirmation; cover more work per confirm instead.
+2. **Batch writes under one preview→confirm** — `b2b/quotes/convert_to_order`, `b2b/companies/bulk_create`, `b2b/companies/users/bulk_create`, `catalog/products/custom_fields/bulk_set`, `b2b/invoices/create_from_orders`, and multi-invoice `b2b/payment_records/create_offline` (optional `pay_percent`). Do not weaken or skip confirmation; cover more work per confirm instead.
 3. **Do not agent-sleep for B2B order indexing** — `b2b/orders/get`, `b2b/orders/update`, and invoice-from-order tools wait/retry briefly server-side.
 4. **Follow the stage playbooks** in `docs/B2B.md` (*Playbooks: composable commercial stages*) instead of rediscovering the sequence via `discover_tools` on every run.
 5. **Never auto-chain commercial stages** — convert quotes, invoice orders, and log payments only when the operator asked for that stage. “Convert these quotes” stops at orders; do not invoice or pay unless requested.
-6. **Quote `currency`** — `"USD"` (string) is expanded server-side; for CAD/EUR/etc. pass a full currency object (see `docs/B2B.md` quirks).
+6. **Quote `currency` / totals** — `"USD"` (string) is expanded server-side to the object `POST /rfq` requires; for CAD/EUR/etc. pass a full currency object (see `docs/B2B.md` quirks). Preview payload `currency` must be an **object** — if it is still a string, the MCP server is stale: rebuild/restart it. Prefer omitting `subtotal`/`grandTotal` or trust tool auto-correction from `productList` (mismatches used to 422).
+
+### MSF B2B catalog + quotes batch checklist
+
+When provisioning restricted-catalog companies with products and quotes on one storefront channel:
+
+1. **Resolve `channel_id` once** (`catalog/channels/list` + `b2b/channels/list`) and reuse it for categories, products, customers, and quotes — do not switch mid-run.
+2. **Category → group → companies** — `catalog/categories/create` (`channel_id`) → `customers/groups/create` (`category_access_type: specific` + category id) → `b2b/companies/bulk_create` / `update` with `customer_group_id`, `origin_channel_id`, `channel_ids`.
+3. **Products** — ensure each `images[].image_url` is publicly fetchable (tool probes HEAD/GET; resolve Wikimedia via `Special:FilePath/…` to the final `upload.wikimedia.org` URL). Create with inline `variants`, `category_ids`, `channel_ids`. Then `catalog/products/custom_fields/bulk_set` per product (not dozens of single `set` calls).
+4. **Quotes** — one per company admin: `companyId`, admin `contactInfo`, `channelId`, Control Panel `userEmail`, `expiredAt` as `MM/DD/YYYY`. Omit totals or let the tool derive them; if preview still shows `currency` as a string, restart MCP.
+5. **Prefer bulk tools** — `companies/bulk_create`, `users/bulk_create`, `custom_fields/bulk_set`.
 
 ---
 

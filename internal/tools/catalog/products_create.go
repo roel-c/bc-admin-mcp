@@ -319,10 +319,29 @@ func (p *Products) handleCreate(ctx context.Context, request mcp.CallToolRequest
 		return toolError("%s", err.Error()), nil
 	}
 
+	if err := p.probeCreateImages(ctx, params); err != nil {
+		return toolError("%s", err.Error()), nil
+	}
+
 	if !params.Confirmed {
 		return p.previewCreate(params)
 	}
 	return p.executeCreate(ctx, params)
+}
+
+func (p *Products) probeCreateImages(ctx context.Context, params *ProductCreateParams) error {
+	if p.imageProber == nil || len(params.Payload.Images) == 0 {
+		return nil
+	}
+	for i, img := range params.Payload.Images {
+		if img.ImageURL == "" {
+			continue
+		}
+		if err := p.imageProber.Probe(ctx, img.ImageURL); err != nil {
+			return fmt.Errorf("images[%d]: %w", i, err)
+		}
+	}
+	return nil
 }
 
 func (p *Products) previewCreate(params *ProductCreateParams) (*mcp.CallToolResult, error) {

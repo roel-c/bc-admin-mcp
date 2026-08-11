@@ -236,9 +236,12 @@ which channel(s) to target before any data is created** (§10.1).
    applies (§10.1), `channel_id: <target channel id>` →
    `catalog/products/create` with an inline `variants` array (two option
    values, e.g. Size: Small/Large), `category_ids`/`brand_id` set, and when
-   MSF applies `channel_ids: [<target channel id>]` → verify via
-   `catalog/products/variants/list` → `catalog/products/metafields/set`
-   on the product.
+   MSF applies `channel_ids: [<target channel id>]`. Inline `images[].image_url`
+   values are HTTP-probed before create (non-2xx fails fast) — resolve public
+   URLs first (Wikimedia: `Special:FilePath/…` → final upload URL). Verify via
+   `catalog/products/variants/list` → prefer
+   `catalog/products/custom_fields/bulk_set` (or `metafields/set`) for product
+   metadata.
 2. **Customers** — `customers/groups/create` → `customers/create` in that
    group (when MSF applies, also set `origin_channel_id: <target channel id>`
    and `channel_ids: [<target channel id>]`) → `customers/addresses/create`
@@ -422,6 +425,10 @@ live-validated flow (group created *before* the company, not after).
        `expiredAt` as **`MM/DD/YYYY`**. For USD stores, `"currency":"USD"`
        is fine — the tool expands it to the object `POST /rfq` requires
        (non-USD: pass a full currency object; see `docs/B2B.md` quirks).
+       Preview `currency` must be an **object**; if it remains a string,
+       restart the MCP server. You may omit `subtotal`/`grandTotal` — with
+       `productList` present the tool derives/corrects them from
+       `offeredPrice*quantity` (mismatched hand totals used to 422).
        Set `userEmail` to an existing B2B Control Panel system user /
        sales rep (e.g. the store admin email) — a buyer email 422s;
        omitting it can also fail depending on store config (see FU-8).

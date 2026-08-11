@@ -61,10 +61,12 @@ func (s *B2BCompanyToolsSuite) TestQuoteCreateNormalizesMoneyToTwoDecimals() {
 	})
 	s.NoError(err)
 	s.False(prev.IsError)
-	payload := s.parseJSON(prev)["payload"].(map[string]any)
-	s.Equal(3059.10, payload["subtotal"])
+	data := s.parseJSON(prev)
+	payload := data["payload"].(map[string]any)
+	// Line offered sum = 2249.99 + 809.10 = 3059.09; grandTotal = 3059.09 - 0.10 = 3058.99.
+	s.Equal(3059.09, payload["subtotal"])
 	s.Equal(0.10, payload["discount"])
-	s.Equal(3059.09, payload["grandTotal"])
+	s.Equal(3058.99, payload["grandTotal"])
 	items := payload["productList"].([]any)
 	row0 := items[0].(map[string]any)
 	s.Equal(2500.00, row0["basePrice"])
@@ -74,6 +76,71 @@ func (s *B2BCompanyToolsSuite) TestQuoteCreateNormalizesMoneyToTwoDecimals() {
 	s.Equal(899.00, row1["basePrice"])
 	s.Equal(809.10, row1["offeredPrice"])
 	s.Equal(89.90, row1["discount"])
+	warns, ok := data["warnings"].([]any)
+	s.Require().True(ok, "warnings expected when totals corrected")
+	s.NotEmpty(warns)
+}
+
+func (s *B2BCompanyToolsSuite) TestQuoteCreateAlignsMismatchedTotalsFromProductList() {
+	prev, err := s.callTool("b2b/quotes/create", map[string]any{
+		"quote_json": `{
+			"quoteTitle":"Total Fix",
+			"subtotal":2849.98,
+			"discount":0,
+			"grandTotal":2849.98,
+			"productList":[
+				{"productId":563,"variantId":1959,"quantity":1,"offeredPrice":2599.99,"basePrice":2599.99,"discount":0},
+				{"productId":566,"variantId":1964,"quantity":1,"offeredPrice":499.99,"basePrice":499.99,"discount":0}
+			]
+		}`,
+	})
+	s.NoError(err)
+	s.False(prev.IsError)
+	data := s.parseJSON(prev)
+	payload := data["payload"].(map[string]any)
+	s.Equal(3099.98, payload["subtotal"])
+	s.Equal(3099.98, payload["grandTotal"])
+	warns := data["warnings"].([]any)
+	s.GreaterOrEqual(len(warns), 1)
+}
+
+func (s *B2BCompanyToolsSuite) TestQuoteCreateSetsMissingTotalsFromProductList() {
+	prev, err := s.callTool("b2b/quotes/create", map[string]any{
+		"quote_json": `{
+			"quoteTitle":"Missing Totals",
+			"discount":0,
+			"productList":[
+				{"productId":1,"variantId":2,"quantity":2,"offeredPrice":100.00,"basePrice":100.00,"discount":0}
+			]
+		}`,
+	})
+	s.NoError(err)
+	data := s.parseJSON(prev)
+	payload := data["payload"].(map[string]any)
+	s.Equal(200.00, payload["subtotal"])
+	s.Equal(200.00, payload["grandTotal"])
+	s.NotEmpty(data["warnings"])
+}
+
+func (s *B2BCompanyToolsSuite) TestQuoteCreateLeavesMatchingTotalsUnchanged() {
+	prev, err := s.callTool("b2b/quotes/create", map[string]any{
+		"quote_json": `{
+			"quoteTitle":"Totals OK",
+			"subtotal":349.99,
+			"discount":0,
+			"grandTotal":349.99,
+			"productList":[
+				{"productId":566,"variantId":1963,"quantity":1,"offeredPrice":349.99,"basePrice":349.99,"discount":0}
+			]
+		}`,
+	})
+	s.NoError(err)
+	data := s.parseJSON(prev)
+	payload := data["payload"].(map[string]any)
+	s.Equal(349.99, payload["subtotal"])
+	s.Equal(349.99, payload["grandTotal"])
+	_, hasWarn := data["warnings"]
+	s.False(hasWarn)
 }
 
 func (s *B2BCompanyToolsSuite) TestQuoteCreateExpandsCurrencyString() {
@@ -92,6 +159,24 @@ func (s *B2BCompanyToolsSuite) TestQuoteCreateExpandsCurrencyString() {
 	s.Equal(",", cur["thousandsToken"])
 	s.Equal(float64(2), cur["decimalPlaces"])
 	s.Equal("1.0000000000", cur["currencyExchangeRate"])
+}
+
+func (s *B2BCompanyToolsSuite) TestQuoteCreateConfirmSendsExpandedCurrencyObject() {
+	s.mockBC.EXPECT().CreateB2BQuote(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ any, body map[string]any) (map[string]any, error) {
+			cur, ok := body["currency"].(map[string]any)
+			s.Require().True(ok, "confirm path must send currency as object, not string")
+			s.Equal("USD", cur["currencyCode"])
+			return map[string]any{"quoteId": float64(77)}, nil
+		},
+	)
+	res, err := s.callTool("b2b/quotes/create", map[string]any{
+		"quote_json": `{"quoteTitle":"Confirm Currency","currency":"USD"}`,
+		"confirmed":  true,
+	})
+	s.NoError(err)
+	s.False(res.IsError)
+	s.Equal("created", s.parseJSON(res)["status"])
 }
 
 func (s *B2BCompanyToolsSuite) TestQuoteCreatePassesCurrencyObjectThrough() {
