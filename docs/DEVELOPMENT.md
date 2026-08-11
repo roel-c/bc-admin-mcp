@@ -49,7 +49,7 @@ Use these tiers when defining MCP tools (or HTTP actions) so permissions and con
 | `BC_MAX_WRITE_CONCURRENCY` | `1` | Reserved for throughput mode; **`BatchPut` is sequential today** regardless of this value |
 | `BC_CACHE_TTL_SECONDS` | `60` | Per-session cache TTL for preview/confirm snapshots |
 
-The `categories` batch-update endpoint (`PUT /v3/catalog/trees/categories`) uses an internal `categoryBatchSize = 50` constant in `internal/bigcommerce/products.go` — not configurable today.
+The `categories` batch-update endpoint (`PUT /v3/catalog/trees/categories`) and batch-create endpoint (`POST /v3/catalog/trees/categories`) use an internal `categoryBatchSize = 50` constant in `internal/bigcommerce/products.go` — not configurable today. `catalog/categories/bulk_create` additionally caps **100** nodes per tool call, creates **level-by-level** so parents exist before children, and always sends unique hierarchical `url.path` values (optional per-node `url_path` override) so same display names under different parents succeed in one pass.
 
 ### 2.2 Store plan quotas (from `BC-API-Reference.md`)
 
@@ -88,6 +88,7 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `catalog/products/bulk_sku_update` | `product_id`/new-SKU pairs ≤ 100/call | `products_bulk_update_sku.go` |
 | `catalog/products/assign_categories` | `product_ids ≤ 100`, `category_ids ≤ 50`, pairs ≤ 500 | `categories_assignments.go` |
 | `catalog/products/unassign_categories` | `product_ids ≤ 100`, `category_ids ≤ 50` | `categories_assignments.go` |
+| `catalog/categories/bulk_create` | **R1**; `categories_json` ≤ **100** nodes (nested `children` or flat `ref`/`parent_ref`); depth ≤ **8**; creates level-by-level via `POST /v3/catalog/trees/categories` (chunks of 50); auto-assigns unique hierarchical `url.path` from display path (optional per-node `url_path` override); rejects sibling name dupes and within-payload URL collisions before POST; optional MSF `channel_id`/`tree_id`; preview → confirm; `partial_success` supported | `categories_bulk_create.go` |
 | `catalog/products/channel_assignments/list` | `product_ids ≤ 100`, `channel_ids ≤ 20` | `products_channel_assignments.go` |
 | `catalog/products/channel_assignments/assign` | pairs ≤ 500 | `products_channel_assignments.go` |
 | `catalog/products/channel_assignments/remove` | `product_ids ≤ 100`, `channel_ids ≤ 20` | `products_channel_assignments.go` |

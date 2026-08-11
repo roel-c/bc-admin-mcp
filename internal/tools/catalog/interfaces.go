@@ -63,6 +63,7 @@ type BigCommerceAPI interface {
 	GetCategory(ctx context.Context, categoryID int) (*bigcommerce.Category, error)
 	GetCategoriesByIDs(ctx context.Context, categoryIDs []int) ([]bigcommerce.Category, error)
 	CreateCategory(ctx context.Context, payload bigcommerce.CategoryCreate) ([]bigcommerce.Category, error)
+	CreateCategories(ctx context.Context, payloads []bigcommerce.CategoryCreate) ([]bigcommerce.Category, error)
 	BatchUpdateCategories(ctx context.Context, updates []bigcommerce.CategoryUpdate) (*bigcommerce.BatchResult, error)
 	DeleteCategories(ctx context.Context, ids []int) error
 	GetDefaultTreeID(ctx context.Context) (int, error)

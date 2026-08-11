@@ -144,6 +144,8 @@ func (c *Categories) RegisterTools(reg *discovery.Registry) {
 		Handler: c.handleCreate,
 	})
 
+	c.registerBulkCreateTool(reg)
+
 	reg.RegisterTool(&discovery.ToolDef{
 		Path:    "catalog/categories/bulk_update",
 		Tier:    middleware.TierR1,

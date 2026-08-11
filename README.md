@@ -286,6 +286,7 @@ A human-browsable snapshot of every tool path, for skimming without a running se
 | `catalog/categories/list` | R0 | Filter search with `list_all` mode for full catalog dump (optional **`channel_id`** for MSF — resolves `tree_id` server-side) |
 | `catalog/categories/get` | R0 | Single category by ID |
 | `catalog/categories/create` | R1 | Create with name-based parent resolution (no numeric IDs needed); optional **`channel_id`** or **`tree_id`** for MSF |
+| `catalog/categories/bulk_create` | R1 | Create a category tree in one call (`categories_json` nested `children` or flat `ref`/`parent_ref`); auto hierarchical `url.path` (optional `url_path` override); rejects sibling name dupes and within-payload URL collisions before POST; level-by-level `POST /v3/catalog/trees/categories` (chunks of 50); max **100** nodes / depth **8**; optional MSF `channel_id`/`tree_id`; preview → confirm; `partial_success` on mid-tree failure |
 | `catalog/categories/bulk_update` | R1 | Batch update name, description, SEO, visibility, sort order |
 | `catalog/categories/products` | R0 | List products belonging to a category (by ID or name) with price/SKU summaries |
 | `catalog/categories/seo_audit` | R0 | Scan categories for missing `page_title`, `meta_description`, or `search_keywords` |

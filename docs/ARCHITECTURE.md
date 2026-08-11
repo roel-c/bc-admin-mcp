@@ -97,6 +97,7 @@ This server solves all three through progressive disclosure, use-case-driven too
 │  │  • list — R0, declarative filters, list_all mode              │   │
 │  │  • get — R0                                                   │   │
 │  │  • create — R1, parent_name resolution, preview→confirm       │   │
+│  │  • bulk_create — R1, nested tree + hierarchical url.path      │   │
 │  │  • bulk_update — R1, preview→confirm, SEO + visibility fields │   │
 │  │  • delete — R3, child safeguard + include_children gate       │   │
 │  │  • bulk_delete — R3, child safeguard + include_children gate  │   │

@@ -128,7 +128,15 @@ order→invoice, invoice→payment).
    `path: "b2b"` or `path: "catalog"` when you know the domain.
 3. **Deep-link categories** — `discover_tools({ "path": "catalog/channels" })`
    is valid; root drill-down is optional exploration, not required every time.
-4. **Follow the stage playbooks** in `docs/B2B.md` instead of rediscovering the
+4. **Category trees** — use `catalog/categories/bulk_create` (nested `children` in
+   `categories_json`) for mega-menu / screenshot recreation instead of many
+   single `catalog/categories/create` calls. The tool auto-assigns unique
+   hierarchical `url.path` values (e.g. `/men/shoes/basketball/` vs
+   `/men/shop-by-sport/basketball/`) so same display names under different
+   parents succeed in one pass; sibling name dupes and within-payload URL
+   collisions are rejected before any POST. Optional per-node `url_path`
+   overrides the auto slug.
+5. **Follow the stage playbooks** in `docs/B2B.md` instead of rediscovering the
    sequence via `discover_tools` on every run.
 
 ### B2B speed tips (when `BC_B2B_ENABLED=true`)
@@ -145,10 +153,10 @@ order→invoice, invoice→payment).
 When provisioning restricted-catalog companies with products and quotes on one storefront channel:
 
 1. **Resolve `channel_id` once** (`catalog/channels/list` + `b2b/channels/list`) and reuse it for categories, products, customers, and quotes — do not switch mid-run.
-2. **Category → group → companies** — `catalog/categories/create` (`channel_id`) → `customers/groups/create` (`category_access_type: specific` + category id) → `b2b/companies/bulk_create` / `update` with `customer_group_id`, `origin_channel_id`, `channel_ids`.
+2. **Category → group → companies** — `catalog/categories/create` (`channel_id`) → `customers/groups/create` (`category_access_type: specific` + category id) → `b2b/companies/bulk_create` / `update` with `customer_group_id`, `origin_channel_id`, `channel_ids`. Prefer `catalog/categories/bulk_create` when seeding a multi-node tree on that channel.
 3. **Products** — ensure each `images[].image_url` is publicly fetchable (tool probes HEAD/GET; resolve Wikimedia via `Special:FilePath/…` to the final `upload.wikimedia.org` URL). Create with inline `variants`, `category_ids`, `channel_ids`. Then `catalog/products/custom_fields/bulk_set` per product (not dozens of single `set` calls).
 4. **Quotes** — one per company admin: `companyId`, admin `contactInfo`, `channelId`, Control Panel `userEmail`, `expiredAt` as `MM/DD/YYYY`. Omit totals or let the tool derive them; if preview still shows `currency` as a string, restart MCP.
-5. **Prefer bulk tools** — `companies/bulk_create`, `users/bulk_create`, `custom_fields/bulk_set`.
+5. **Prefer bulk tools** — `companies/bulk_create`, `users/bulk_create`, `custom_fields/bulk_set`, `catalog/categories/bulk_create` for trees.
 
 ---
 
