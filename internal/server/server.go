@@ -61,7 +61,7 @@ func New(cfg *config.Config, logger *slog.Logger) *server.MCPServer {
 func registerCategories(reg *discovery.Registry, b2bEnabled bool) {
 	// Category summaries appear in discover_tools responses: describe what tools
 	// exist (≤150 chars). Do not include OAuth scopes or REST API paths.
-	reg.RegisterCategory("catalog", "Product catalog: products, categories, brands, variants, and price lists")
+	reg.RegisterCategory("catalog", "Product catalog: products, categories, brands, variants, MSF channels, localization, and price lists")
 	reg.RegisterCategory("catalog/products", "Product operations: search, get, create, update, delete, and sub-resource management")
 	reg.RegisterCategory("catalog/products/channel_assignments", "MSF product↔channel catalog assignments: list, assign, and remove.")
 	reg.RegisterCategory("catalog/products/images", "Product image management: list, add by URL, delete")
@@ -79,6 +79,10 @@ func registerCategories(reg *discovery.Registry, b2bEnabled bool) {
 	reg.RegisterCategory("catalog/variants", "Global variant list/search and batch update; product-scoped CRUD stays under catalog/products/variants.")
 	reg.RegisterCategory("catalog/channels", "Sales channels and MSF catalog context: list/get/update channels, category trees per channel, and channel listings.")
 	reg.RegisterCategory("catalog/channels/listings", "Per-channel product listings: list, create, and update listing state and channel-specific copy.")
+	reg.RegisterCategory("catalog/localization", "Channel locales, MSF product locale overrides, and catalog translations (GraphQL Admin).")
+	reg.RegisterCategory("catalog/localization/locales", "Per-channel language config: list, add, update, and delete locales.")
+	reg.RegisterCategory("catalog/localization/overrides", "MSF International Enhancements: get/set/remove product PDP overlays per channel locale.")
+	reg.RegisterCategory("catalog/localization/translations", "Translations Admin API: list/update/delete catalog field translations for non-default locales.")
 	reg.RegisterCategory("catalog/pricelists", "Price list management: list, get, create, update, and delete.")
 	reg.RegisterCategory("catalog/pricelists/records", "Price list records for variant/SKU pricing overrides: list, upsert, and delete.")
 	reg.RegisterCategory("catalog/pricelists/assignments", "Price list assignments for customer-group/channel targeting: list, create_batch, upsert, delete.")
@@ -186,6 +190,12 @@ func registerTools(reg *discovery.Registry, bc *bigcommerce.Client, b2bBC *bigco
 
 	channelTools := catalog.NewChannelTools(bc)
 	channelTools.RegisterTools(reg)
+	localizationLocales := catalog.NewLocalizationLocalesTools(bc)
+	localizationLocales.RegisterTools(reg)
+	localizationOverrides := catalog.NewLocalizationOverridesTools(bc)
+	localizationOverrides.RegisterTools(reg)
+	localizationTranslations := catalog.NewLocalizationTranslationsTools(bc)
+	localizationTranslations.RegisterTools(reg)
 	priceLists := catalog.NewPriceLists(bc)
 	priceLists.RegisterTools(reg)
 	products.RegisterImageTools(reg)

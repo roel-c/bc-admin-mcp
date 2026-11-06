@@ -86,7 +86,7 @@ This server solves all three through progressive disclosure, use-case-driven too
 │  │                Tool Handlers (internal/tools/*)               │   │
 │  │                                                               │   │
 │  │  catalog/   — products, categories, brands, variants, MSF,    │   │
-│  │               price lists (use-case tools, preview→confirm)   │   │
+│  │               localization (GraphQL), price lists             │   │
 │  │  orders/    — management, shipments, payments, refunds        │   │
 │  │  customers/ — records, groups, segments, settings, consent    │   │
 │  │  marketing/ — automatic + coupon promotions and settings      │   │
@@ -647,7 +647,7 @@ b2b/                        — (Gated by BC_B2B_ENABLED) B2B Edition: companies
 
 8. **Hardcoded base URL**: `https://api.bigcommerce.com/stores` is correct for all current BigCommerce environments. Sandbox stores use the same base URL with a different store hash.
 
-9. **No GraphQL support**: The BC API reference notes that GraphQL Admin API is expanding and may replace some multi-REST-call patterns. This is deferred until specific use cases require it.
+9. **Typed GraphQL Admin only (localization)**: Catalog localization tools (`catalog/localization/*`) use fixed GraphQL Admin queries/mutations via `Client.DoGraphQL`. There is **no** raw GraphQL passthrough tool — agents pass numeric IDs and field maps; the server builds global IDs and documents. Broader GraphQL Admin coverage remains deferred until a use case requires it.
 
 10. **`Client.Close()` lifecycle**: The client uses `time.NewTicker` for throttling; `Close()` stops the ticker. Long-lived deployments should ensure shutdown paths call `Close()` when client instances are retired (today the process exits with the server, so impact is low).
 

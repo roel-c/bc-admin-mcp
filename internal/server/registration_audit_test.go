@@ -170,6 +170,53 @@ func TestFullRegistrationR1PlusToolsExposeConfirmedParameter(t *testing.T) {
 	}
 }
 
+func TestFullRegistrationCatalogLocalizationSubtreeIsFullyRegistered(t *testing.T) {
+	reg := discovery.NewRegistry()
+	registerCategories(reg, false)
+	cfg := testBigCommerceConfig()
+	bc := bigcommerce.NewClient(cfg, slog.Default())
+	t.Cleanup(func() { bc.Close() })
+	cache := session.NewStore(cfg.CacheTTL)
+	registerTools(reg, bc, nil, cache)
+
+	requiredCategories := []string{
+		"catalog/localization",
+		"catalog/localization/locales",
+		"catalog/localization/overrides",
+		"catalog/localization/translations",
+	}
+	for _, cat := range requiredCategories {
+		require.True(t, reg.HasCategory(cat), "missing required category %q", cat)
+	}
+
+	requiredTools := []string{
+		"catalog/localization/locales/list",
+		"catalog/localization/locales/add",
+		"catalog/localization/locales/update",
+		"catalog/localization/locales/delete",
+		"catalog/localization/overrides/get",
+		"catalog/localization/overrides/set",
+		"catalog/localization/overrides/remove",
+		"catalog/localization/translations/list",
+		"catalog/localization/translations/update",
+		"catalog/localization/translations/delete",
+	}
+	for _, toolPath := range requiredTools {
+		def := reg.GetTool(toolPath)
+		require.NotNil(t, def, "missing required tool %q", toolPath)
+	}
+
+	entries, err := reg.Discover("catalog/localization")
+	require.NoError(t, err)
+	seen := map[string]bool{}
+	for _, e := range entries {
+		seen[e.Path] = true
+	}
+	require.True(t, seen["catalog/localization/locales"], "catalog/localization should expose locales category")
+	require.True(t, seen["catalog/localization/overrides"], "catalog/localization should expose overrides category")
+	require.True(t, seen["catalog/localization/translations"], "catalog/localization should expose translations category")
+}
+
 func TestFullRegistrationCatalogPriceListSubtreeIsFullyRegistered(t *testing.T) {
 	reg := discovery.NewRegistry()
 	registerCategories(reg, false)

@@ -72,13 +72,15 @@ The MCP server uses **progressive disclosure**. Prefer the cheapest path that
 finds the tool:
 
 1. **Known playbook path** → call `execute_tool` directly (skip discovery).
-   Examples: `catalog/channels/list`, `catalog/products/search`, paths from
-   `docs/WORKFLOW.md` / `docs/B2B.md` playbooks (only the paths needed for
-   the in-scope ask — see Playbook Scope Rules).
+   Examples: `catalog/channels/list`, `catalog/products/search`,
+   `catalog/localization/locales/list`, paths from `docs/WORKFLOW.md` /
+   `docs/B2B.md` / `docs/MSF.md` playbooks (only the paths needed for the
+   in-scope ask — see Playbook Scope Rules).
 2. **`discover_tools` with `query`** → search paths/summaries in one hop
-   (e.g. `query: "channels"`, optional `path: "catalog"` to scope).
-3. **Deep-link** → `discover_tools({ "path": "catalog/channels" })` or a full
-   tool path returns that node’s children / stub without starting at root.
+   (e.g. `query: "channels"`, `query: "localization"`, optional `path: "catalog"` to scope).
+3. **Deep-link** → `discover_tools({ "path": "catalog/channels" })` or
+   `discover_tools({ "path": "catalog/localization" })` or a full tool path
+   returns that node’s children / stub without starting at root.
 4. **Root drill-down** (only when exploring an unfamiliar domain):
    - `discover_tools("")` → roots
    - `discover_tools("<root>")` → subcategories

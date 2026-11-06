@@ -46,3 +46,15 @@ assets/
 # Temporary MCP request/response files
 tmp*.json
 tmp*.json.out
+tmp-*.html
+
+# Local catalog snapshots pulled for environment copies
+/exports/
+
+# Local-only notes / one-off catalog push scripts (not part of the MCP product)
+/avkare-rs-platform-position.md
+/docs/FISHBOWL-INTEGRATION.md
+/scripts/push_demo_catalog.go
+/scripts/push_auto_catalog.go
+/scripts/export_auto_catalog.go
+/scripts/cleanup_auto_catalog.go

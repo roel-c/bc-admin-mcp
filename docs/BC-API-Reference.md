@@ -980,13 +980,21 @@ Endpoint: `https://api.bigcommerce.com/stores/{store_hash}/graphql`
 Auth: `X-Auth-Token` (same as REST)
 Best for: Complex catalog queries, admin mutations where REST endpoints don't yet have batch support
 
-Notable available mutations:
+**Used by this MCP (typed only — no raw GraphQL tool):**
+
+| Area | Tool prefix | Notes |
+|------|-------------|-------|
+| Channel locales | `catalog/localization/locales/*` | `store.locales`, `locale.add/update/deleteLocale`; max 5 locales/channel |
+| MSF product overlays | `catalog/localization/overrides/*` | `overridesForLocale` / `setProduct*` / `removeProduct*`; International Enhancements |
+| Catalog translations | `catalog/localization/translations/*` | `store.translations`, `translation.update/deleteTranslations`; Store Translations OAuth; non-default locales only |
+
+Notable other Admin GraphQL surfaces (not yet MCP tools):
 
 - `createProductReview`, `updateProductReview`, `deleteProductReview`
 - Order-related queries and event hooks
 - `updateSettings`, `updateStorefrontSettings`
 
-**LLM Note:** GraphQL Admin API is actively expanding. Prefer REST V3 for bulk write operations; use GraphQL for reads that would otherwise require multiple REST calls.
+**LLM Note:** Prefer REST V3 for bulk catalog writes. Use `catalog/localization/*` for locale overlays and translations — do not invent raw GraphQL documents.
 
 ---
 

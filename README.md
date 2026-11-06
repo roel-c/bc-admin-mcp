@@ -316,6 +316,16 @@ A human-browsable snapshot of every tool path, for skimming without a running se
 | `catalog/channels/listings/list` | R0 | `GET .../channels/{id}/listings` — optional **`product_ids`** filter; cursor pagination (up to 2000 rows); **`store_channel_listings_read_only`** or modify scope |
 | `catalog/channels/listings/create` | R1 | `POST` — **`listings_json`** array (max 10 listings; BC requires **variants** per row); preview → **`confirmed`**; **`store_channel_listings`** |
 | `catalog/channels/listings/update` | R2 | `PUT` — same JSON limits; each row needs **listing_id** (from list); preview → **`confirmed`** |
+| `catalog/localization/locales/list` | R0 | GraphQL Admin — list channel locales; optional `include_supported` for platform locale codes (max 5 locales/channel) |
+| `catalog/localization/locales/add` | R1 | GraphQL Admin `locale.addLocale` — add locale (`code`, optional `status`); preview → **`confirmed`** |
+| `catalog/localization/locales/update` | R1 | GraphQL Admin `locale.updateLocale` — update `status` / `is_default`; preview → **`confirmed`** |
+| `catalog/localization/locales/delete` | R2 | GraphQL Admin `locale.deleteLocale` — delete non-default locale; preview → **`confirmed`** |
+| `catalog/localization/overrides/get` | R0 | GraphQL Admin — get MSF product locale/channel PDP overlays (`product_id` + `channel_id` + `locale`) |
+| `catalog/localization/overrides/set` | R1 | GraphQL Admin — set PDP overlays (name/description/SEO/URL/storefront/preorder/`is_featured`); preview → **`confirmed`** |
+| `catalog/localization/overrides/remove` | R1 | GraphQL Admin — clear override groups (`basic`, `seo`, `url`, `storefront`, `preorder`, `featured`); preview → **`confirmed`** |
+| `catalog/localization/translations/list` | R0 | GraphQL Admin — list catalog translations (`PRODUCTS`/`CATEGORIES`/`BRANDS`/options/custom fields); page ≤ 50; needs **Store Translations** scope |
+| `catalog/localization/translations/update` | R1 | GraphQL Admin — upsert translations on non-default locales (≤ 20 entities); preview → **`confirmed`** |
+| `catalog/localization/translations/delete` | R1 | GraphQL Admin — delete translation fields on non-default locales (≤ 20 resources); preview → **`confirmed`** |
 | `catalog/pricelists/list` | R0 | `GET /v3/pricelists` with optional id/name/date filters and offset/cursor pagination |
 | `catalog/pricelists/get` | R0 | `GET /v3/pricelists/{price_list_id}` |
 | `catalog/pricelists/create` | R1 | `POST /v3/pricelists` (`name`, optional `active`); preview → confirm |

@@ -110,6 +110,13 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `catalog/channels/update` | **R2**; `channel_id` required; at least one of `name` / `status`; valid statuses: active, inactive, connected, disconnected, prelaunch; deleted/terminated channels cannot be updated (BC returns 422); preview then confirm | `internal/tools/catalog/channel_tools.go` |
 | `catalog/channels/listings/list` | up to 2000 rows fetched per call; `product_ids` filter ≤ 50 | `channel_listings_tools.go` |
 | `catalog/channels/listings/create` / `update` | `listings_json` ≤ 10 objects, payload ≤ 256 KiB | `channel_listings_tools.go` |
+| `catalog/localization/locales/list` | R0; channel locales; optional `include_supported`; max 5 locales/channel | `localization_locales.go` |
+| `catalog/localization/locales/add` / `update` | **R1**; preview → confirm; status `ACTIVE`/`INACTIVE` | `localization_locales.go` |
+| `catalog/localization/locales/delete` | **R2**; reject default locale; preview → confirm | `localization_locales.go` |
+| `catalog/localization/overrides/get` | R0; `product_id` + `channel_id` + `locale` | `localization_overrides.go` |
+| `catalog/localization/overrides/set` / `remove` | **R1**; PDP field groups; server-side multi-mutation; preview → confirm | `localization_overrides.go` |
+| `catalog/localization/translations/list` | R0; page ≤ 50; catalog resource types only | `localization_translations.go` |
+| `catalog/localization/translations/update` / `delete` | **R1**; reject channel default locale; ≤ 20 entities/resources; preview → confirm | `localization_translations.go` |
 | `catalog/pricelists/list` / `catalog/pricelists/assignments/list` / `catalog/pricelists/records/list` | supports offset and cursor pagination; reject `page` + cursor combinations | `pricelists_tools.go` |
 | `catalog/pricelists/create` / `update` | preview-then-confirm; update is fetch-merge-PUT | `pricelists_tools.go` |
 | `catalog/pricelists/delete` | **R3 destructive** — preview then `confirmed=true` | `pricelists_tools.go` |
@@ -303,6 +310,7 @@ From `BC-API-Reference.md`: grant **minimum scopes** per tool group.
 | Inventory | `store_inventory` |
 | Price lists | `store_price_lists` |
 | Channels (MSF) | `store_channel_settings` (write, for `catalog/channels/update`); `store_channel_settings_read_only` (for `catalog/channels/list`, `catalog/channels/get`); channel listings need `store_channel_listings` (write) or `store_channel_listings_read_only` |
+| Localization | GraphQL Admin for `catalog/localization/*`; translations need **Store Translations** read/modify; International Enhancements must be enabled for overrides |
 | Webhooks | `store_v2_information_read_only` sufficient for `webhooks/list`, `webhooks/get`, `webhooks/events`; `store_v2_information` (modify) required for `webhooks/create`, `webhooks/update`, `webhooks/delete` |
 | Storefront scripts | `store_content` (Script Manager `/v3/content/scripts`) |
 | Carts | `store_cart` (covers `carts/cart/**` including cart metafields) |

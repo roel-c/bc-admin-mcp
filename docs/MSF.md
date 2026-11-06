@@ -1,6 +1,6 @@
 # Multi-Storefront (MSF) — Research & Implementation Record
 
-Merged from `msf-research-outline.md` (API research) and `channels-msf-implementation-roadmap.md` (phased delivery). All phases 0–4 are shipped. Phase 5 is plan-gated.
+Merged from `msf-research-outline.md` (API research) and `channels-msf-implementation-roadmap.md` (phased delivery). Phases 0–5 are shipped (phase 5 = GraphQL Admin localization: locales, overrides, translations).
 
 **Terminology:** BigCommerce uses **channel** in REST paths; merchants often say **storefront**. A storefront channel is typically `type: "storefront"` on `GET /v3/channels`.
 
@@ -24,6 +24,9 @@ Merged from `msf-research-outline.md` (API research) and `channels-msf-implement
 | 4 | Channel-aware category list/create | `catalog/categories/list`, `catalog/categories/create` (`channel_id`) | R0/R1 |
 | 4 | Additive post-write channel assignment | `catalog/products/create`, `catalog/products/update` (`channel_ids`) | R1 |
 | 4 | Aggregated MSF snapshot | `catalog/products/channel_summary` | R0 |
+| 5 | Channel locales list/add/update/delete | `catalog/localization/locales/*` | R0–R2 |
+| 5 | Product locale/channel PDP overrides | `catalog/localization/overrides/*` | R0–R1 |
+| 5 | Catalog translations (non-default locales) | `catalog/localization/translations/*` | R0–R1 |
 
 **OAuth scopes required:**
 - Channel reads: `store_channel_settings_read_only`
@@ -31,6 +34,8 @@ Merged from `msf-research-outline.md` (API research) and `channels-msf-implement
 - Listings (read): `store_channel_listings_read_only`
 - Listings (write): `store_channel_listings`
 - Category trees + assignments: `store_v2_products` / `store_v2_products_read_only`
+- Translations: Store Translations read (`translations/list`) / modify (`translations/update`, `translations/delete`)
+- Locale overlays (International Enhancements): GraphQL Admin with catalog/channel access; feature must be enabled on the store (Performance / Partner sandbox)
 
 ---
 
@@ -101,7 +106,7 @@ and must not expand into a full surface check.
 | Item | Status | Notes |
 |------|--------|-------|
 | Optional listing-seeding alongside channel assignment | Deliberate two-step today | `channel_ids` on create/update → then separately `catalog/channels/listings/create` for marketplace channels that need an explicit listing state. Consider optional `seed_listings=true` flag. |
-| GraphQL Admin / locale overlays (MSF+) | Deferred — Enterprise/plan-gated | International per-channel name/SEO overrides; see [MSF international enhancements](https://developer.bigcommerce.com/docs/store-operations/catalog/msf-international-enhancements/overview). |
+| GraphQL Admin / locale overlays (MSF+) | Shipped (v1) | `catalog/localization/*` — locales, PDP overrides (basic/SEO/URL/storefront/preorder/featured), catalog translations. Deferred: option/modifier/custom-field/image overrides; non-catalog translation resource types. |
 | `BC_DEFAULT_CHANNEL_ID` config | Not implemented | Could resolve default channel from `GET /v3/channels` rather than hardcoding `1`. |
 
 ---
@@ -116,14 +121,36 @@ and must not expand into a full surface check.
 
 ---
 
+## Localization tools (Phase 5)
+
+| Path | Tier | Behavior |
+|------|------|----------|
+| `catalog/localization/locales/list` | R0 | Channel locales; optional `include_supported` |
+| `catalog/localization/locales/add` | R1 | Add locale (preview → confirm) |
+| `catalog/localization/locales/update` | R1 | Update status / default (preview → confirm) |
+| `catalog/localization/locales/delete` | R2 | Delete non-default locale (preview → confirm) |
+| `catalog/localization/overrides/get` | R0 | PDP overlays for product + channel + locale |
+| `catalog/localization/overrides/set` | R1 | Set basic/SEO/URL/storefront/preorder/featured |
+| `catalog/localization/overrides/remove` | R1 | Clear named groups (or all) |
+| `catalog/localization/translations/list` | R0 | List catalog translations (≤ 50/page) |
+| `catalog/localization/translations/update` | R1 | Upsert non-default-locale translations (≤ 20 entities) |
+| `catalog/localization/translations/delete` | R1 | Delete translation fields (≤ 20 resources) |
+
+**Deferred:** variant/modifier/custom-field/image overrides; shipping/tax/payment/checkout translation resource types.
+
 ## References
 
 - `DEVELOPMENT.md §9` — Channel assignments vs listings decision rubric
 - `BC-API-Reference.md §6.12` — Channels & MSF endpoint map
+- `BC-API-Reference.md §6.22` — GraphQL Admin localization surface
 - `internal/bigcommerce/channels.go` — `ListStoreChannels`, `GetStoreChannel`, `UpdateStoreChannel`
+- `internal/bigcommerce/graphql.go` — `DoGraphQL`, global ID helpers
+- `internal/bigcommerce/localization_*.go` — locales, overrides, translations
 - `internal/bigcommerce/category_trees.go` — `ListCategoryTrees`, `GetTreeIDForChannel`
 - `internal/bigcommerce/channel_assignments.go` — assignment CRUD
 - `internal/bigcommerce/channel_listings.go` — listing CRUD
 - [Channels API](https://developer.bigcommerce.com/api-reference/store-management/channels-api)
 - [Product channel assignments](https://developer.bigcommerce.com/docs/rest-catalog/products/channel-assignments)
 - [MSF API guide](https://docs.bigcommerce.com/developer/docs/admin/multi-storefront/api-guide)
+- [MSF International Enhancements](https://docs.bigcommerce.com/developer/docs/admin/multi-storefront/msf-international-enhancements/overview)
+- [Translations overview](https://docs.bigcommerce.com/developer/docs/admin/store-configuration/translations/overview.md)

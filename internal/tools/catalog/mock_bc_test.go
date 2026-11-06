@@ -41,6 +41,21 @@ func (m *MockBigCommerceAPI) EXPECT() *MockBigCommerceAPIMockRecorder {
 	return m.recorder
 }
 
+// AddLocale mocks base method.
+func (m *MockBigCommerceAPI) AddLocale(ctx context.Context, in bigcommerce.AddLocaleInput) (*bigcommerce.ChannelLocale, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddLocale", ctx, in)
+	ret0, _ := ret[0].(*bigcommerce.ChannelLocale)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AddLocale indicates an expected call of AddLocale.
+func (mr *MockBigCommerceAPIMockRecorder) AddLocale(ctx, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddLocale", reflect.TypeOf((*MockBigCommerceAPI)(nil).AddLocale), ctx, in)
+}
+
 // BatchUpdateCategories mocks base method.
 func (m *MockBigCommerceAPI) BatchUpdateCategories(ctx context.Context, updates []bigcommerce.CategoryUpdate) (*bigcommerce.BatchResult, error) {
 	m.ctrl.T.Helper()
@@ -325,6 +340,21 @@ func (mr *MockBigCommerceAPIMockRecorder) CreateVariantMetafield(ctx, productID,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateVariantMetafield", reflect.TypeOf((*MockBigCommerceAPI)(nil).CreateVariantMetafield), ctx, productID, variantID, mf)
 }
 
+// DefaultLocaleCode mocks base method.
+func (m *MockBigCommerceAPI) DefaultLocaleCode(ctx context.Context, channelID int) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DefaultLocaleCode", ctx, channelID)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DefaultLocaleCode indicates an expected call of DefaultLocaleCode.
+func (mr *MockBigCommerceAPIMockRecorder) DefaultLocaleCode(ctx, channelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DefaultLocaleCode", reflect.TypeOf((*MockBigCommerceAPI)(nil).DefaultLocaleCode), ctx, channelID)
+}
+
 // DeleteBrand mocks base method.
 func (m *MockBigCommerceAPI) DeleteBrand(ctx context.Context, brandID int) error {
 	m.ctrl.T.Helper()
@@ -421,6 +451,21 @@ func (m *MockBigCommerceAPI) DeleteCategoryMetafield(ctx context.Context, catego
 func (mr *MockBigCommerceAPIMockRecorder) DeleteCategoryMetafield(ctx, categoryID, metafieldID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCategoryMetafield", reflect.TypeOf((*MockBigCommerceAPI)(nil).DeleteCategoryMetafield), ctx, categoryID, metafieldID)
+}
+
+// DeleteLocale mocks base method.
+func (m *MockBigCommerceAPI) DeleteLocale(ctx context.Context, channelID int, code string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteLocale", ctx, channelID, code)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteLocale indicates an expected call of DeleteLocale.
+func (mr *MockBigCommerceAPIMockRecorder) DeleteLocale(ctx, channelID, code any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLocale", reflect.TypeOf((*MockBigCommerceAPI)(nil).DeleteLocale), ctx, channelID, code)
 }
 
 // DeletePriceList mocks base method.
@@ -578,6 +623,20 @@ func (mr *MockBigCommerceAPIMockRecorder) DeleteProducts(ctx, productIDs any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteProducts", reflect.TypeOf((*MockBigCommerceAPI)(nil).DeleteProducts), ctx, productIDs)
 }
 
+// DeleteTranslations mocks base method.
+func (m *MockBigCommerceAPI) DeleteTranslations(ctx context.Context, in bigcommerce.DeleteTranslationsInput) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteTranslations", ctx, in)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteTranslations indicates an expected call of DeleteTranslations.
+func (mr *MockBigCommerceAPIMockRecorder) DeleteTranslations(ctx, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTranslations", reflect.TypeOf((*MockBigCommerceAPI)(nil).DeleteTranslations), ctx, in)
+}
+
 // DeleteVariant mocks base method.
 func (m *MockBigCommerceAPI) DeleteVariant(ctx context.Context, productID, variantID int) error {
 	m.ctrl.T.Helper()
@@ -694,6 +753,21 @@ func (m *MockBigCommerceAPI) GetProduct(ctx context.Context, productID int) (*bi
 func (mr *MockBigCommerceAPIMockRecorder) GetProduct(ctx, productID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProduct", reflect.TypeOf((*MockBigCommerceAPI)(nil).GetProduct), ctx, productID)
+}
+
+// GetProductLocaleOverrides mocks base method.
+func (m *MockBigCommerceAPI) GetProductLocaleOverrides(ctx context.Context, productID, channelID int, locale string) (*bigcommerce.ProductLocaleOverrides, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProductLocaleOverrides", ctx, productID, channelID, locale)
+	ret0, _ := ret[0].(*bigcommerce.ProductLocaleOverrides)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProductLocaleOverrides indicates an expected call of GetProductLocaleOverrides.
+func (mr *MockBigCommerceAPIMockRecorder) GetProductLocaleOverrides(ctx, productID, channelID, locale any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProductLocaleOverrides", reflect.TypeOf((*MockBigCommerceAPI)(nil).GetProductLocaleOverrides), ctx, productID, channelID, locale)
 }
 
 // GetProductsByIDs mocks base method.
@@ -814,6 +888,21 @@ func (m *MockBigCommerceAPI) ListChannelListings(ctx context.Context, channelID 
 func (mr *MockBigCommerceAPIMockRecorder) ListChannelListings(ctx, channelID, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListChannelListings", reflect.TypeOf((*MockBigCommerceAPI)(nil).ListChannelListings), ctx, channelID, query)
+}
+
+// ListChannelLocales mocks base method.
+func (m *MockBigCommerceAPI) ListChannelLocales(ctx context.Context, channelID int) ([]bigcommerce.ChannelLocale, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListChannelLocales", ctx, channelID)
+	ret0, _ := ret[0].([]bigcommerce.ChannelLocale)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListChannelLocales indicates an expected call of ListChannelLocales.
+func (mr *MockBigCommerceAPIMockRecorder) ListChannelLocales(ctx, channelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListChannelLocales", reflect.TypeOf((*MockBigCommerceAPI)(nil).ListChannelLocales), ctx, channelID)
 }
 
 // ListPriceListAssignments mocks base method.
@@ -981,6 +1070,36 @@ func (mr *MockBigCommerceAPIMockRecorder) ListStoreChannels(ctx, params any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStoreChannels", reflect.TypeOf((*MockBigCommerceAPI)(nil).ListStoreChannels), ctx, params)
 }
 
+// ListSupportedLocales mocks base method.
+func (m *MockBigCommerceAPI) ListSupportedLocales(ctx context.Context) ([]bigcommerce.SupportedLocale, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSupportedLocales", ctx)
+	ret0, _ := ret[0].([]bigcommerce.SupportedLocale)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSupportedLocales indicates an expected call of ListSupportedLocales.
+func (mr *MockBigCommerceAPIMockRecorder) ListSupportedLocales(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSupportedLocales", reflect.TypeOf((*MockBigCommerceAPI)(nil).ListSupportedLocales), ctx)
+}
+
+// ListTranslations mocks base method.
+func (m *MockBigCommerceAPI) ListTranslations(ctx context.Context, p bigcommerce.TranslationListParams) (*bigcommerce.TranslationListResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTranslations", ctx, p)
+	ret0, _ := ret[0].(*bigcommerce.TranslationListResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTranslations indicates an expected call of ListTranslations.
+func (mr *MockBigCommerceAPIMockRecorder) ListTranslations(ctx, p any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTranslations", reflect.TypeOf((*MockBigCommerceAPI)(nil).ListTranslations), ctx, p)
+}
+
 // ListVariantMetafields mocks base method.
 func (m *MockBigCommerceAPI) ListVariantMetafields(ctx context.Context, productID, variantID int) ([]bigcommerce.Metafield, error) {
 	m.ctrl.T.Helper()
@@ -1024,6 +1143,21 @@ func (m *MockBigCommerceAPI) ListVariantsForProduct(ctx context.Context, product
 func (mr *MockBigCommerceAPIMockRecorder) ListVariantsForProduct(ctx, productID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVariantsForProduct", reflect.TypeOf((*MockBigCommerceAPI)(nil).ListVariantsForProduct), ctx, productID)
+}
+
+// RemoveProductLocaleOverrides mocks base method.
+func (m *MockBigCommerceAPI) RemoveProductLocaleOverrides(ctx context.Context, productID int, lc bigcommerce.LocaleContext, groups []string) (*bigcommerce.ProductLocaleOverrides, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveProductLocaleOverrides", ctx, productID, lc, groups)
+	ret0, _ := ret[0].(*bigcommerce.ProductLocaleOverrides)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RemoveProductLocaleOverrides indicates an expected call of RemoveProductLocaleOverrides.
+func (mr *MockBigCommerceAPIMockRecorder) RemoveProductLocaleOverrides(ctx, productID, lc, groups any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveProductLocaleOverrides", reflect.TypeOf((*MockBigCommerceAPI)(nil).RemoveProductLocaleOverrides), ctx, productID, lc, groups)
 }
 
 // SearchBrands mocks base method.
@@ -1086,6 +1220,21 @@ func (mr *MockBigCommerceAPIMockRecorder) SearchVariants(ctx, params any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SearchVariants", reflect.TypeOf((*MockBigCommerceAPI)(nil).SearchVariants), ctx, params)
 }
 
+// SetProductLocaleOverrides mocks base method.
+func (m *MockBigCommerceAPI) SetProductLocaleOverrides(ctx context.Context, in bigcommerce.ProductLocaleOverrideInput) (*bigcommerce.ProductLocaleOverrides, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetProductLocaleOverrides", ctx, in)
+	ret0, _ := ret[0].(*bigcommerce.ProductLocaleOverrides)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetProductLocaleOverrides indicates an expected call of SetProductLocaleOverrides.
+func (mr *MockBigCommerceAPIMockRecorder) SetProductLocaleOverrides(ctx, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetProductLocaleOverrides", reflect.TypeOf((*MockBigCommerceAPI)(nil).SetProductLocaleOverrides), ctx, in)
+}
+
 // UpdateBrand mocks base method.
 func (m *MockBigCommerceAPI) UpdateBrand(ctx context.Context, brandID int, input bigcommerce.BrandUpdate) (*bigcommerce.Brand, error) {
 	m.ctrl.T.Helper()
@@ -1144,6 +1293,21 @@ func (m *MockBigCommerceAPI) UpdateChannelListings(ctx context.Context, channelI
 func (mr *MockBigCommerceAPIMockRecorder) UpdateChannelListings(ctx, channelID, body any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateChannelListings", reflect.TypeOf((*MockBigCommerceAPI)(nil).UpdateChannelListings), ctx, channelID, body)
+}
+
+// UpdateLocale mocks base method.
+func (m *MockBigCommerceAPI) UpdateLocale(ctx context.Context, in bigcommerce.UpdateLocaleInput) (*bigcommerce.ChannelLocale, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateLocale", ctx, in)
+	ret0, _ := ret[0].(*bigcommerce.ChannelLocale)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateLocale indicates an expected call of UpdateLocale.
+func (mr *MockBigCommerceAPIMockRecorder) UpdateLocale(ctx, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateLocale", reflect.TypeOf((*MockBigCommerceAPI)(nil).UpdateLocale), ctx, in)
 }
 
 // UpdatePriceList mocks base method.
@@ -1219,6 +1383,20 @@ func (m *MockBigCommerceAPI) UpdateStoreChannel(ctx context.Context, channelID i
 func (mr *MockBigCommerceAPIMockRecorder) UpdateStoreChannel(ctx, channelID, payload any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateStoreChannel", reflect.TypeOf((*MockBigCommerceAPI)(nil).UpdateStoreChannel), ctx, channelID, payload)
+}
+
+// UpdateTranslations mocks base method.
+func (m *MockBigCommerceAPI) UpdateTranslations(ctx context.Context, in bigcommerce.UpdateTranslationsInput) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateTranslations", ctx, in)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateTranslations indicates an expected call of UpdateTranslations.
+func (mr *MockBigCommerceAPIMockRecorder) UpdateTranslations(ctx, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTranslations", reflect.TypeOf((*MockBigCommerceAPI)(nil).UpdateTranslations), ctx, in)
 }
 
 // UpdateVariant mocks base method.

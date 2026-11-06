@@ -135,4 +135,18 @@ type BigCommerceAPI interface {
 	CreateBrandMetafield(ctx context.Context, brandID int, mf bigcommerce.Metafield) (*bigcommerce.Metafield, error)
 	UpdateBrandMetafield(ctx context.Context, brandID, metafieldID int, mf bigcommerce.Metafield) (*bigcommerce.Metafield, error)
 	DeleteBrandMetafield(ctx context.Context, brandID, metafieldID int) error
+
+	// Localization (GraphQL Admin — locales, MSF overrides, translations)
+	ListChannelLocales(ctx context.Context, channelID int) ([]bigcommerce.ChannelLocale, error)
+	ListSupportedLocales(ctx context.Context) ([]bigcommerce.SupportedLocale, error)
+	AddLocale(ctx context.Context, in bigcommerce.AddLocaleInput) (*bigcommerce.ChannelLocale, error)
+	UpdateLocale(ctx context.Context, in bigcommerce.UpdateLocaleInput) (*bigcommerce.ChannelLocale, error)
+	DeleteLocale(ctx context.Context, channelID int, code string) (string, error)
+	DefaultLocaleCode(ctx context.Context, channelID int) (string, error)
+	GetProductLocaleOverrides(ctx context.Context, productID, channelID int, locale string) (*bigcommerce.ProductLocaleOverrides, error)
+	SetProductLocaleOverrides(ctx context.Context, in bigcommerce.ProductLocaleOverrideInput) (*bigcommerce.ProductLocaleOverrides, error)
+	RemoveProductLocaleOverrides(ctx context.Context, productID int, lc bigcommerce.LocaleContext, groups []string) (*bigcommerce.ProductLocaleOverrides, error)
+	ListTranslations(ctx context.Context, p bigcommerce.TranslationListParams) (*bigcommerce.TranslationListResult, error)
+	UpdateTranslations(ctx context.Context, in bigcommerce.UpdateTranslationsInput) error
+	DeleteTranslations(ctx context.Context, in bigcommerce.DeleteTranslationsInput) error
 }
