@@ -123,7 +123,7 @@ cd bc-admin-mcp
 
 ### Prerequisites
 
-- Go **1.26.5** or newer (see `go.mod`; older toolchains include known standard-library vulnerabilities)
+- Go **1.26.10** or newer (see `go.mod`; older toolchains include known standard-library vulnerabilities)
 - BigCommerce API credentials (Store Hash + Auth Token)
 
 ### Configuration
