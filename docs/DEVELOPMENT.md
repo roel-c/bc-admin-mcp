@@ -115,6 +115,10 @@ These caps live in `internal/tools/catalog/` and are validated **before** any Bi
 | `catalog/localization/locales/delete` | **R2**; reject default locale; preview → confirm | `localization_locales.go` |
 | `catalog/localization/overrides/get` | R0; `product_id` + `channel_id` + `locale` | `localization_overrides.go` |
 | `catalog/localization/overrides/set` / `remove` | **R1**; PDP field groups; server-side multi-mutation; preview → confirm | `localization_overrides.go` |
+| `catalog/localization/overrides/options/get` | R0; variant-option overlays | `localization_option_overrides.go` |
+| `catalog/localization/overrides/options/set` / `remove` | **R1**; dropdown option display name/value labels; preview → confirm | `localization_option_overrides.go` |
+| `catalog/localization/overrides/custom_fields/get` | R0; custom-field overlays | `localization_custom_field_overrides.go` |
+| `catalog/localization/overrides/custom_fields/set` / `remove` | **R1**; channel-locale name/value/visibility; preview → confirm | `localization_custom_field_overrides.go` |
 | `catalog/localization/translations/list` | R0; page ≤ 50; catalog resource types only | `localization_translations.go` |
 | `catalog/localization/translations/update` / `delete` | **R1**; reject channel default locale; ≤ 20 entities/resources; preview → confirm | `localization_translations.go` |
 | `catalog/pricelists/list` / `catalog/pricelists/assignments/list` / `catalog/pricelists/records/list` | supports offset and cursor pagination; reject `page` + cursor combinations | `pricelists_tools.go` |

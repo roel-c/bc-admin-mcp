@@ -106,7 +106,7 @@ and must not expand into a full surface check.
 | Item | Status | Notes |
 |------|--------|-------|
 | Optional listing-seeding alongside channel assignment | Deliberate two-step today | `channel_ids` on create/update → then separately `catalog/channels/listings/create` for marketplace channels that need an explicit listing state. Consider optional `seed_listings=true` flag. |
-| GraphQL Admin / locale overlays (MSF+) | Shipped (v1) | `catalog/localization/*` — locales, PDP overrides (basic/SEO/URL/storefront/preorder/featured), catalog translations. Deferred: option/modifier/custom-field/image overrides; non-catalog translation resource types. |
+| GraphQL Admin / locale overlays (MSF+) | Shipped (v1.1) | `catalog/localization/*` — locales, PDP overrides, option overlays, custom-field overlays, catalog translations. Deferred: modifier/image overrides; non-catalog translation resource types. |
 | `BC_DEFAULT_CHANNEL_ID` config | Not implemented | Could resolve default channel from `GET /v3/channels` rather than hardcoding `1`. |
 
 ---
@@ -132,11 +132,17 @@ and must not expand into a full surface check.
 | `catalog/localization/overrides/get` | R0 | PDP overlays for product + channel + locale |
 | `catalog/localization/overrides/set` | R1 | Set basic/SEO/URL/storefront/preorder/featured |
 | `catalog/localization/overrides/remove` | R1 | Clear named groups (or all) |
+| `catalog/localization/overrides/options/get` | R0 | Variant-option display name/value overlays |
+| `catalog/localization/overrides/options/set` | R1 | Set dropdown option label overlays |
+| `catalog/localization/overrides/options/remove` | R1 | Clear option label overlays |
+| `catalog/localization/overrides/custom_fields/get` | R0 | Custom-field name/value/visibility overlays |
+| `catalog/localization/overrides/custom_fields/set` | R1 | Set channel-locale custom-field overlays |
+| `catalog/localization/overrides/custom_fields/remove` | R1 | Clear custom-field overlays |
 | `catalog/localization/translations/list` | R0 | List catalog translations (≤ 50/page) |
 | `catalog/localization/translations/update` | R1 | Upsert non-default-locale translations (≤ 20 entities) |
 | `catalog/localization/translations/delete` | R1 | Delete translation fields (≤ 20 resources) |
 
-**Deferred:** variant/modifier/custom-field/image overrides; shipping/tax/payment/checkout translation resource types.
+**Deferred:** modifier/image overrides; shipping/tax/payment/checkout translation resource types.
 
 ## References
 

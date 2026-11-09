@@ -58,3 +58,4 @@ tmp-*.html
 /scripts/push_auto_catalog.go
 /scripts/export_auto_catalog.go
 /scripts/cleanup_auto_catalog.go
+.tools/

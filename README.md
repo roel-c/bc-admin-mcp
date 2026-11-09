@@ -323,6 +323,12 @@ A human-browsable snapshot of every tool path, for skimming without a running se
 | `catalog/localization/overrides/get` | R0 | GraphQL Admin — get MSF product locale/channel PDP overlays (`product_id` + `channel_id` + `locale`) |
 | `catalog/localization/overrides/set` | R1 | GraphQL Admin — set PDP overlays (name/description/SEO/URL/storefront/preorder/`is_featured`); preview → **`confirmed`** |
 | `catalog/localization/overrides/remove` | R1 | GraphQL Admin — clear override groups (`basic`, `seo`, `url`, `storefront`, `preorder`, `featured`); preview → **`confirmed`** |
+| `catalog/localization/overrides/options/get` | R0 | GraphQL Admin — get variant-option display name/value overlays for a channel locale |
+| `catalog/localization/overrides/options/set` | R1 | GraphQL Admin — set dropdown option label overlays; preview → **`confirmed`** |
+| `catalog/localization/overrides/options/remove` | R1 | GraphQL Admin — clear option label overlays; preview → **`confirmed`** |
+| `catalog/localization/overrides/custom_fields/get` | R0 | GraphQL Admin — get custom-field name/value/visibility overlays for a channel locale |
+| `catalog/localization/overrides/custom_fields/set` | R1 | GraphQL Admin — set custom-field channel-locale overlays (global values unchanged); preview → **`confirmed`** |
+| `catalog/localization/overrides/custom_fields/remove` | R1 | GraphQL Admin — clear custom-field overlays (`NAME`/`VALUE`/`IS_VISIBLE`); preview → **`confirmed`** |
 | `catalog/localization/translations/list` | R0 | GraphQL Admin — list catalog translations (`PRODUCTS`/`CATEGORIES`/`BRANDS`/options/custom fields); page ≤ 50; needs **Store Translations** scope |
 | `catalog/localization/translations/update` | R1 | GraphQL Admin — upsert translations on non-default locales (≤ 20 entities); preview → **`confirmed`** |
 | `catalog/localization/translations/delete` | R1 | GraphQL Admin — delete translation fields on non-default locales (≤ 20 resources); preview → **`confirmed`** |

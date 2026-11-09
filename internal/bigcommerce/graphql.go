@@ -133,8 +133,21 @@ func FormatLocaleGID(localeCode string) string {
 }
 
 // FormatProductOptionGID builds bc/store/product-option/{id}.
+// Prefer FormatCatalogProductOptionGID for Translations Admin and MSF IE; the live
+// GraphQL Admin APIs accept camelCase productOption IDs.
 func FormatProductOptionGID(optionID int) string {
 	return fmt.Sprintf("bc/store/product-option/%d", optionID)
+}
+
+// FormatCatalogProductOptionGID builds bc/store/productOption/{id}
+// (Translations Admin PRODUCT_OPTIONS + MSF International Enhancements).
+func FormatCatalogProductOptionGID(optionID int) string {
+	return fmt.Sprintf("bc/store/productOption/%d", optionID)
+}
+
+// FormatCatalogProductOptionValueGID builds bc/store/productOptionValue/{id} (MSF IE).
+func FormatCatalogProductOptionValueGID(valueID int) string {
+	return fmt.Sprintf("bc/store/productOptionValue/%d", valueID)
 }
 
 // FormatProductCustomFieldGID builds bc/store/productCustomField/{id}.

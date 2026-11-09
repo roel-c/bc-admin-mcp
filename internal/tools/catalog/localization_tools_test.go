@@ -32,11 +32,17 @@ func (s *LocalizationToolsSuite) TearDownTest() {
 	s.ctrl.Finish()
 }
 
-func (s *LocalizationToolsSuite) call(path string, args map[string]any) map[string]any {
-	reg := discovery.NewRegistry()
+func (s *LocalizationToolsSuite) registerAll(reg *discovery.Registry) {
 	catalog.NewLocalizationLocalesTools(s.mockBC).RegisterTools(reg)
 	catalog.NewLocalizationOverridesTools(s.mockBC).RegisterTools(reg)
+	catalog.NewLocalizationOptionOverridesTools(s.mockBC).RegisterTools(reg)
+	catalog.NewLocalizationCustomFieldOverridesTools(s.mockBC).RegisterTools(reg)
 	catalog.NewLocalizationTranslationsTools(s.mockBC).RegisterTools(reg)
+}
+
+func (s *LocalizationToolsSuite) call(path string, args map[string]any) map[string]any {
+	reg := discovery.NewRegistry()
+	s.registerAll(reg)
 
 	def := reg.GetTool(path)
 	s.Require().NotNil(def, path)
@@ -64,9 +70,7 @@ func (s *LocalizationToolsSuite) call(path string, args map[string]any) map[stri
 
 func (s *LocalizationToolsSuite) callExpectError(path string, args map[string]any) string {
 	reg := discovery.NewRegistry()
-	catalog.NewLocalizationLocalesTools(s.mockBC).RegisterTools(reg)
-	catalog.NewLocalizationOverridesTools(s.mockBC).RegisterTools(reg)
-	catalog.NewLocalizationTranslationsTools(s.mockBC).RegisterTools(reg)
+	s.registerAll(reg)
 
 	def := reg.GetTool(path)
 	s.Require().NotNil(def, path)
@@ -207,6 +211,55 @@ func (s *LocalizationToolsSuite) TestTranslationsUpdatePreview() {
 			map[string]any{
 				"resource_numeric_id": float64(130),
 				"fields":              map[string]any{"name": "Pago de factura"},
+			},
+		},
+	})
+	s.Equal("pending_confirmation", out["status"])
+}
+
+func (s *LocalizationToolsSuite) TestOptionOverridesSetPreview() {
+	s.mockBC.EXPECT().GetProductOptionLocaleOverrides(gomock.Any(), 130, 1, "en").Return(&bigcommerce.ProductOptionLocaleSnapshot{
+		ProductID: "bc/store/product/130",
+		Options: []bigcommerce.ProductOptionWithOverlay{
+			{ID: "bc/store/productOption/10", DisplayName: "Length"},
+		},
+	}, nil)
+
+	out := s.call("catalog/localization/overrides/options/set", map[string]any{
+		"product_id": float64(130),
+		"channel_id": float64(1),
+		"locale":     "en",
+		"options": []any{
+			map[string]any{
+				"option_numeric_id": float64(10),
+				"display_name":      "Hose Length (ft)",
+				"values": []any{
+					map[string]any{"value_numeric_id": float64(20), "label": "3 ft Trade"},
+				},
+			},
+		},
+	})
+	s.Equal("pending_confirmation", out["status"])
+}
+
+func (s *LocalizationToolsSuite) TestCustomFieldOverridesSetPreview() {
+	s.mockBC.EXPECT().GetProductCustomFieldLocaleOverrides(gomock.Any(), 130, 1741970, "en").Return(
+		&bigcommerce.ProductCustomFieldLocaleSnapshot{
+			ProductID: "bc/store/product/130",
+			CustomFields: []bigcommerce.ProductCustomFieldWithOverlay{
+				{ID: "bc/store/productCustomField/1", Name: "Pack Qty", Value: "1"},
+			},
+		}, nil)
+
+	out := s.call("catalog/localization/overrides/custom_fields/set", map[string]any{
+		"product_id": float64(130),
+		"channel_id": float64(1741970),
+		"locale":     "en",
+		"fields": []any{
+			map[string]any{
+				"custom_field_numeric_id": float64(1),
+				"name":                    "Case Qty",
+				"value":                   "12",
 			},
 		},
 	})

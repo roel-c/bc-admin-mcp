@@ -146,6 +146,12 @@ type BigCommerceAPI interface {
 	GetProductLocaleOverrides(ctx context.Context, productID, channelID int, locale string) (*bigcommerce.ProductLocaleOverrides, error)
 	SetProductLocaleOverrides(ctx context.Context, in bigcommerce.ProductLocaleOverrideInput) (*bigcommerce.ProductLocaleOverrides, error)
 	RemoveProductLocaleOverrides(ctx context.Context, productID int, lc bigcommerce.LocaleContext, groups []string) (*bigcommerce.ProductLocaleOverrides, error)
+	GetProductOptionLocaleOverrides(ctx context.Context, productID, channelID int, locale string) (*bigcommerce.ProductOptionLocaleSnapshot, error)
+	SetProductOptionLocaleOverrides(ctx context.Context, in bigcommerce.SetProductOptionOverridesInput) (*bigcommerce.ProductOptionLocaleSnapshot, error)
+	RemoveProductOptionLocaleOverrides(ctx context.Context, in bigcommerce.RemoveProductOptionOverridesInput) (*bigcommerce.ProductOptionLocaleSnapshot, error)
+	GetProductCustomFieldLocaleOverrides(ctx context.Context, productID, channelID int, locale string) (*bigcommerce.ProductCustomFieldLocaleSnapshot, error)
+	SetProductCustomFieldLocaleOverrides(ctx context.Context, in bigcommerce.SetProductCustomFieldOverridesInput) (*bigcommerce.ProductCustomFieldLocaleSnapshot, error)
+	RemoveProductCustomFieldLocaleOverrides(ctx context.Context, in bigcommerce.RemoveProductCustomFieldOverridesInput) (*bigcommerce.ProductCustomFieldLocaleSnapshot, error)
 	ListTranslations(ctx context.Context, p bigcommerce.TranslationListParams) (*bigcommerce.TranslationListResult, error)
 	UpdateTranslations(ctx context.Context, in bigcommerce.UpdateTranslationsInput) error
 	DeleteTranslations(ctx context.Context, in bigcommerce.DeleteTranslationsInput) error

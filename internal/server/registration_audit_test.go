@@ -183,6 +183,8 @@ func TestFullRegistrationCatalogLocalizationSubtreeIsFullyRegistered(t *testing.
 		"catalog/localization",
 		"catalog/localization/locales",
 		"catalog/localization/overrides",
+		"catalog/localization/overrides/options",
+		"catalog/localization/overrides/custom_fields",
 		"catalog/localization/translations",
 	}
 	for _, cat := range requiredCategories {
@@ -197,6 +199,12 @@ func TestFullRegistrationCatalogLocalizationSubtreeIsFullyRegistered(t *testing.
 		"catalog/localization/overrides/get",
 		"catalog/localization/overrides/set",
 		"catalog/localization/overrides/remove",
+		"catalog/localization/overrides/options/get",
+		"catalog/localization/overrides/options/set",
+		"catalog/localization/overrides/options/remove",
+		"catalog/localization/overrides/custom_fields/get",
+		"catalog/localization/overrides/custom_fields/set",
+		"catalog/localization/overrides/custom_fields/remove",
 		"catalog/localization/translations/list",
 		"catalog/localization/translations/update",
 		"catalog/localization/translations/delete",
@@ -215,6 +223,15 @@ func TestFullRegistrationCatalogLocalizationSubtreeIsFullyRegistered(t *testing.
 	require.True(t, seen["catalog/localization/locales"], "catalog/localization should expose locales category")
 	require.True(t, seen["catalog/localization/overrides"], "catalog/localization should expose overrides category")
 	require.True(t, seen["catalog/localization/translations"], "catalog/localization should expose translations category")
+
+	overrideEntries, err := reg.Discover("catalog/localization/overrides")
+	require.NoError(t, err)
+	overrideSeen := map[string]bool{}
+	for _, e := range overrideEntries {
+		overrideSeen[e.Path] = true
+	}
+	require.True(t, overrideSeen["catalog/localization/overrides/options"], "overrides should expose options category")
+	require.True(t, overrideSeen["catalog/localization/overrides/custom_fields"], "overrides should expose custom_fields category")
 }
 
 func TestFullRegistrationCatalogPriceListSubtreeIsFullyRegistered(t *testing.T) {

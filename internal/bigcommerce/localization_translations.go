@@ -387,7 +387,9 @@ func FormatTranslationResourceID(resourceType string, id int) (string, error) {
 	case TranslationResourceBrands:
 		return FormatBrandGID(id), nil
 	case TranslationResourceProductOptions:
-		return FormatProductOptionGID(id), nil
+		// Live Admin translations use camelCase productOption IDs (same as MSF IE),
+		// not the hyphenated product-option form in older docs.
+		return FormatCatalogProductOptionGID(id), nil
 	case TranslationResourceProductCustomFields:
 		return FormatProductCustomFieldGID(id), nil
 	default:

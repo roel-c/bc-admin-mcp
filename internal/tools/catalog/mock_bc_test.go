@@ -10,11 +10,10 @@
 package catalog_test
 
 import (
-	context "context"
-	reflect "reflect"
-
 	bigcommerce "github.com/roel-c/bc-admin-mcp/internal/bigcommerce"
 	gomock "go.uber.org/mock/gomock"
+	reflect "reflect"
+	context "context"
 )
 
 // MockBigCommerceAPI is a mock of BigCommerceAPI interface.
@@ -755,6 +754,21 @@ func (mr *MockBigCommerceAPIMockRecorder) GetProduct(ctx, productID any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProduct", reflect.TypeOf((*MockBigCommerceAPI)(nil).GetProduct), ctx, productID)
 }
 
+// GetProductCustomFieldLocaleOverrides mocks base method.
+func (m *MockBigCommerceAPI) GetProductCustomFieldLocaleOverrides(ctx context.Context, productID, channelID int, locale string) (*bigcommerce.ProductCustomFieldLocaleSnapshot, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProductCustomFieldLocaleOverrides", ctx, productID, channelID, locale)
+	ret0, _ := ret[0].(*bigcommerce.ProductCustomFieldLocaleSnapshot)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProductCustomFieldLocaleOverrides indicates an expected call of GetProductCustomFieldLocaleOverrides.
+func (mr *MockBigCommerceAPIMockRecorder) GetProductCustomFieldLocaleOverrides(ctx, productID, channelID, locale any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProductCustomFieldLocaleOverrides", reflect.TypeOf((*MockBigCommerceAPI)(nil).GetProductCustomFieldLocaleOverrides), ctx, productID, channelID, locale)
+}
+
 // GetProductLocaleOverrides mocks base method.
 func (m *MockBigCommerceAPI) GetProductLocaleOverrides(ctx context.Context, productID, channelID int, locale string) (*bigcommerce.ProductLocaleOverrides, error) {
 	m.ctrl.T.Helper()
@@ -768,6 +782,21 @@ func (m *MockBigCommerceAPI) GetProductLocaleOverrides(ctx context.Context, prod
 func (mr *MockBigCommerceAPIMockRecorder) GetProductLocaleOverrides(ctx, productID, channelID, locale any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProductLocaleOverrides", reflect.TypeOf((*MockBigCommerceAPI)(nil).GetProductLocaleOverrides), ctx, productID, channelID, locale)
+}
+
+// GetProductOptionLocaleOverrides mocks base method.
+func (m *MockBigCommerceAPI) GetProductOptionLocaleOverrides(ctx context.Context, productID, channelID int, locale string) (*bigcommerce.ProductOptionLocaleSnapshot, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProductOptionLocaleOverrides", ctx, productID, channelID, locale)
+	ret0, _ := ret[0].(*bigcommerce.ProductOptionLocaleSnapshot)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProductOptionLocaleOverrides indicates an expected call of GetProductOptionLocaleOverrides.
+func (mr *MockBigCommerceAPIMockRecorder) GetProductOptionLocaleOverrides(ctx, productID, channelID, locale any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProductOptionLocaleOverrides", reflect.TypeOf((*MockBigCommerceAPI)(nil).GetProductOptionLocaleOverrides), ctx, productID, channelID, locale)
 }
 
 // GetProductsByIDs mocks base method.
@@ -1145,6 +1174,21 @@ func (mr *MockBigCommerceAPIMockRecorder) ListVariantsForProduct(ctx, productID 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVariantsForProduct", reflect.TypeOf((*MockBigCommerceAPI)(nil).ListVariantsForProduct), ctx, productID)
 }
 
+// RemoveProductCustomFieldLocaleOverrides mocks base method.
+func (m *MockBigCommerceAPI) RemoveProductCustomFieldLocaleOverrides(ctx context.Context, in bigcommerce.RemoveProductCustomFieldOverridesInput) (*bigcommerce.ProductCustomFieldLocaleSnapshot, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveProductCustomFieldLocaleOverrides", ctx, in)
+	ret0, _ := ret[0].(*bigcommerce.ProductCustomFieldLocaleSnapshot)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RemoveProductCustomFieldLocaleOverrides indicates an expected call of RemoveProductCustomFieldLocaleOverrides.
+func (mr *MockBigCommerceAPIMockRecorder) RemoveProductCustomFieldLocaleOverrides(ctx, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveProductCustomFieldLocaleOverrides", reflect.TypeOf((*MockBigCommerceAPI)(nil).RemoveProductCustomFieldLocaleOverrides), ctx, in)
+}
+
 // RemoveProductLocaleOverrides mocks base method.
 func (m *MockBigCommerceAPI) RemoveProductLocaleOverrides(ctx context.Context, productID int, lc bigcommerce.LocaleContext, groups []string) (*bigcommerce.ProductLocaleOverrides, error) {
 	m.ctrl.T.Helper()
@@ -1158,6 +1202,21 @@ func (m *MockBigCommerceAPI) RemoveProductLocaleOverrides(ctx context.Context, p
 func (mr *MockBigCommerceAPIMockRecorder) RemoveProductLocaleOverrides(ctx, productID, lc, groups any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveProductLocaleOverrides", reflect.TypeOf((*MockBigCommerceAPI)(nil).RemoveProductLocaleOverrides), ctx, productID, lc, groups)
+}
+
+// RemoveProductOptionLocaleOverrides mocks base method.
+func (m *MockBigCommerceAPI) RemoveProductOptionLocaleOverrides(ctx context.Context, in bigcommerce.RemoveProductOptionOverridesInput) (*bigcommerce.ProductOptionLocaleSnapshot, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveProductOptionLocaleOverrides", ctx, in)
+	ret0, _ := ret[0].(*bigcommerce.ProductOptionLocaleSnapshot)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RemoveProductOptionLocaleOverrides indicates an expected call of RemoveProductOptionLocaleOverrides.
+func (mr *MockBigCommerceAPIMockRecorder) RemoveProductOptionLocaleOverrides(ctx, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveProductOptionLocaleOverrides", reflect.TypeOf((*MockBigCommerceAPI)(nil).RemoveProductOptionLocaleOverrides), ctx, in)
 }
 
 // SearchBrands mocks base method.
@@ -1220,6 +1279,21 @@ func (mr *MockBigCommerceAPIMockRecorder) SearchVariants(ctx, params any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SearchVariants", reflect.TypeOf((*MockBigCommerceAPI)(nil).SearchVariants), ctx, params)
 }
 
+// SetProductCustomFieldLocaleOverrides mocks base method.
+func (m *MockBigCommerceAPI) SetProductCustomFieldLocaleOverrides(ctx context.Context, in bigcommerce.SetProductCustomFieldOverridesInput) (*bigcommerce.ProductCustomFieldLocaleSnapshot, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetProductCustomFieldLocaleOverrides", ctx, in)
+	ret0, _ := ret[0].(*bigcommerce.ProductCustomFieldLocaleSnapshot)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetProductCustomFieldLocaleOverrides indicates an expected call of SetProductCustomFieldLocaleOverrides.
+func (mr *MockBigCommerceAPIMockRecorder) SetProductCustomFieldLocaleOverrides(ctx, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetProductCustomFieldLocaleOverrides", reflect.TypeOf((*MockBigCommerceAPI)(nil).SetProductCustomFieldLocaleOverrides), ctx, in)
+}
+
 // SetProductLocaleOverrides mocks base method.
 func (m *MockBigCommerceAPI) SetProductLocaleOverrides(ctx context.Context, in bigcommerce.ProductLocaleOverrideInput) (*bigcommerce.ProductLocaleOverrides, error) {
 	m.ctrl.T.Helper()
@@ -1233,6 +1307,21 @@ func (m *MockBigCommerceAPI) SetProductLocaleOverrides(ctx context.Context, in b
 func (mr *MockBigCommerceAPIMockRecorder) SetProductLocaleOverrides(ctx, in any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetProductLocaleOverrides", reflect.TypeOf((*MockBigCommerceAPI)(nil).SetProductLocaleOverrides), ctx, in)
+}
+
+// SetProductOptionLocaleOverrides mocks base method.
+func (m *MockBigCommerceAPI) SetProductOptionLocaleOverrides(ctx context.Context, in bigcommerce.SetProductOptionOverridesInput) (*bigcommerce.ProductOptionLocaleSnapshot, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetProductOptionLocaleOverrides", ctx, in)
+	ret0, _ := ret[0].(*bigcommerce.ProductOptionLocaleSnapshot)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetProductOptionLocaleOverrides indicates an expected call of SetProductOptionLocaleOverrides.
+func (mr *MockBigCommerceAPIMockRecorder) SetProductOptionLocaleOverrides(ctx, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetProductOptionLocaleOverrides", reflect.TypeOf((*MockBigCommerceAPI)(nil).SetProductOptionLocaleOverrides), ctx, in)
 }
 
 // UpdateBrand mocks base method.

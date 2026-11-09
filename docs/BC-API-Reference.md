@@ -985,7 +985,7 @@ Best for: Complex catalog queries, admin mutations where REST endpoints don't ye
 | Area | Tool prefix | Notes |
 |------|-------------|-------|
 | Channel locales | `catalog/localization/locales/*` | `store.locales`, `locale.add/update/deleteLocale`; max 5 locales/channel |
-| MSF product overlays | `catalog/localization/overrides/*` | `overridesForLocale` / `setProduct*` / `removeProduct*`; International Enhancements |
+| MSF product overlays | `catalog/localization/overrides/*` | PDP `overridesForLocale` / `setProduct*` / `removeProduct*`; option + custom-field overlays under `overrides/options/*` and `overrides/custom_fields/*`; International Enhancements |
 | Catalog translations | `catalog/localization/translations/*` | `store.translations`, `translation.update/deleteTranslations`; Store Translations OAuth; non-default locales only |
 
 Notable other Admin GraphQL surfaces (not yet MCP tools):
